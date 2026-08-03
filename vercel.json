@@ -2,6 +2,10 @@
   "version": 2,
   "builds": [
     {
+      "src": "api/public/config.ts",
+      "use": "@vercel/node"
+    },
+    {
       "src": "server.ts",
       "use": "@vercel/node"
     },
@@ -21,6 +25,16 @@
         "Access-Control-Allow-Origin": "*",
         "Cross-Origin-Resource-Policy": "cross-origin",
         "Cache-Control": "public, max-age=300, s-maxage=600"
+      }
+    },
+    {
+      "src": "/api/public/config",
+      "dest": "/api/public/config.ts",
+      "headers": {
+        "Content-Type": "application/json; charset=utf-8",
+        "Access-Control-Allow-Origin": "*",
+        "Cross-Origin-Resource-Policy": "cross-origin",
+        "Cache-Control": "public, max-age=60, s-maxage=300, stale-while-revalidate=600"
       }
     },
     {
