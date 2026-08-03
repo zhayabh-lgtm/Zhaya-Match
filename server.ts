@@ -1,5 +1,6 @@
 import express from 'express';
 import path from 'path';
+import fs from 'fs';
 import { createServer as createViteServer } from 'vite';
 import { Repository } from './src/lib/repository';
 import { calculateRecommendation } from './src/domain/recommendation';
@@ -29,23 +30,31 @@ async function startServer() {
 
   // 1. Standalone embeddable Widget JS endpoint
   app.get('/widget.js', (req, res) => {
+    res.setHeader('Content-Type', 'application/javascript; charset=utf-8');
+    res.setHeader('Access-Control-Allow-Origin', '*');
+    res.setHeader('Cross-Origin-Resource-Policy', 'cross-origin');
+    res.setHeader('Cache-Control', 'public, max-age=300, s-maxage=600, stale-while-revalidate=1200');
+
+    const publicWidgetPath = path.join(process.cwd(), 'public', 'widget.js');
+    if (fs.existsSync(publicWidgetPath)) {
+      return res.sendFile(publicWidgetPath);
+    }
+
+    const distWidgetPath = path.join(process.cwd(), 'dist', 'widget.js');
+    if (fs.existsSync(distWidgetPath)) {
+      return res.sendFile(distWidgetPath);
+    }
+
     const forwardedProto = req.headers['x-forwarded-proto'];
     const protoStr = typeof forwardedProto === 'string' ? forwardedProto.split(',')[0].trim() : req.protocol;
     const host = req.headers['x-forwarded-host'] || req.headers.host || 'localhost:3000';
 
-    // Ensure https is used for non-local hosts to avoid http -> https 302 redirects
     const isLocal = host.includes('localhost') || host.includes('127.0.0.1');
     const protocol = isLocal ? protoStr : 'https';
     const appUrl = `${protocol}://${host}`;
 
     const script = generateWidgetScript(appUrl);
-
-    res.status(200);
-    res.setHeader('Content-Type', 'application/javascript; charset=utf-8');
-    res.setHeader('Access-Control-Allow-Origin', '*');
-    res.setHeader('Cross-Origin-Resource-Policy', 'cross-origin');
-    res.setHeader('Cache-Control', 'public, max-age=300, s-maxage=600, stale-while-revalidate=1200');
-    res.send(script);
+    return res.status(200).send(script);
   });
 
   // 2. Diagnostic public endpoint for Widget status

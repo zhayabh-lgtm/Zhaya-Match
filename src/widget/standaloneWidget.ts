@@ -10,7 +10,32 @@ export function generateWidgetScript(baseUrl: string): string {
   window.__zhayaMatchLoaded = true;
   window.__ZHAYA_MATCH_LOADED__ = true;
 
-  var API_BASE = '${baseUrl}';
+  var API_BASE = (function() {
+    var provided = '${baseUrl || ''}';
+    if (provided) return provided;
+    if (typeof document !== 'undefined') {
+      var script = document.currentScript;
+      if (!script) {
+        var scripts = document.getElementsByTagName('script');
+        for (var i = scripts.length - 1; i >= 0; i--) {
+          if (scripts[i].src && scripts[i].src.indexOf('widget.js') !== -1) {
+            script = scripts[i];
+            break;
+          }
+        }
+      }
+      if (script && script.src) {
+        try {
+          var u = new URL(script.src);
+          return u.origin;
+        } catch (e) {}
+      }
+    }
+    if (typeof window !== 'undefined' && window.location) {
+      return window.location.origin;
+    }
+    return '';
+  })();
   var CACHE_KEY = '__ZHAYA_MATCH_CONFIG_CACHE_V2__';
   var CACHE_TTL_MS = 1000 * 60 * 30; // 30 minutos
   var configData = null;
@@ -532,7 +557,7 @@ export function generateWidgetScript(baseUrl: string): string {
 
     // Modal Outer Box Wrapper
     var maxW = isDesktop ? desktopWidth : '380px';
-    var cardHtml = '<div style="position: relative; width: 100%; max-width: ' + maxW + '; background: ' + escapeHtml(bg) + '; border: 1px solid rgba(255,255,255,0.1); border-radius: ' + borderRadius + '; padding: ' + (app.paddingInternal || 22) + 'px; box-shadow: 0 24px 48px rgba(0,0,0,0.85); box-sizing: border-box; font-family: \'Neue Einstellung\', \'Helvetica Neue\', Helvetica, Arial, sans-serif;">' + innerHtml + '</div>';
+    var cardHtml = '<div style="position: relative; width: 100%; max-width: ' + maxW + '; background: ' + escapeHtml(bg) + '; border: 1px solid rgba(255,255,255,0.1); border-radius: ' + borderRadius + '; padding: ' + (app.paddingInternal || 22) + 'px; box-shadow: 0 24px 48px rgba(0,0,0,0.85); box-sizing: border-box; font-family: sans-serif;">' + innerHtml + '</div>';
 
     overlay.innerHTML = cardHtml;
     bindModalEvents();
