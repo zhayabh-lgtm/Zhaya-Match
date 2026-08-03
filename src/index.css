@@ -1,0 +1,45 @@
+@import "tailwindcss";
+
+@layer base {
+  :root {
+    --bg-main: #F7F7F7;
+    --bg-card: #FFFFFF;
+    --text-main: #1A1A1A;
+    --text-body: #333333;
+    --text-muted: #757575;
+    --border-color: #EBEBEB;
+    --accent-dark: #1A1A1A;
+    --font-zhaya: "Neue Einstellung", "Helvetica Neue", Helvetica, Arial, sans-serif;
+  }
+
+  body {
+    background-color: var(--bg-main);
+    color: var(--text-body);
+    font-family: var(--font-zhaya);
+    -webkit-font-smoothing: antialiased;
+  }
+
+  h1, h2, h3, h4, h5, h6, button, input, select, textarea, .font-serif, .font-sans, .font-mono {
+    font-family: "Neue Einstellung", "Helvetica Neue", Helvetica, Arial, sans-serif !important;
+  }
+}
+
+/* Custom crisp scrollbar */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+
+::-webkit-scrollbar-track {
+  background: #121212;
+}
+
+::-webkit-scrollbar-thumb {
+  background: #262626;
+  border-radius: 3px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: #404040;
+}
+
