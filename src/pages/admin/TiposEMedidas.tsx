@@ -1,8 +1,10 @@
 import React, { useState, useEffect } from 'react';
 import { Repository } from '../../lib/repository';
 import { ProductType, MeasurementKey, SizeRow } from '../../types/zhaya';
-import { Plus, Trash2, Copy, Check, Save, AlertCircle, RefreshCw } from 'lucide-react';
+import { Plus, Trash2, Copy, Check, Save, AlertCircle, RefreshCw, Image } from 'lucide-react';
 import { MediaUploader } from '../../components/admin/MediaUploader';
+import { useConfigDraft } from '../../context/ConfigDraftContext';
+import { detectMeasurementGroup } from '../../lib/measurementGroup';
 
 const ALL_MEASUREMENTS: { key: MeasurementKey; label: string }[] = [
   { key: 'bust', label: 'Busto' },
@@ -16,6 +18,7 @@ const ALL_MEASUREMENTS: { key: MeasurementKey; label: string }[] = [
 ];
 
 export const TiposEMedidas: React.FC = () => {
+  const { replaceProductTypes } = useConfigDraft();
   const [types, setTypes] = useState<ProductType[]>([]);
   const [selectedTypeId, setSelectedTypeId] = useState<string | null>(null);
   const [activeType, setActiveType] = useState<ProductType | null>(null);
@@ -34,6 +37,7 @@ export const TiposEMedidas: React.FC = () => {
     try {
       const list = await Repository.getProductTypes();
       setTypes(list);
+      replaceProductTypes(list);
       if (list.length > 0) {
         if (!selectedTypeId || !list.some((t) => t.id === selectedTypeId)) {
           setSelectedTypeId(list[0].id);
@@ -86,6 +90,7 @@ export const TiposEMedidas: React.FC = () => {
     };
     const updated = [...types, newType];
     setTypes(updated);
+    replaceProductTypes(updated);
     setSelectedTypeId(newType.id);
     setActiveType(newType);
   };
@@ -98,6 +103,7 @@ export const TiposEMedidas: React.FC = () => {
       await Repository.deleteProductType(id);
       const updated = types.filter((t) => t.id !== id);
       setTypes(updated);
+      replaceProductTypes(updated);
       if (updated.length > 0) {
         setSelectedTypeId(updated[0].id);
         setActiveType(JSON.parse(JSON.stringify(updated[0])));
@@ -114,11 +120,42 @@ export const TiposEMedidas: React.FC = () => {
     }
   };
 
-  const handleToggleTypeActive = (id: string, newActiveState: boolean) => {
+  const handleToggleTypeActive = async (id: string, newActiveState: boolean) => {
+    const targetType = types.find((t) => t.id === id);
+    if (!targetType) return;
+
+    if (newActiveState) {
+      if (!targetType.name || !targetType.name.trim()) {
+        setErrorMessage('Este tipo não pode ser ativado porque não possui nome definido.');
+        return;
+      }
+      if (!targetType.measurements || targetType.measurements.length === 0) {
+        setErrorMessage('Este tipo não pode ser ativado porque não possui medidas selecionadas.');
+        return;
+      }
+      if (!targetType.sizes || targetType.sizes.length === 0) {
+        setErrorMessage('Este tipo não pode ser ativado porque não possui tabela de tamanhos.');
+        return;
+      }
+    }
+
+    setErrorMessage(null);
     const updated = types.map((t) => (t.id === id ? { ...t, active: newActiveState } : t));
     setTypes(updated);
+    replaceProductTypes(updated);
+
     if (activeType && activeType.id === id) {
       setActiveType({ ...activeType, active: newActiveState });
+    }
+
+    try {
+      const updatedTarget = updated.find((t) => t.id === id);
+      if (updatedTarget) {
+        await Repository.saveProductType(updatedTarget);
+      }
+    } catch (err: any) {
+      console.error('Erro ao salvar alteração de status ativo:', err);
+      setErrorMessage(err?.message || 'Erro ao salvar alteração de status ativo.');
     }
   };
 
@@ -136,6 +173,8 @@ export const TiposEMedidas: React.FC = () => {
 
       const reloaded = await Repository.getProductTypes();
       setTypes(reloaded);
+      replaceProductTypes(reloaded);
+
       if (activeType) {
         const found = reloaded.find((t) => t.id === activeType.id);
         if (found) {
@@ -366,32 +405,106 @@ export const TiposEMedidas: React.FC = () => {
                   </div>
                 </div>
 
-                {/* Section 1: Image & Questions */}
+                {/* Section 1: Automatic Image Detection Status */}
                 <div className="space-y-4">
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                    <MediaUploader
-                      category="product-types"
-                      label={`Imagem do Tipo: ${activeType.name}`}
-                      description="Substitui a imagem principal do corpo ao escolher esta categoria"
-                      value={activeType.measurementImageUrl}
-                      onChange={(url) => setActiveType({ ...activeType, measurementImageUrl: url })}
-                    />
+                  {(() => {
+                    const detectedGroup = detectMeasurementGroup(activeType);
+                    if (detectedGroup === 'unknown') {
+                      return (
+                        <div className="p-3.5 bg-amber-50 border border-amber-200 rounded-lg flex items-start gap-2.5 text-amber-900 text-xs">
+                          <AlertCircle className="w-4 h-4 text-amber-600 shrink-0 mt-0.5" />
+                          <div>
+                            <strong className="font-bold block mb-0.5">Imagem Explicativa Indefinida</strong>
+                            <span>
+                              Não foi possível determinar automaticamente a imagem explicativa deste tipo. Adicione uma medida mais específica, como busto, quadril, coxa, ombros ou medidas dos pés.
+                            </span>
+                          </div>
+                        </div>
+                      );
+                    }
+                    const groupLabels = {
+                      upper_body: 'Parte de cima (Busto, Cintura, Ombros, Tronco)',
+                      lower_body: 'Parte de baixo (Cintura, Quadril, Coxa)',
+                      footwear: 'Para os pés (Comprimento/Largura do Pé)',
+                    };
+                    return (
+                      <div className="p-3.5 bg-neutral-50 border border-neutral-200 rounded-lg flex items-center justify-between text-xs">
+                        <div className="flex items-center gap-2 text-neutral-700">
+                          <Image className="w-4 h-4 text-neutral-500 shrink-0" />
+                          <span>
+                            Imagem Explicativa Automática:{' '}
+                            <strong className="font-semibold text-neutral-900">{groupLabels[detectedGroup]}</strong>
+                          </span>
+                        </div>
+                        <span className="text-[11px] text-neutral-500 font-medium">Gerenciada em Textos e Imagens</span>
+                      </div>
+                    );
+                  })()}
 
-                    <div>
-                      <label className="block text-xs font-semibold text-neutral-700 mb-1">
-                        Legenda / Instrução Personalizada para {activeType.name}
-                      </label>
-                      <input
-                        type="text"
-                        placeholder="Ex: Medir sobre a blusa mais grossa que usar com a jaqueta."
-                        value={activeType.measurementImageCaption || ''}
-                        onChange={(e) => setActiveType({ ...activeType, measurementImageCaption: e.target.value })}
-                        className="w-full bg-neutral-50 border border-neutral-200 rounded px-3 py-2 text-xs text-neutral-900"
-                      />
-                      <p className="text-[11px] text-neutral-500 mt-1">
-                        Texto exibido abaixo da imagem específica desta categoria.
-                      </p>
+                  {/* Icon Selector Option Block */}
+                  <div className="border border-neutral-200 rounded-lg p-4 bg-neutral-50/50 space-y-3">
+                    <div className="flex items-center justify-between">
+                      <div>
+                        <label className="text-xs font-bold text-neutral-800 uppercase tracking-wider block">
+                          Visual na Seleção do Popup
+                        </label>
+                        <p className="text-[11px] text-neutral-500">
+                          Escolha se deseja exibir somente texto ou um ícone customizado junto ao nome da peça.
+                        </p>
+                      </div>
+                      <div className="flex items-center gap-1.5 bg-neutral-200 p-1 rounded-md">
+                        <button
+                          type="button"
+                          onClick={() => setActiveType({ ...activeType, useIconInSelector: false })}
+                          className={`px-3 py-1 rounded text-xs font-bold transition-all cursor-pointer ${
+                            !activeType.useIconInSelector
+                              ? 'bg-neutral-900 text-white shadow-xs'
+                              : 'text-neutral-700 hover:text-neutral-900'
+                          }`}
+                        >
+                          Somente Texto
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => setActiveType({ ...activeType, useIconInSelector: true })}
+                          className={`px-3 py-1 rounded text-xs font-bold transition-all cursor-pointer ${
+                            activeType.useIconInSelector
+                              ? 'bg-neutral-900 text-white shadow-xs'
+                              : 'text-neutral-700 hover:text-neutral-900'
+                          }`}
+                        >
+                          Ícone e Nome
+                        </button>
+                      </div>
                     </div>
+
+                    {activeType.useIconInSelector && (
+                      <div className="pt-3 border-t border-neutral-200 space-y-3">
+                        <MediaUploader
+                          category="product-type-icons"
+                          label={`Ícone para ${activeType.name} (Proporção 1:1, rec. 500x500px)`}
+                          description="Imagem limpa sem moldura, fundo transparente (PNG/WebP), proporção 1:1 e sem cortes."
+                          value={activeType.iconUrl}
+                          onChange={(url) => setActiveType({ ...activeType, iconUrl: url })}
+                        />
+
+                        {activeType.iconUrl && (
+                          <div className="flex items-center gap-3 bg-white p-3 rounded-md border border-neutral-200">
+                            <div className="w-12 h-12 bg-neutral-900 rounded-md p-2 flex items-center justify-center shrink-0 border border-neutral-800">
+                              <img
+                                src={activeType.iconUrl}
+                                alt={`Ícone ${activeType.name}`}
+                                className="w-full h-full object-contain"
+                              />
+                            </div>
+                            <div>
+                              <span className="font-bold text-xs text-neutral-900 block">Pré-visualização do Ícone 1:1</span>
+                              <span className="text-[11px] text-neutral-500">Exibido na seleção de tipo de peça no popup.</span>
+                            </div>
+                          </div>
+                        )}
+                      </div>
+                    )}
                   </div>
 
                   <h3 className="text-xs font-bold text-neutral-800 uppercase tracking-wider pt-2 border-t border-neutral-100">

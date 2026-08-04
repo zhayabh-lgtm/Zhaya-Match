@@ -3,6 +3,7 @@ import { Link, useLocation, useNavigate } from 'react-router-dom';
 import { Layers, Palette, FileText, Eye, Settings, LogOut } from 'lucide-react';
 import { useAuth } from '../../context/AuthContext';
 import { Repository } from '../../lib/repository';
+import { PublishStatusBar } from './PublishStatusBar';
 
 interface AdminLayoutProps {
   children: React.ReactNode;
@@ -110,7 +111,10 @@ export const AdminLayout: React.FC<AdminLayoutProps> = ({ children }) => {
       </aside>
 
       {/* Main Content Area */}
-      <main className="flex-1 overflow-y-auto p-8">{children}</main>
+      <div className="flex-1 flex flex-col min-w-0 overflow-hidden">
+        <PublishStatusBar />
+        <main className="flex-1 overflow-y-auto p-8">{children}</main>
+      </div>
     </div>
   );
 };

@@ -192,9 +192,9 @@ export const MeasurementIllustration: React.FC<MeasurementIllustrationProps> = (
           <button
             onClick={onSaberMaisClick}
             type="button"
-            className="mt-0.5 px-4 py-2 bg-neutral-900 hover:bg-neutral-800 border border-neutral-700/80 hover:border-neutral-500 rounded-md text-[11px] font-bold tracking-widest text-white uppercase transition-all duration-200 cursor-pointer shadow-xs min-h-[38px] flex items-center justify-center active:scale-[0.98]"
+            className="mt-0.5 text-[12px] font-medium text-white hover:text-neutral-300 underline underline-offset-4 transition-all duration-200 cursor-pointer p-1"
           >
-            Saber Mais
+            Ver como medir
           </button>
         )}
       </div>

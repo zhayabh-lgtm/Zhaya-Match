@@ -598,6 +598,8 @@ export const Repository = {
       active: row.active ?? true,
       order: row.sort_order ?? 0,
       imageUrl: row.image_url || undefined,
+      iconUrl: row.icon_url || undefined,
+      useIconInSelector: row.use_icon_in_selector ?? false,
       measurementImageUrl: row.measurement_image_url || undefined,
       measurementImageCaption: row.measurement_image_caption || undefined,
       measurements: row.measurements || [],
@@ -607,19 +609,37 @@ export const Repository = {
 
   async saveProductType(pt: ProductType): Promise<ProductType> {
     const client = ensureSupabase();
-    const dbPayload = {
+    const dbPayload: Record<string, any> = {
       id: pt.id,
       name: pt.name,
       active: pt.active,
       sort_order: pt.order,
       image_url: pt.imageUrl || null,
+      icon_url: pt.iconUrl || null,
+      use_icon_in_selector: pt.useIconInSelector ?? false,
       measurement_image_url: pt.measurementImageUrl || null,
       measurement_image_caption: pt.measurementImageCaption || null,
       measurements: pt.measurements,
       sizes: pt.sizes,
     };
 
-    const { error } = await client.from('product_types').upsert(dbPayload);
+    let { error } = await client.from('product_types').upsert(dbPayload);
+
+    if (
+      error &&
+      (error.message?.includes('icon_url') ||
+        error.message?.includes('use_icon_in_selector') ||
+        error.code === 'PGRST204')
+    ) {
+      console.warn(
+        'Coluna icon_url ou use_icon_in_selector não encontrada na tabela product_types do Supabase. Salvando sem esses campos...',
+        error.message
+      );
+      delete dbPayload.icon_url;
+      delete dbPayload.use_icon_in_selector;
+      const fallbackRes = await client.from('product_types').upsert(dbPayload);
+      error = fallbackRes.error;
+    }
 
     if (error) {
       console.error('Erro ao salvar tipo de produto:', error);
@@ -632,19 +652,41 @@ export const Repository = {
   async saveProductTypes(typesList: ProductType[]): Promise<ProductType[]> {
     if (!typesList || typesList.length === 0) return [];
     const client = ensureSupabase();
-    const dbPayloads = typesList.map((pt) => ({
+    const dbPayloads: Record<string, any>[] = typesList.map((pt) => ({
       id: pt.id,
       name: pt.name,
       active: pt.active,
       sort_order: pt.order,
       image_url: pt.imageUrl || null,
+      icon_url: pt.iconUrl || null,
+      use_icon_in_selector: pt.useIconInSelector ?? false,
       measurement_image_url: pt.measurementImageUrl || null,
       measurement_image_caption: pt.measurementImageCaption || null,
       measurements: pt.measurements,
       sizes: pt.sizes,
     }));
 
-    const { error } = await client.from('product_types').upsert(dbPayloads);
+    let { error } = await client.from('product_types').upsert(dbPayloads);
+
+    if (
+      error &&
+      (error.message?.includes('icon_url') ||
+        error.message?.includes('use_icon_in_selector') ||
+        error.code === 'PGRST204')
+    ) {
+      console.warn(
+        'Coluna icon_url ou use_icon_in_selector não encontrada na tabela product_types do Supabase. Salvando sem esses campos...',
+        error.message
+      );
+      const fallbackPayloads = dbPayloads.map((payload) => {
+        const copy = { ...payload };
+        delete copy.icon_url;
+        delete copy.use_icon_in_selector;
+        return copy;
+      });
+      const fallbackRes = await client.from('product_types').upsert(fallbackPayloads);
+      error = fallbackRes.error;
+    }
 
     if (error) {
       console.error('Erro ao salvar tipos de produtos em lote:', error);

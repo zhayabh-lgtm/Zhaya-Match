@@ -34,6 +34,8 @@ export interface ProductType {
   id: string;
   name: string;
   imageUrl?: string;
+  iconUrl?: string;
+  useIconInSelector?: boolean;
   measurementImageUrl?: string;
   measurementImageCaption?: string;
   active: boolean;
@@ -68,6 +70,7 @@ export interface PopupAppearance {
   logoMarginBottom?: number;
 
   // Tipografia
+  fontPreset?: string;
   titleFontFamily?: string;
   bodyFontFamily?: string;
   customFontUrl?: string;
@@ -75,8 +78,11 @@ export interface PopupAppearance {
   bodyFontSize?: number;
   fieldFontSize?: number;
   buttonFontSize?: number;
-  titleFontWeight?: string;
-  bodyFontWeight?: string;
+  titleFontWeight?: number | string;
+  bodyFontWeight?: number | string;
+  buttonFontWeight?: number | string;
+  resultFontWeight?: number | string;
+  storeButtonFontWeight?: string;
   letterSpacing?: string;
   lineHeight?: string;
 
@@ -118,12 +124,16 @@ export interface PopupAppearance {
   inputHeight?: number;
 
   // Imagem
+  upperBodyMeasurementImageUrl?: string;
+  lowerBodyMeasurementImageUrl?: string;
+  footwearMeasurementImageUrl?: string;
+  upperBodyMeasurementImageCaption?: string;
+  lowerBodyMeasurementImageCaption?: string;
+  footwearMeasurementImageCaption?: string;
   mainMeasurementImageUrl?: string;
   apparelMeasurementImageUrl?: string;
-  footwearMeasurementImageUrl?: string;
   mainMeasurementImageCaption?: string;
   apparelMeasurementImageCaption?: string;
-  footwearMeasurementImageCaption?: string;
   imageAreaBgColor?: string;
   imageAreaOpacity?: number;
   imageBorderColor?: string;

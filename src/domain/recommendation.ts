@@ -3,7 +3,22 @@ import {
   MeasurementKey,
   RecommendationResult,
   SizeRange,
+  SizeRow,
 } from '../types/zhaya';
+
+function parseNumber(value: any): number | null {
+  if (value === null || value === undefined) return null;
+  if (typeof value === 'number') {
+    return isNaN(value) || value <= 0 ? null : value;
+  }
+  if (typeof value === 'string') {
+    const cleaned = value.trim().replace(',', '.');
+    if (!cleaned) return null;
+    const num = parseFloat(cleaned);
+    return isNaN(num) || num <= 0 ? null : num;
+  }
+  return null;
+}
 
 function getRefValue(range?: SizeRange): number | null {
   if (!range) return null;
@@ -13,47 +28,52 @@ function getRefValue(range?: SizeRange): number | null {
   if (range.min !== undefined && range.max !== undefined && !isNaN(range.min) && !isNaN(range.max)) {
     return (range.min + range.max) / 2;
   }
-  if (range.min !== undefined && !isNaN(range.min)) return range.min;
-  if (range.max !== undefined && !isNaN(range.max)) return range.max;
+  if (range.min !== undefined && !isNaN(range.min) && range.min > 0) return range.min;
+  if (range.max !== undefined && !isNaN(range.max) && range.max > 0) return range.max;
   return null;
 }
 
 export function calculateRecommendation(
   productType: ProductType,
-  userMeasurements: Partial<Record<MeasurementKey, number>>
+  userMeasurements: Partial<Record<MeasurementKey, number | string>>
 ): RecommendationResult {
   if (!productType || !productType.sizes || productType.sizes.length === 0) {
     return {
       size: null,
       status: 'not_found',
-      message: 'Nenhuma grade de tamanhos cadastrada para esta categoria.',
+      message: 'Não encontramos um tamanho adequado nesta tabela. Confira suas medidas ou consulte a equipe da Zhaya.',
     };
   }
 
-  // Active measurement keys provided by user with valid numbers > 0
-  const activeKeys = (productType.measurements || []).filter(
-    (k) => userMeasurements[k] !== undefined && !isNaN(Number(userMeasurements[k])) && Number(userMeasurements[k]) > 0
-  );
+  const measurementsToEvaluate = (productType.measurements || []).length > 0
+    ? productType.measurements
+    : (['bust', 'waist', 'hip', 'shoulders', 'thigh', 'torsoLength', 'footLength', 'footWidth'] as MeasurementKey[]);
 
-  if (activeKeys.length === 0) {
+  // Parse and validate user measurements
+  const activeMeasurements: { key: MeasurementKey; val: number }[] = [];
+  for (const k of measurementsToEvaluate) {
+    const raw = userMeasurements[k];
+    const parsed = parseNumber(raw);
+    if (parsed !== null) {
+      activeMeasurements.push({ key: k, val: parsed });
+    }
+  }
+
+  if (activeMeasurements.length === 0) {
     return {
       size: null,
       status: 'not_found',
-      message: 'Por favor, informe suas medidas em cm para calcular o tamanho.',
+      message: 'Não encontramos um tamanho adequado nesta tabela. Confira suas medidas ou consulte a equipe da Zhaya.',
     };
   }
 
   // Sort sizes by order
-  const sortedSizes = [...productType.sizes].sort((a, b) => a.order - b.order);
+  const sortedSizes: SizeRow[] = [...productType.sizes].sort((a, b) => a.order - b.order);
 
-  const requiredSizeIndexes: number[] = [];
-  let isOutAbove = false;
-  let isOutBelow = false;
+  const matchedSizeIndexes: number[] = [];
 
-  for (const key of activeKeys) {
-    const val = Number(userMeasurements[key]);
-
-    // Extract reference values for each size for this measurement key
+  for (const { key, val } of activeMeasurements) {
+    // Collect references across sizes for this key
     const refValues: { index: number; ref: number; min?: number; max?: number }[] = [];
     sortedSizes.forEach((sRow, idx) => {
       const range = sRow.ranges ? sRow.ranges[key] : undefined;
@@ -65,32 +85,34 @@ export function calculateRecommendation(
 
     if (refValues.length === 0) continue;
 
-    // Check bounds against lowest and highest ref
-    const minRef = refValues[0].ref;
-    const maxRef = refValues[refValues.length - 1].ref;
+    // Check overall bounds for this measurement
+    const minRef = refValues[0].min !== undefined ? refValues[0].min : refValues[0].ref;
+    const maxRef = refValues[refValues.length - 1].max !== undefined ? refValues[refValues.length - 1].max : refValues[refValues.length - 1].ref;
 
-    if (val < minRef - 10) {
-      isOutBelow = true;
-    }
-    if (val > maxRef + 12) {
-      isOutAbove = true;
+    // If value is too far below lowest size or too far above highest size
+    if (val < minRef - 8 || val > maxRef + 10) {
+      return {
+        size: null,
+        status: 'not_found',
+        message: 'Não encontramos um tamanho adequado nesta tabela. Confira suas medidas ou consulte a equipe da Zhaya.',
+      };
     }
 
-    // Check if user value falls directly inside a min-max range
-    let directRangeMatch = -1;
+    // Direct range match
+    let directMatchIdx = -1;
     for (const item of refValues) {
       if (item.min !== undefined && item.max !== undefined && val >= item.min && val <= item.max) {
-        directRangeMatch = item.index;
+        directMatchIdx = item.index;
         break;
       }
     }
 
-    if (directRangeMatch !== -1) {
-      requiredSizeIndexes.push(directRangeMatch);
+    if (directMatchIdx !== -1) {
+      matchedSizeIndexes.push(directMatchIdx);
       continue;
     }
 
-    // Single Reference Value Calculation: Find closest reference size
+    // Closest reference match
     let closestIdx = refValues[0].index;
     let minDiff = Math.abs(val - refValues[0].ref);
 
@@ -102,63 +124,46 @@ export function calculateRecommendation(
       }
     }
 
-    requiredSizeIndexes.push(closestIdx);
+    matchedSizeIndexes.push(closestIdx);
   }
 
-  if (requiredSizeIndexes.length === 0) {
+  if (matchedSizeIndexes.length === 0) {
     return {
       size: null,
       status: 'not_found',
-      message: 'Não foi possível calcular o tamanho com base nas medidas informadas.',
+      message: 'Não encontramos um tamanho adequado nesta tabela. Confira suas medidas ou consulte a equipe da Zhaya.',
     };
   }
 
-  if (isOutBelow) {
-    return {
-      size: null,
-      status: 'not_found',
-      message: 'Suas medidas são menores do que a menor proporção disponível nesta tabela.',
-    };
-  }
+  const minIdx = Math.min(...matchedSizeIndexes);
+  const maxIdx = Math.max(...matchedSizeIndexes);
+  const diff = maxIdx - minIdx;
 
-  if (isOutAbove) {
-    return {
-      size: null,
-      status: 'not_found',
-      message: 'Suas medidas excedem a maior proporção disponível nesta tabela.',
-    };
-  }
-
-  const minIdx = Math.min(...requiredSizeIndexes);
-  const maxIdx = Math.max(...requiredSizeIndexes);
-  const indexDiff = maxIdx - minIdx;
-
-  // Single size recommendation
-  if (indexDiff === 0) {
-    const sizeLabel = sortedSizes[maxIdx].label;
+  if (diff === 0) {
+    const sizeLabel = sortedSizes[minIdx].label;
     return {
       size: sizeLabel,
       status: 'recommended',
-      message: `Com base nas suas medidas, o tamanho ${sizeLabel} oferece o melhor caimento.`,
+      message: 'Este tamanho apresenta a melhor correspondência com as medidas informadas.',
     };
   }
 
-  // Adjacent sizes recommendation (e.g. between P and M)
-  if (indexDiff === 1) {
-    const lowerSizeLabel = sortedSizes[minIdx].label;
-    const upperSizeLabel = sortedSizes[maxIdx].label;
+  if (diff === 1) {
+    const lowerLabel = sortedSizes[minIdx].label;
+    const upperLabel = sortedSizes[maxIdx].label;
     return {
-      size: lowerSizeLabel,
-      alternateSize: upperSizeLabel,
+      size: lowerLabel,
+      alternateSize: upperLabel,
       status: 'between_sizes',
-      message: `Você está entre dois tamanhos: o ${lowerSizeLabel} ficará mais ajustado e o ${upperSizeLabel} mais solto.`,
+      message: `Você está entre ${lowerLabel} e ${upperLabel}. ${lowerLabel} pode ficar mais ajustado, enquanto ${upperLabel} pode oferecer mais conforto.`,
     };
   }
 
-  // High variation divergence across multiple measurements
+  // Too distant (diff >= 2)
   return {
     size: null,
     status: 'not_found',
-    message: 'Suas medidas apresentam variação expressiva entre categorias. Recomendamos consultar o atendimento para apoio personalizado.',
+    message: 'Não encontramos um tamanho adequado nesta tabela. Confira suas medidas ou consulte a equipe da Zhaya.',
   };
 }
+

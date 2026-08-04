@@ -67,8 +67,8 @@ export const Configuracoes: React.FC = () => {
 
   const scriptSnippet = `<script>
 (function () {
-  if (window.__zhayaMatchLoaded) return;
-  window.__zhayaMatchLoaded = true;
+  if (window.__zhayaMatchScriptRequested) return;
+  window.__zhayaMatchScriptRequested = true;
 
   var script = document.createElement('script');
   script.src = '${widgetPublicUrl}';

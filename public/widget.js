@@ -1,17 +1,10 @@
-/**
- * Standalone Vanilla JS Widget Generator for Zhaya Match
- * Injected into store pages via GTM or direct script tag.
- * Fully resilient, cached, domain-secured, and compliant for Olist / Vercel.
- */
-
-export function generateWidgetScript(baseUrl: string): string {
-  return `(function() {
+(function() {
   if (window.__zhayaMatchLoaded || window.__ZHAYA_MATCH_LOADED__) return;
   window.__zhayaMatchLoaded = true;
   window.__ZHAYA_MATCH_LOADED__ = true;
 
   var API_BASE = (function() {
-    var provided = '${baseUrl || ''}';
+    var provided = '';
     if (provided) return provided;
     if (typeof document !== 'undefined') {
       var script = document.currentScript;
@@ -1005,5 +998,4 @@ export function generateWidgetScript(baseUrl: string): string {
   } else {
     initZhayaMatch();
   }
-})();`;
-}
+})();
