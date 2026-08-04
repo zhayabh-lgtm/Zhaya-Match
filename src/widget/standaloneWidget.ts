@@ -36,8 +36,8 @@ export function generateWidgetScript(baseUrl: string): string {
     }
     return '';
   })();
-  var CACHE_KEY = '__ZHAYA_MATCH_CONFIG_CACHE_V2__';
-  var CACHE_TTL_MS = 1000 * 60 * 30; // 30 minutos
+  var CACHE_KEY = '__ZHAYA_MATCH_CONFIG_CACHE_V3__';
+ var CACHE_TTL_MS = 1000 * 60; // 1 minuto
   var configData = null;
   var selectedType = null;
   var userMeasurements = {};
@@ -122,51 +122,82 @@ export function generateWidgetScript(baseUrl: string): string {
     return false;
   }
 
-  function initZhayaMatch() {
-    sendPreviewReady();
-    try {
-      var cached = getCachedConfig();
-      var now = Date.now();
+function initZhayaMatch() {
+  sendPreviewReady();
 
-      if (cached && cached.data) {
-        configData = cached.data;
-        if (isDomainAllowed() && configData.enabled !== false) {
-          startInjection();
-        }
-        // Atualização em segundo plano caso o cache tenha passado da TTL
-        if (now - cached.timestamp > CACHE_TTL_MS) {
-          fetchConfigFromNetwork(true);
-        }
-      } else {
-        fetchConfigFromNetwork(false);
+  try {
+    var cached = getCachedConfig();
+    var now = Date.now();
+
+    if (cached && cached.data) {
+      configData = cached.data;
+
+      if (
+        isDomainAllowed() &&
+        configData.enabled !== false
+      ) {
+        startInjection();
       }
-    } catch (err) {
-      // Falha silenciosa para não afetar o site
+
+      if (
+        now - cached.timestamp >
+        CACHE_TTL_MS
+      ) {
+        fetchConfigFromNetwork(true);
+      }
+    } else {
+      fetchConfigFromNetwork(false);
     }
+  } catch (err) {
+    fetchConfigFromNetwork(false);
   }
+}
 
-  function fetchConfigFromNetwork(isBackground) {
-    fetch(API_BASE + '/api/public/config')
-      .then(function(res) { return res.json(); })
-      .then(function(data) {
-        if (!data) return;
-        var prevVersion = configData ? configData.version : null;
-        configData = data;
-        setCachedConfig(data);
+function fetchConfigFromNetwork(isBackground) {
+  fetch(API_BASE + '/api/public/config', {
+    cache: 'no-store'
+  })
+    .then(function(res) {
+      if (!res.ok) {
+        throw new Error(
+          'Falha ao carregar configuração pública.'
+        );
+      }
 
-        if (!isDomainAllowed() || !data.enabled) {
-          removeTriggerButton();
-          return;
-        }
+      return res.json();
+    })
+    .then(function(data) {
+      if (!data) return;
 
-        if (!isBackground || prevVersion !== data.version) {
-          startInjection();
-        }
-      })
-      .catch(function(err) {
-        // Contingência: Se falhou a rede mas já havia config carregada do cache, mantemos
-      });
-  }
+      configData = data;
+      setCachedConfig(data);
+
+      if (
+        !isDomainAllowed() ||
+        data.enabled === false
+      ) {
+        removeTriggerButton();
+        return;
+      }
+
+      startInjection();
+
+      var overlay =
+        document.getElementById(
+          'zhaya-match-modal-overlay'
+        );
+
+      if (
+        overlay &&
+        overlay.style.display !== 'none'
+      ) {
+        renderModalContent();
+      }
+    })
+    .catch(function(err) {
+      // Mantém o cache existente caso a rede falhe.
+    });
+}
 
   function findProductTargetElement() {
     var selectors = [
@@ -394,7 +425,7 @@ export function generateWidgetScript(baseUrl: string): string {
     var allTypes = (configData && configData.productTypes) || [];
     var types = [];
     for (var tIdx = 0; tIdx < allTypes.length; tIdx++) {
-      if (allTypes[tIdx].active !== false) {
+      if (allTypes[tIdx].active === true) {
         types.push(allTypes[tIdx]);
       }
     }

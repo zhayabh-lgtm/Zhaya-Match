@@ -92,7 +92,7 @@ const defaultAppearance = {
 };
 
 const defaultTexts = {
-  buttonText: 'Descubra seu tamanho',
+  buttonText: 'Descubra seu tamanho pelo Zhaya Match',
   initialTitle: 'Curadoria de Tamanho Zhaya',
   welcomeMessage:
     'Seja bem-vinda à experiência personalizada Zhaya. Em poucos passos, indicamos o tamanho ideal para o seu corpo com máxima precisão e elegância.',
@@ -181,7 +181,10 @@ export default async function handler(req: any, res: any) {
   }
 
   res.setHeader('Content-Type', 'application/json; charset=utf-8');
-  res.setHeader('Cache-Control', 'public, max-age=60, s-maxage=300, stale-while-revalidate=600');
+  res.setHeader(
+  'Cache-Control',
+  'public, max-age=0, s-maxage=60, stale-while-revalidate=60'
+);
 
   const url = process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL || '';
   const key = process.env.SUPABASE_ANON_KEY || process.env.VITE_SUPABASE_ANON_KEY || '';
@@ -213,28 +216,44 @@ export default async function handler(req: any, res: any) {
 
   // 1. Fetch product_types
   try {
-    const { data, error } = await supabase
-      .from('product_types')
-      .select('*')
-      .order('sort_order', { ascending: true });
+const { data, error } = await supabase
+  .from('product_types')
+  .select('*')
+  .eq('active', true)
+  .order('sort_order', { ascending: true });
 
-    if (error) {
-      console.error('[api/public/config] Failed fetching product_types:', error.message);
-    } else if (data && data.length > 0) {
-      productTypes = data
-        .filter((row: any) => row.active !== false)
-        .map((row: any) => ({
-          id: row.id,
-          name: row.name,
-          active: row.active ?? true,
-          order: row.sort_order ?? 0,
-          imageUrl: row.image_url || undefined,
-          measurementImageUrl: row.measurement_image_url || undefined,
-          measurementImageCaption: row.measurement_image_caption || undefined,
-          measurements: row.measurements || [],
-          sizes: row.sizes || [],
-        }));
-    }
+if (error) {
+  console.error(
+    '[api/public/config] Failed fetching product_types:',
+    error.message
+  );
+} else {
+  productTypes = (data || []).map((row: any) => ({
+    id: row.id,
+    name: row.name,
+    active: row.active === true,
+    order: row.sort_order ?? 0,
+
+    imageUrl: row.image_url || undefined,
+
+    iconUrl: row.icon_url || undefined,
+    useIconInSelector: row.use_icon_in_selector === true,
+
+    measurementImageUrl:
+      row.measurement_image_url || undefined,
+
+    measurementImageCaption:
+      row.measurement_image_caption || undefined,
+
+    measurements: Array.isArray(row.measurements)
+      ? row.measurements
+      : [],
+
+    sizes: Array.isArray(row.sizes)
+      ? row.sizes
+      : [],
+  }));
+}
   } catch (err: any) {
     console.error('[api/public/config] Exception fetching product_types:', err?.message || err);
   }
