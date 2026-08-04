@@ -478,36 +478,181 @@ export function generateWidgetScript(baseUrl: string): string {
     // STEP 2: Formulário de Medidas
     else if (currentStep === 2 && selectedType) {
       var keys = selectedType.measurements || [];
-      var typeNameLower = (selectedType.name || '').toLowerCase();
-      var isFootwearType =
-        typeNameLower.indexOf('sapato') !== -1 ||
-        typeNameLower.indexOf('calçado') !== -1 ||
-        typeNameLower.indexOf('calcado') !== -1 ||
-        typeNameLower.indexOf('tenis') !== -1 ||
-        typeNameLower.indexOf('tênis') !== -1 ||
-        typeNameLower.indexOf('sapatilha') !== -1 ||
-        typeNameLower.indexOf('sandalia') !== -1 ||
-        typeNameLower.indexOf('sandália') !== -1 ||
-        typeNameLower.indexOf('mocassim') !== -1 ||
-        typeNameLower.indexOf('bota') !== -1 ||
-        keys.indexOf('footLength') !== -1 ||
-        keys.indexOf('footWidth') !== -1;
+     var typeNameLower = (selectedType.name || '').toLowerCase();
 
-      var activeImgUrl = selectedType.measurementImageUrl ||
-        (isFootwearType
-          ? app.footwearMeasurementImageUrl
-          : (app.apparelMeasurementImageUrl || app.mainMeasurementImageUrl));
-      var activeCaption = selectedType.measurementImageCaption || app.mainMeasurementImageCaption;
+var hasFootMeasurements =
+  keys.indexOf('footLength') !== -1 ||
+  keys.indexOf('footWidth') !== -1;
 
-      var imgBlockHtml = '<div style="background: ' + escapeHtml(app.imageAreaBgColor || 'rgba(255,255,255,0.03)') + '; border-radius: 12px; padding: 16px; display: flex; flex-direction: column; align-items: center; justify-content: space-between; width: 100%; box-sizing: border-box; ' + (isDesktop ? 'height: 100%;' : 'min-height: 200px;') + '">' +
-        '<div style="width: 100%; flex: 1; display: flex; align-items: center; justify-content: center; margin: 4px 0; overflow: hidden;">' +
-          (activeImgUrl ? '<img src="' + escapeHtml(activeImgUrl) + '" style="max-height: 220px; width: 100%; object-fit: contain; border-radius: 8px;" loading="lazy" />' : getFemaleSilhouetteSvg(selectedType)) +
-        '</div>' +
-        '<div style="width: 100%; text-align: center; padding-top: 10px; display: flex; flex-direction: column; align-items: center; gap: 8px;">' +
-          (app.showMeasurementCaption !== false && activeCaption ? '<div style="font-size: 11px; color: ' + escapeHtml(secTextColor) + '; line-height: 1.4;">' + escapeHtml(activeCaption) + '</div>' : '') +
-          '<button id="zhaya-saber-mais-btn" type="button" style="background: transparent; color: ' + escapeHtml(textColor) + '; border: none; padding: 6px 12px; font-size: 12px; font-weight: 500; cursor: pointer; text-decoration: underline; font-family: inherit; transition: opacity 0.2s;">Ver como medir</button>' +
-        '</div>' +
-      '</div>';
+var upperScore = 0;
+var lowerScore = 0;
+
+if (keys.indexOf('bust') !== -1) upperScore++;
+if (keys.indexOf('shoulders') !== -1) upperScore++;
+if (keys.indexOf('torsoLength') !== -1) upperScore++;
+
+if (keys.indexOf('hip') !== -1) lowerScore++;
+if (keys.indexOf('thigh') !== -1) lowerScore++;
+
+var measurementGroup = 'unknown';
+
+if (hasFootMeasurements) {
+  measurementGroup = 'footwear';
+} else if (upperScore > lowerScore) {
+  measurementGroup = 'upper_body';
+} else if (lowerScore > upperScore) {
+  measurementGroup = 'lower_body';
+} else if (
+  /sapato|calcado|calçado|tenis|tênis|sapatilha|sandalia|sandália|mocassim|bota|rasteira|scarpin|mule/.test(typeNameLower)
+) {
+  measurementGroup = 'footwear';
+} else if (
+  /camisa|blusa|jaqueta|blazer|casaco|colete|top|cropped|body|vestido|macacao|macacão/.test(typeNameLower)
+) {
+  measurementGroup = 'upper_body';
+} else if (
+  /calca|calça|short|shorts|saia|bermuda|legging/.test(typeNameLower)
+) {
+  measurementGroup = 'lower_body';
+}
+
+var activeImgUrl = '';
+var activeCaption = '';
+
+if (measurementGroup === 'footwear') {
+  activeImgUrl =
+    app.footwearMeasurementImageUrl || '';
+
+  activeCaption =
+    app.footwearMeasurementImageCaption ||
+    'Referência para comprimento e largura do pé.';
+} else if (measurementGroup === 'lower_body') {
+  activeImgUrl =
+    app.lowerBodyMeasurementImageUrl || '';
+
+  activeCaption =
+    app.lowerBodyMeasurementImageCaption ||
+    'Referência para cintura, quadril e coxa.';
+} else if (measurementGroup === 'upper_body') {
+  activeImgUrl =
+    app.upperBodyMeasurementImageUrl ||
+    app.apparelMeasurementImageUrl ||
+    app.mainMeasurementImageUrl ||
+    '';
+
+  activeCaption =
+    app.upperBodyMeasurementImageCaption ||
+    app.apparelMeasurementImageCaption ||
+    app.mainMeasurementImageCaption ||
+    'Referência para busto, cintura, ombros e comprimento do tronco.';
+}
+
+   var imageDisplayHeight = isDesktop
+  ? 320
+  : Math.max(
+      240,
+      Number(
+        app.mobileImageHeight !== undefined
+          ? app.mobileImageHeight
+          : 260
+      )
+    );
+
+var imageBlockMinHeight = isDesktop
+  ? 400
+  : imageDisplayHeight + 90;
+
+var imgBlockHtml =
+  '<div style="' +
+    'background: ' + escapeHtml(app.imageAreaBgColor || 'rgba(255,255,255,0.03)') + ';' +
+    'border-radius: ' + (app.imageBorderRadius !== undefined ? app.imageBorderRadius : 12) + 'px;' +
+    'padding: 8px;' +
+    'display: flex;' +
+    'flex-direction: column;' +
+    'align-items: center;' +
+    'justify-content: space-between;' +
+    'width: 100%;' +
+    'min-height: ' + imageBlockMinHeight + 'px;' +
+    'box-sizing: border-box;' +
+  '">' +
+
+    '<div style="' +
+      'width: 100%;' +
+      'height: ' + imageDisplayHeight + 'px;' +
+      'display: flex;' +
+      'align-items: center;' +
+      'justify-content: center;' +
+      'overflow: hidden;' +
+    '">' +
+
+      (
+        activeImgUrl
+          ? '<img ' +
+              'src="' + escapeHtml(activeImgUrl) + '" ' +
+              'alt="' + escapeHtml(activeCaption || 'Como tirar as medidas') + '" ' +
+              'style="' +
+                'display: block;' +
+                'width: 100%;' +
+                'height: 100%;' +
+                'max-width: 100%;' +
+                'max-height: none;' +
+                'object-fit: contain;' +
+                'object-position: center;' +
+                'border-radius: 8px;' +
+              '" ' +
+              'loading="lazy" ' +
+              'decoding="async" ' +
+            '/>'
+          : getFemaleSilhouetteSvg(selectedType)
+      ) +
+
+    '</div>' +
+
+    '<div style="' +
+      'width: 100%;' +
+      'text-align: center;' +
+      'padding-top: 10px;' +
+      'display: flex;' +
+      'flex-direction: column;' +
+      'align-items: center;' +
+      'gap: 8px;' +
+    '">' +
+
+      (
+        app.showMeasurementCaption !== false && activeCaption
+          ? '<div style="' +
+              'font-size: 11px;' +
+              'color: ' + escapeHtml(secTextColor) + ';' +
+              'line-height: 1.4;' +
+            '">' +
+              escapeHtml(activeCaption) +
+            '</div>'
+          : ''
+      ) +
+
+      '<button ' +
+        'id="zhaya-saber-mais-btn" ' +
+        'type="button" ' +
+        'style="' +
+          'background: transparent;' +
+          'color: ' + escapeHtml(textColor) + ';' +
+          'border: none;' +
+          'padding: 6px 12px;' +
+          'font-size: 12px;' +
+          'font-weight: 500;' +
+          'cursor: pointer;' +
+          'text-decoration: underline;' +
+          'text-underline-offset: 4px;' +
+          'font-family: inherit;' +
+          'transition: opacity 0.2s;' +
+        '"' +
+      '>' +
+        'Ver como medir' +
+      '</button>' +
+
+    '</div>' +
+
+  '</div>';
 
       var formBlockHtml = '<div style="display: flex; flex-direction: column; justify-content: space-between; gap: 16px; height: 100%;">' +
         '<div>' +
