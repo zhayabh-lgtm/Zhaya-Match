@@ -151,6 +151,20 @@ fetch(url, {
     );
   }
 });
+    } catch (e) {
+      var isDevelopment =
+        window.location.hostname === 'localhost' ||
+        window.location.hostname === '127.0.0.1' ||
+        window.location.search.indexOf('debug=1') !== -1;
+
+      if (isDevelopment && window.console && console.warn) {
+        console.warn(
+          '[Zhaya Match] Falha ao preparar evento de Analytics:',
+          e
+        );
+      }
+    }
+  }
 
   function escapeHtml(str) {
     if (!str && str !== 0) return '';
