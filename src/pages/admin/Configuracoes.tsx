@@ -1,41 +1,73 @@
 import React, { useState, useEffect } from 'react';
+import { useConfigDraft } from '../../context/ConfigDraftContext';
+import { AppConfig, SystemActivityStatus } from '../../types/zhaya';
 import { Repository } from '../../lib/repository';
-import { AppConfig } from '../../types/zhaya';
-import { Save, Copy, Check, RefreshCw, AlertCircle, Globe, Shield, Code, ExternalLink, Terminal } from 'lucide-react';
+import {
+  Save,
+  Copy,
+  Check,
+  RefreshCw,
+  AlertCircle,
+  Globe,
+  Shield,
+  Code,
+  ExternalLink,
+  Terminal,
+  Database,
+  Activity,
+  Clock,
+  CheckCircle,
+  AlertTriangle,
+  Play,
+} from 'lucide-react';
 
 export const Configuracoes: React.FC = () => {
-  const [config, setConfig] = useState<AppConfig>({
-    enabled: true,
-    widgetUrl: '/widget.js',
-    testMode: false,
-    allowedDomains: ['zhaya.com.br', 'www.zhaya.com.br'],
-  });
+  const { config, updateConfig, publish, loading, errorMessage: draftError } = useConfigDraft();
   const [domainInput, setDomainInput] = useState<string>('');
   const [copied, setCopied] = useState(false);
   const [savedMessage, setSavedMessage] = useState<string | null>(null);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
-  const [loading, setLoading] = useState<boolean>(true);
   const [saving, setSaving] = useState<boolean>(false);
 
-  useEffect(() => {
-    loadConfig();
-  }, []);
+  // Estados do Monitor de Atividade do Supabase
+  const [activityStatus, setActivityStatus] = useState<SystemActivityStatus | null>(null);
+  const [loadingActivity, setLoadingActivity] = useState<boolean>(true);
+  const [checkingActivity, setCheckingActivity] = useState<boolean>(false);
 
-  const loadConfig = async () => {
-    setLoading(true);
-    setErrorMessage(null);
+  const loadActivityStatus = async () => {
+    setLoadingActivity(true);
     try {
-      const data = await Repository.getConfig();
-      setConfig(data);
-      if (data.allowedDomains) {
-        setDomainInput(data.allowedDomains.join(', '));
-      }
-    } catch (err: any) {
-      setErrorMessage(err?.message || 'Erro ao carregar configurações.');
+      const res = await Repository.getActivityStatus();
+      setActivityStatus(res);
+    } catch (e) {
+      console.warn('Erro ao carregar status de atividade:', e);
     } finally {
-      setLoading(false);
+      setLoadingActivity(false);
     }
   };
+
+  const handleVerifyActivity = async () => {
+    setCheckingActivity(true);
+    try {
+      const result = await Repository.runActivityCheck();
+      if (result && result.status) {
+        setActivityStatus(result.status);
+      } else {
+        await loadActivityStatus();
+      }
+    } catch (e) {
+      console.error('Erro ao executar verificação de atividade:', e);
+    } finally {
+      setCheckingActivity(false);
+    }
+  };
+
+  useEffect(() => {
+    if (config.allowedDomains) {
+      setDomainInput(config.allowedDomains.join(', '));
+    }
+    loadActivityStatus();
+  }, [config.allowedDomains]);
 
   const handleSave = async () => {
     setSaving(true);
@@ -46,14 +78,13 @@ export const Configuracoes: React.FC = () => {
         .map((d) => d.trim().toLowerCase())
         .filter(Boolean);
 
-      const updatedConfig: AppConfig = {
-        ...config,
+      updateConfig((prev) => ({
+        ...prev,
         allowedDomains: parsedDomains.length > 0 ? parsedDomains : ['zhaya.com.br', 'www.zhaya.com.br'],
-      };
+      }));
 
-      const saved = await Repository.saveConfig(updatedConfig);
-      setConfig(saved);
-      setSavedMessage('Configurações salvas com sucesso!');
+      await publish();
+      setSavedMessage('Configurações publicadas com sucesso!');
       setTimeout(() => setSavedMessage(null), 3000);
     } catch (err: any) {
       setErrorMessage(err?.message || 'Erro ao salvar configurações.');
@@ -169,7 +200,7 @@ export const Configuracoes: React.FC = () => {
                 <input
                   type="checkbox"
                   checked={config.enabled}
-                  onChange={(e) => setConfig({ ...config, enabled: e.target.checked })}
+                  onChange={(e) => updateConfig((prev) => ({ ...prev, enabled: e.target.checked }))}
                   className="sr-only peer"
                 />
                 <div className="w-11 h-6 bg-neutral-200 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-neutral-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-neutral-900"></div>
@@ -193,7 +224,7 @@ export const Configuracoes: React.FC = () => {
                 <input
                   type="checkbox"
                   checked={config.testMode}
-                  onChange={(e) => setConfig({ ...config, testMode: e.target.checked })}
+                  onChange={(e) => updateConfig((prev) => ({ ...prev, testMode: e.target.checked }))}
                   className="sr-only peer"
                 />
                 <div className="w-11 h-6 bg-neutral-200 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-neutral-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-neutral-900"></div>
@@ -292,6 +323,116 @@ export const Configuracoes: React.FC = () => {
                 <li>Defina o Acionador (Trigger) como <strong>Exibição de Página (Todas as Páginas ou Páginas de Produto)</strong>.</li>
                 <li>Salve e publique as alterações da versão no GTM.</li>
               </ol>
+            </div>
+
+            {/* Section 4: Monitor de atividade do Supabase */}
+            <div className="bg-white border border-neutral-200 rounded-lg p-6 space-y-5">
+              <div className="flex items-center justify-between border-b border-neutral-100 pb-3">
+                <div className="flex items-center gap-2">
+                  <Database className="w-4 h-4 text-neutral-800" />
+                  <h2 className="text-xs font-bold text-neutral-900 uppercase tracking-wider">
+                    Monitor de atividade do Supabase
+                  </h2>
+                </div>
+                <div className="flex items-center gap-2">
+                  {activityStatus?.lastStatus === 'success' && (
+                    <span className="inline-flex items-center gap-1.5 text-[11px] font-semibold text-emerald-800 bg-emerald-50 px-2.5 py-1 rounded-full border border-emerald-200">
+                      <CheckCircle className="w-3.5 h-3.5 text-emerald-600" />
+                      <span>Funcionando</span>
+                    </span>
+                  )}
+                  {activityStatus?.lastStatus === 'warning' && (
+                    <span className="inline-flex items-center gap-1.5 text-[11px] font-semibold text-amber-800 bg-amber-50 px-2.5 py-1 rounded-full border border-amber-200">
+                      <AlertTriangle className="w-3.5 h-3.5 text-amber-600" />
+                      <span>Atenção (&gt; 48h sem execução)</span>
+                    </span>
+                  )}
+                  {activityStatus?.lastStatus === 'pending' && (
+                    <span className="inline-flex items-center gap-1.5 text-[11px] font-semibold text-sky-800 bg-sky-50 px-2.5 py-1 rounded-full border border-sky-200">
+                      <Clock className="w-3.5 h-3.5 text-sky-600" />
+                      <span>Aguardando primeira execução</span>
+                    </span>
+                  )}
+                  {activityStatus?.lastStatus === 'error' && (
+                    <span className="inline-flex items-center gap-1.5 text-[11px] font-semibold text-red-800 bg-red-50 px-2.5 py-1 rounded-full border border-red-200">
+                      <AlertCircle className="w-3.5 h-3.5 text-red-600" />
+                      <span>Erro</span>
+                    </span>
+                  )}
+                  {(!activityStatus || activityStatus.lastStatus === 'not_configured') && (
+                    <span className="inline-flex items-center gap-1.5 text-[11px] font-semibold text-neutral-700 bg-neutral-100 px-2.5 py-1 rounded-full border border-neutral-200">
+                      <span>Não configurado</span>
+                    </span>
+                  )}
+                </div>
+              </div>
+
+              <p className="text-xs text-neutral-600 leading-relaxed">
+                Rotina periódica de verificação de saúde do banco de dados Supabase para manutenção ativa do serviço.
+              </p>
+
+              <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-4 pt-1">
+                <div className="bg-neutral-50 p-3.5 rounded-lg border border-neutral-200 space-y-1">
+                  <span className="text-[10px] font-semibold uppercase tracking-wider text-neutral-500 block">
+                    Última Execução
+                  </span>
+                  <span className="text-xs font-mono font-bold text-neutral-900 block">
+                    {activityStatus?.lastRunAt
+                      ? new Date(activityStatus.lastRunAt).toLocaleString('pt-BR')
+                      : '—'}
+                  </span>
+                </div>
+
+                <div className="bg-neutral-50 p-3.5 rounded-lg border border-neutral-200 space-y-1">
+                  <span className="text-[10px] font-semibold uppercase tracking-wider text-neutral-500 block">
+                    Último Sucesso
+                  </span>
+                  <span className="text-xs font-mono font-bold text-emerald-700 block">
+                    {activityStatus?.lastSuccessAt
+                      ? new Date(activityStatus.lastSuccessAt).toLocaleString('pt-BR')
+                      : '—'}
+                  </span>
+                </div>
+
+                <div className="bg-neutral-50 p-3.5 rounded-lg border border-neutral-200 space-y-1">
+                  <span className="text-[10px] font-semibold uppercase tracking-wider text-neutral-500 block">
+                    Frequência
+                  </span>
+                  <span className="text-xs font-mono font-semibold text-neutral-800 block">
+                    Diária (1x ao dia)
+                  </span>
+                </div>
+
+                <div className="bg-neutral-50 p-3.5 rounded-lg border border-neutral-200 space-y-1">
+                  <span className="text-[10px] font-semibold uppercase tracking-wider text-neutral-500 block">
+                    Próxima Execução
+                  </span>
+                  <span className="text-xs font-mono font-semibold text-neutral-800 block">
+                    Diariamente às 00:00 (BRT)
+                  </span>
+                </div>
+              </div>
+
+              {activityStatus?.lastError && (
+                <div className="p-3 bg-red-50 border border-red-200 rounded-lg text-xs text-red-700 font-mono">
+                  Detalhe do Erro: {activityStatus.lastError}
+                </div>
+              )}
+
+              <div className="pt-2 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 border-t border-neutral-100">
+                <p className="text-[11px] text-neutral-500 max-w-xl leading-normal">
+                  No plano gratuito do Supabase, a atividade periódica reduz o risco de pausa automática. A garantia oficial contra suspensão depende da assinatura do plano pago.
+                </p>
+                <button
+                  type="button"
+                  onClick={handleVerifyActivity}
+                  disabled={checkingActivity}
+                  className="inline-flex items-center gap-2 px-4 py-2 bg-white border border-neutral-300 hover:bg-neutral-50 text-neutral-800 rounded-md text-xs font-semibold transition-colors cursor-pointer shrink-0 shadow-xs disabled:opacity-50"
+                >
+                  <RefreshCw className={`w-3.5 h-3.5 ${checkingActivity ? 'animate-spin' : ''}`} />
+                  <span>{checkingActivity ? 'Verificando...' : 'Verificar Agora'}</span>
+                </button>
+              </div>
             </div>
 
             {/* Save Footer */}

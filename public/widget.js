@@ -1,7 +1,16 @@
+/* Zhaya Match Standalone Widget v3.0 (hash: d83b7b15) */
 (function() {
   if (window.__zhayaMatchLoaded || window.__ZHAYA_MATCH_LOADED__) return;
   window.__zhayaMatchLoaded = true;
   window.__ZHAYA_MATCH_LOADED__ = true;
+
+  var MEASUREMENT_LABELS = {"bust":"busto","waist":"cintura","hip":"quadril","shoulders":"ombros","thigh":"coxa","torsoLength":"tronco","footLength":"comprimento do pé","footWidth":"largura do pé"};
+  function parseNumber(value){if(value===null||value===void 0)return null;if(typeof value==="number"){return isNaN(value)||value<=0||!isFinite(value)?null:value}if(typeof value==="string"){const cleaned=value.trim().replace(",",".");if(!cleaned)return null;if(!/^\d+(\.\d+)?$/.test(cleaned))return null;const num=parseFloat(cleaned);return isNaN(num)||num<=0||!isFinite(num)?null:num}return null}
+  function formatMeasurementDisplay(value){if(value===null||value===void 0||value==="")return"";if(typeof value==="string"){const cleaned=value.trim().replace(",",".");const num=parseFloat(cleaned);if(isNaN(num))return value;return String(num).replace(".",",")}return String(value).replace(".",",")}
+  function getProductCategoryAndFit(productType){if(productType.category&&productType.fitType){return{category:productType.category,fitType:productType.fitType}}const nameLower=(productType.name||"").toLowerCase();const keys=productType.measurements||[];const hasFoot=keys.includes("footLength")||keys.includes("footWidth")||/sapato|calcado|calçado|tenis|tênis|sapatilha|sandalia|sandália|mocassim|bota|rasteira|scarpin|mule/.test(nameLower);if(hasFoot){const cat=productType.category||"footwear";const fit=productType.fitType||"footwear";return{category:cat,fitType:fit}}const isStructured=/jaqueta|blazer|casaco|colete|paleto|paletó/.test(nameLower);const isFullBody=/vestido|macacao|macacão|body|conjunto/.test(nameLower);const isLower=/calca|calça|short|shorts|saia|bermuda|legging/.test(nameLower);const category=productType.category||(isStructured?"upper_body":isFullBody?"full_body":isLower?"lower_body":keys.includes("bust")||keys.includes("shoulders")||keys.includes("torsoLength")?"upper_body":keys.includes("hip")||keys.includes("thigh")?"lower_body":"generic");const fitType=productType.fitType||(isStructured?"structured":"regular");return{category,fitType}}
+  function getCriticalMeasurements(category,keys){switch(category){case"upper_body":{const critical=[];if(keys.includes("bust"))critical.push("bust");if(keys.includes("shoulders"))critical.push("shoulders");if(keys.includes("waist"))critical.push("waist");if(keys.includes("torsoLength"))critical.push("torsoLength");return critical.length>0?critical:keys}case"lower_body":{const critical=[];if(keys.includes("hip"))critical.push("hip");if(keys.includes("waist"))critical.push("waist");if(keys.includes("thigh"))critical.push("thigh");return critical.length>0?critical:keys}case"full_body":{const critical=[];if(keys.includes("bust"))critical.push("bust");if(keys.includes("hip"))critical.push("hip");if(keys.includes("waist"))critical.push("waist");if(keys.includes("torsoLength"))critical.push("torsoLength");return critical.length>0?critical:keys}case"footwear":{const critical=[];if(keys.includes("footLength"))critical.push("footLength");if(keys.includes("footWidth"))critical.push("footWidth");return critical.length>0?critical:keys}case"generic":default:return keys}}
+  function getEffectiveRange(range,key){if(!range)return null;let min=parseNumber(range.min);let max=parseNumber(range.max);const val=parseNumber(range.value);if(min!==null&&max!==null){if(min>max){const temp=min;min=max;max=temp}return{min,max}}if(min!==null&&max===null){return{min,max:min}}if(max!==null&&min===null){return{min:max,max}}if(val!==null){if(key==="footLength"||key==="footWidth"){return{min:Math.max(.1,val-.5),max:val+.5}}return{min:Math.max(.1,val-3),max:val+3}}return null}
+  function calculateRecommendation(productType,userMeasurements){if(!productType||!productType.sizes||productType.sizes.length===0){return{size:null,status:"not_found",message:"N\xE3o encontramos um tamanho adequado nesta tabela. Confira suas medidas ou consulte a equipe da Zhaya."}}const sortedSizes=[...productType.sizes].sort((a,b)=>a.order-b.order);const keysToEvaluate=(productType.measurements||[]).length>0?productType.measurements:Object.keys(sortedSizes[0]?.ranges||{});if(keysToEvaluate.length===0){return{size:null,status:"not_found",message:"N\xE3o encontramos um tamanho adequado nesta tabela. Confira suas medidas ou consulte a equipe da Zhaya."}}const activeMeasurements=[];const missingKeys=[];for(const k of keysToEvaluate){const raw=userMeasurements[k];const parsed=parseNumber(raw);if(parsed===null){missingKeys.push(k)}else{activeMeasurements.push({key:k,val:parsed})}}if(missingKeys.length>0||activeMeasurements.length===0){return{size:null,status:"not_found",message:"N\xE3o encontramos um tamanho adequado nesta tabela. Confira suas medidas ou consulte a equipe da Zhaya."}}const{category,fitType}=getProductCategoryAndFit(productType);const criticalKeys=getCriticalMeasurements(category,keysToEvaluate);for(const{key,val}of activeMeasurements){const label=MEASUREMENT_LABELS[key]||key;let globalMin=Infinity;let globalMax=-Infinity;for(const size of sortedSizes){const r=getEffectiveRange(size.ranges?size.ranges[key]:void 0,key);if(r){if(r.min<globalMin)globalMin=r.min;if(r.max>globalMax)globalMax=r.max}}if(!isFinite(globalMin)||!isFinite(globalMax)){return{size:null,status:"not_found",message:"Tabela de tamanhos sem intervalos v\xE1lidos cadastrados para recomenda\xE7\xE3o."}}if(val>globalMax){if(category==="footwear"){const isLength=key==="footLength";const isWidth=key==="footWidth";let msg=`N\xE3o encontramos um tamanho padr\xE3o que acomode sua medida de ${label} com seguran\xE7a.`;if(isLength){msg=`Sua medida de comprimento do p\xE9 est\xE1 acima da maior numera\xE7\xE3o dispon\xEDvel nesta tabela.`}else if(isWidth){msg=`Sua medida de largura do p\xE9 est\xE1 acima da maior numera\xE7\xE3o dispon\xEDvel nesta tabela.`}return{size:null,status:"not_found",message:msg}}return{size:null,status:"not_found",message:`N\xE3o encontramos um tamanho padr\xE3o que acomode sua medida de ${label} com seguran\xE7a.`}}const underflow=globalMin-val;if(category==="footwear"&&underflow>1.5){const isLength=key==="footLength";const isWidth=key==="footWidth";let msg=`Sua medida de ${label} est\xE1 abaixo da menor numera\xE7\xE3o dispon\xEDvel nesta tabela.`;if(isLength){msg=`Sua medida de comprimento do p\xE9 est\xE1 abaixo da menor numera\xE7\xE3o dispon\xEDvel nesta tabela.`}else if(isWidth){msg=`Sua medida de largura do p\xE9 est\xE1 abaixo da menor numera\xE7\xE3o dispon\xEDvel nesta tabela.`}return{size:null,status:"not_found",message:msg}}else if(category!=="footwear"&&underflow>5){return{size:null,status:"not_found",message:`Sua medida de ${label} est\xE1 significativamente abaixo da menor numera\xE7\xE3o dispon\xEDvel nesta tabela.`}}}const requiredMinSizeIndex={};for(const{key,val}of activeMeasurements){let reqIdx=-1;for(let i=0;i<sortedSizes.length;i++){const r=getEffectiveRange(sortedSizes[i].ranges?sortedSizes[i].ranges[key]:void 0,key);if(r&&val<=r.max){reqIdx=i;break}}if(reqIdx===-1){reqIdx=sortedSizes.length-1}requiredMinSizeIndex[key]=reqIdx}const candidateIdx=Math.max(...Object.values(requiredMinSizeIndex));if(candidateIdx>=sortedSizes.length){return{size:null,status:"not_found",message:"N\xE3o encontramos um tamanho adequado nesta tabela."}}if(category==="footwear"){const hasLength=activeMeasurements.some(m=>m.key==="footLength");const hasWidth=activeMeasurements.some(m=>m.key==="footWidth");const lengthSizeIndex=hasLength?requiredMinSizeIndex["footLength"]:requiredMinSizeIndex[activeMeasurements[0].key];const widthSizeIndex=hasWidth?requiredMinSizeIndex["footWidth"]:lengthSizeIndex;const difference=widthSizeIndex-lengthSizeIndex;if(difference===1){const mainSizeLabel3=sortedSizes[widthSizeIndex].label;const altSizeLabel=sortedSizes[lengthSizeIndex].label;return{size:mainSizeLabel3,alternateSize:altSizeLabel,status:"between_sizes",message:`Recomendamos o tamanho ${mainSizeLabel3} porque a largura do seu p\xE9 ultrapassa o limite seguro do ${altSizeLabel}.`}}else if(difference===2){const mainSizeLabel3=sortedSizes[widthSizeIndex].label;const altSizeLabel=sortedSizes[lengthSizeIndex].label;return{size:mainSizeLabel3,alternateSize:altSizeLabel,status:"between_sizes",message:`Recomendamos o tamanho ${mainSizeLabel3} para acomodar a largura do seu p\xE9. Como seu p\xE9 \xE9 mais largo em rela\xE7\xE3o ao comprimento, o tamanho ${altSizeLabel} ou menor ficaria apertado nas laterais.`}}else if(difference>=3){return{size:null,status:"not_found",message:"N\xE3o encontramos um tamanho padr\xE3o que acomode o comprimento e a largura do seu p\xE9 simultaneamente com seguran\xE7a. Recomendamos buscar modelos com forma especial para p\xE9s largos."}}if(difference===-1){const mainSizeLabel3=sortedSizes[lengthSizeIndex].label;const altSizeLabel=sortedSizes[widthSizeIndex].label;return{size:mainSizeLabel3,alternateSize:altSizeLabel,status:"between_sizes",message:`Recomendamos o tamanho ${mainSizeLabel3} para garantir o comprimento correto do p\xE9. Como seu p\xE9 \xE9 mais fino, o tamanho ${altSizeLabel} pode oferecer um caimento justo, mas corre o risco de apertar no comprimento.`}}else if(difference===-2){const mainSizeLabel3=sortedSizes[lengthSizeIndex].label;const altSizeLabel=sortedSizes[lengthSizeIndex-1]?sortedSizes[lengthSizeIndex-1].label:sortedSizes[widthSizeIndex].label;return{size:mainSizeLabel3,alternateSize:altSizeLabel,status:"between_sizes",message:`Recomendamos o tamanho ${mainSizeLabel3} para acomodar o comprimento do p\xE9. Como seu p\xE9 \xE9 fino em rela\xE7\xE3o ao comprimento, o cal\xE7ado pode apresentar folga nas laterais.`}}else if(difference<=-3){return{size:null,status:"not_found",message:"N\xE3o encontramos um tamanho padr\xE3o que acomode o comprimento e a largura do seu p\xE9 simultaneamente com seguran\xE7a."}}let isAtUpperEdge2=false;for(const{key,val}of activeMeasurements){const r=getEffectiveRange(sortedSizes[lengthSizeIndex].ranges?sortedSizes[lengthSizeIndex].ranges[key]:void 0,key);if(r&&r.max-val<.15&&val>r.min){isAtUpperEdge2=true;break}}const mainSizeLabel2=sortedSizes[lengthSizeIndex].label;if(isAtUpperEdge2&&lengthSizeIndex+1<sortedSizes.length){const altSizeLabel=sortedSizes[lengthSizeIndex+1].label;return{size:mainSizeLabel2,alternateSize:altSizeLabel,status:"between_sizes",message:`Recomendamos o tamanho ${mainSizeLabel2}. Suas medidas de p\xE9 est\xE3o pr\xF3ximas do limite; se preferir mais folga, escolha o ${altSizeLabel}.`}}let message2="";if(hasLength&&hasWidth){message2=`Recomendamos o tamanho ${mainSizeLabel2} porque comprimento e largura do p\xE9 ficam dentro do intervalo seguro.`}else{message2=`Recomendamos o tamanho ${mainSizeLabel2} para acomodar seus p\xE9s com conforto e seguran\xE7a.`}return{size:mainSizeLabel2,status:"recommended",message:message2}}const criticalReqIndices=criticalKeys.filter(k=>requiredMinSizeIndex[k]!==void 0).map(k=>requiredMinSizeIndex[k]);const activeIndices=criticalReqIndices.length>0?criticalReqIndices:Object.values(requiredMinSizeIndex);const minCritIdx=Math.min(...activeIndices);const maxCritIdx=Math.max(...activeIndices);const divergence=maxCritIdx-minCritIdx;const decisiveKeys=activeMeasurements.filter(({key})=>requiredMinSizeIndex[key]===candidateIdx).map(({key})=>key);const decisiveNames=decisiveKeys.map(k=>MEASUREMENT_LABELS[k]||k).join(" e ");if(divergence>=2){const minKeys=activeMeasurements.filter(({key})=>requiredMinSizeIndex[key]===minCritIdx).map(({key})=>MEASUREMENT_LABELS[key]||key).join(" e ");return{size:null,status:"not_found",message:`N\xE3o encontramos um tamanho padr\xE3o que acomode suas medidas de ${decisiveNames} e ${minKeys} simultaneamente com seguran\xE7a.`}}if(divergence===1){const mainSizeLabel2=sortedSizes[candidateIdx].label;const altSizeLabel=sortedSizes[minCritIdx].label;const message2=`Recomendamos o tamanho ${mainSizeLabel2}. Ele acomoda suas medidas de ${decisiveNames} com conforto e seguran\xE7a. O tamanho ${altSizeLabel} pode oferecer um caimento mais justo, mas pode ficar apertado no ${decisiveNames}.`;return{size:mainSizeLabel2,alternateSize:altSizeLabel,status:"between_sizes",message:message2}}let isAtUpperEdge=false;const edgeThreshold=.5;for(const{key,val}of activeMeasurements){const r=getEffectiveRange(sortedSizes[candidateIdx].ranges?sortedSizes[candidateIdx].ranges[key]:void 0,key);if(r&&r.max-val<edgeThreshold&&val>r.min){isAtUpperEdge=true;break}}const mainSizeLabel=sortedSizes[candidateIdx].label;if(isAtUpperEdge&&candidateIdx+1<sortedSizes.length){const altSizeLabel=sortedSizes[candidateIdx+1].label;const message2=`Recomendamos o tamanho ${mainSizeLabel}. Suas medidas est\xE3o no limite superior deste tamanho; para um caimento mais solto, opte pelo ${altSizeLabel}.`;return{size:mainSizeLabel,alternateSize:altSizeLabel,status:"between_sizes",message:message2}}let message="";if(decisiveNames){message=`Recomendamos o tamanho ${mainSizeLabel} porque apresenta a melhor correspond\xEAncia com suas medidas de ${decisiveNames}.`}else{message=`Recomendamos o tamanho ${mainSizeLabel} que apresenta a melhor correspond\xEAncia com suas medidas.`}return{size:mainSizeLabel,status:"recommended",message}}
 
   var API_BASE = (function() {
     var provided = '';
@@ -29,8 +38,8 @@
     }
     return '';
   })();
-  var CACHE_KEY = '__ZHAYA_MATCH_CONFIG_CACHE_V2__';
-  var CACHE_TTL_MS = 1000 * 60 * 30; // 30 minutos
+  var CACHE_KEY = '__ZHAYA_MATCH_CONFIG_CACHE_V3__';
+  var CACHE_TTL_MS = 1000 * 60; // 1 minuto
   var configData = null;
   var selectedType = null;
   var userMeasurements = {};
@@ -38,6 +47,84 @@
   var observer = null;
   var injectAttempts = 0;
   var MAX_INJECT_ATTEMPTS = 15;
+  var hasTrackedLauncher = false;
+  var hasTrackedMeasurementsInSession = false;
+  var isPreviewSessionActive = false;
+  var lastAppliedRevision = 0;
+  var lastAppliedSessionId = '';
+
+  function getVisitorId() {
+    try {
+      var key = '__zhaya_visitor_id__';
+      var id = localStorage.getItem(key);
+      if (!id) {
+        id = 'v_' + Date.now() + '_' + Math.random().toString(36).substring(2, 9);
+        localStorage.setItem(key, id);
+      }
+      return id;
+    } catch (e) {
+      return 'v_temp_' + Date.now();
+    }
+  }
+
+  function getSessionId() {
+    try {
+      var key = '__zhaya_session_id__';
+      var id = sessionStorage.getItem(key);
+      if (!id) {
+        id = 's_' + Date.now() + '_' + Math.random().toString(36).substring(2, 9);
+        sessionStorage.setItem(key, id);
+      }
+      return id;
+    } catch (e) {
+      return 's_temp_' + Date.now();
+    }
+  }
+
+  function sendWidgetAnalyticsEvent(eventName, payload) {
+    try {
+      var search = window.location.search || '';
+      var isPreviewParam = search.indexOf('zhaya-match-preview=1') !== -1 ||
+                           search.indexOf('admin_preview=1') !== -1 ||
+                           Boolean(window['__ZHAYA_MATCH_ADMIN_PREVIEW__']) ||
+                           (window.parent && window.parent !== window);
+
+      if (isPreviewParam) {
+        return; // Don't send analytics events during admin preview
+      }
+
+      var eventData = {
+        eventId: 'evt_' + Date.now() + '_' + Math.random().toString(36).substring(2, 9),
+        eventName: eventName,
+        visitorId: getVisitorId(),
+        sessionId: getSessionId(),
+        productTypeId: payload && payload.productTypeId ? payload.productTypeId : (selectedType ? selectedType.id : undefined),
+        productTypeName: payload && payload.productTypeName ? payload.productTypeName : (selectedType ? selectedType.name : undefined),
+        productCategory: payload && payload.productCategory ? payload.productCategory : (selectedType ? selectedType.category : undefined),
+        recommendationStatus: payload && payload.recommendationStatus ? payload.recommendationStatus : undefined,
+        sourceDomain: window.location.hostname || undefined,
+        pagePath: (window.location.pathname || '/').split('?')[0],
+        deviceType: window.innerWidth < 640 ? 'mobile' : 'desktop',
+        configVersion: configData && configData.version ? configData.version : 1,
+        metadata: {
+          isPreview: isPreviewParam
+        }
+      };
+
+      var url = API_BASE + '/api/public/analytics';
+      var blob = new Blob([JSON.stringify(eventData)], { type: 'application/json' });
+      if (navigator.sendBeacon) {
+        navigator.sendBeacon(url, blob);
+      } else {
+        fetch(url, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(eventData),
+          keepalive: true
+        }).catch(function() {});
+      }
+    } catch (e) {}
+  }
 
   function escapeHtml(str) {
     if (!str && str !== 0) return '';
@@ -62,12 +149,55 @@
   }
 
   function setCachedConfig(data) {
+    if (isPreviewSessionActive) return; // Prevent draft preview from being saved into public cache
     try {
       localStorage.setItem(CACHE_KEY, JSON.stringify({
         data: data,
         timestamp: Date.now()
       }));
     } catch (e) {}
+  }
+
+  function loadPreviewSessionSnapshot() {
+    try {
+      if (typeof window !== 'undefined' && window.__ZHAYA_MATCH_ADMIN_PREVIEW__ && window.__ZHAYA_MATCH_ADMIN_PREVIEW__.config) {
+        var adminPrev = window.__ZHAYA_MATCH_ADMIN_PREVIEW__;
+        configData = adminPrev.config;
+        isPreviewSessionActive = true;
+        if (typeof adminPrev.revision === 'number') lastAppliedRevision = adminPrev.revision;
+        if (adminPrev.sessionId) lastAppliedSessionId = adminPrev.sessionId;
+        return true;
+      }
+
+      var search = window.location.search || '';
+      var isPreviewParam = search.indexOf('admin_preview=1') !== -1 || search.indexOf('zhaya-match-preview=1') !== -1;
+      if (!isPreviewParam && !(window.parent && window.parent !== window)) {
+        return false;
+      }
+
+      var sessionParam = '';
+      var matches = search.match(/[?&]previewSession=([^&]+)/);
+      if (matches && matches[1]) {
+        sessionParam = decodeURIComponent(matches[1]);
+      } else {
+        sessionParam = localStorage.getItem('zhaya_preview_latest_session') || '';
+      }
+
+      if (sessionParam) {
+        var rawSnap = localStorage.getItem('zhaya_preview_snapshot_' + sessionParam);
+        if (rawSnap) {
+          var snap = JSON.parse(rawSnap);
+          if (snap && snap.timestamp && (Date.now() - snap.timestamp <= 30 * 60 * 1000)) {
+            configData = snap;
+            isPreviewSessionActive = true;
+            if (typeof snap.revision === 'number') lastAppliedRevision = snap.revision;
+            lastAppliedSessionId = snap.sessionId || sessionParam;
+            return true;
+          }
+        }
+      }
+    } catch (e) {}
+    return false;
   }
 
   function sendPreviewReady() {
@@ -115,51 +245,89 @@
     return false;
   }
 
-  function initZhayaMatch() {
-    sendPreviewReady();
-    try {
-      var cached = getCachedConfig();
-      var now = Date.now();
+function initZhayaMatch() {
+  sendPreviewReady();
 
-      if (cached && cached.data) {
-        configData = cached.data;
-        if (isDomainAllowed() && configData.enabled !== false) {
-          startInjection();
-        }
-        // Atualização em segundo plano caso o cache tenha passado da TTL
-        if (now - cached.timestamp > CACHE_TTL_MS) {
-          fetchConfigFromNetwork(true);
-        }
-      } else {
-        fetchConfigFromNetwork(false);
+  if (loadPreviewSessionSnapshot()) {
+    startInjection();
+    return;
+  }
+
+  try {
+    var cached = getCachedConfig();
+    var now = Date.now();
+
+    if (cached && cached.data) {
+      configData = cached.data;
+
+      if (
+        isDomainAllowed() &&
+        configData.enabled !== false
+      ) {
+        startInjection();
       }
-    } catch (err) {
-      // Falha silenciosa para não afetar o site
+
+      if (
+        now - cached.timestamp >
+        CACHE_TTL_MS
+      ) {
+        fetchConfigFromNetwork(true);
+      }
+    } else {
+      fetchConfigFromNetwork(false);
     }
+  } catch (err) {
+    fetchConfigFromNetwork(false);
   }
+}
 
-  function fetchConfigFromNetwork(isBackground) {
-    fetch(API_BASE + '/api/public/config')
-      .then(function(res) { return res.json(); })
-      .then(function(data) {
-        if (!data) return;
-        var prevVersion = configData ? configData.version : null;
-        configData = data;
-        setCachedConfig(data);
+function fetchConfigFromNetwork(isBackground) {
+  if (isPreviewSessionActive) return; // Never overwrite active administrative preview snapshot with public API response
 
-        if (!isDomainAllowed() || !data.enabled) {
-          removeTriggerButton();
-          return;
-        }
+  fetch(API_BASE + '/api/public/config', {
+    cache: 'no-store'
+  })
+    .then(function(res) {
+      if (!res.ok) {
+        throw new Error(
+          'Falha ao carregar configuração pública.'
+        );
+      }
 
-        if (!isBackground || prevVersion !== data.version) {
-          startInjection();
-        }
-      })
-      .catch(function(err) {
-        // Contingência: Se falhou a rede mas já havia config carregada do cache, mantemos
-      });
-  }
+      return res.json();
+    })
+    .then(function(data) {
+      if (!data || isPreviewSessionActive) return;
+
+      configData = data;
+      setCachedConfig(data);
+
+      if (
+        !isDomainAllowed() ||
+        data.enabled === false
+      ) {
+        removeTriggerButton();
+        return;
+      }
+
+      startInjection();
+
+      var overlay =
+        document.getElementById(
+          'zhaya-match-modal-overlay'
+        );
+
+      if (
+        overlay &&
+        overlay.style.display !== 'none'
+      ) {
+        renderModalContent();
+      }
+    })
+    .catch(function(err) {
+      // Mantém o cache existente caso a rede falhe.
+    });
+}
 
   function findProductTargetElement() {
     var selectors = [
@@ -220,6 +388,60 @@
     return true;
   }
 
+  function getEffectiveBackgroundColor(el) {
+    try {
+      var current = el;
+      while (current && current !== document.documentElement && current !== document.body) {
+        var style = window.getComputedStyle(current);
+        var bg = style ? style.backgroundColor : '';
+        if (bg && bg !== 'transparent' && bg !== 'rgba(0, 0, 0, 0)') {
+          return bg;
+        }
+        current = current.parentElement;
+      }
+    } catch (e) {}
+    return 'rgb(255, 255, 255)'; // Presumed white background if transparent
+  }
+
+  function parseRgbColor(str) {
+    if (!str) return { r: 255, g: 255, b: 255 };
+    str = String(str).trim();
+    if (str.indexOf('rgb') === 0) {
+      var matches = str.match(/d+/g);
+      if (matches && matches.length >= 3) {
+        return { r: parseInt(matches[0], 10), g: parseInt(matches[1], 10), b: parseInt(matches[2], 10) };
+      }
+    }
+    if (str.indexOf('#') === 0) {
+      var hex = str.replace('#', '');
+      if (hex.length === 3) hex = hex[0] + hex[0] + hex[1] + hex[1] + hex[2] + hex[2];
+      if (hex.length === 6) {
+        return {
+          r: parseInt(hex.substring(0, 2), 16) || 0,
+          g: parseInt(hex.substring(2, 4), 16) || 0,
+          b: parseInt(hex.substring(4, 6), 16) || 0
+        };
+      }
+    }
+    return { r: 255, g: 255, b: 255 };
+  }
+
+  function getLuminance(r, g, b) {
+    var a = [r, g, b].map(function(v) {
+      v /= 255;
+      return v <= 0.03928 ? v / 12.92 : Math.pow((v + 0.055) / 1.055, 2.4);
+    });
+    return a[0] * 0.2126 + a[1] * 0.7152 + a[2] * 0.0722;
+  }
+
+  function getContrastRatio(c1, c2) {
+    var lum1 = getLuminance(c1.r, c1.g, c1.b);
+    var lum2 = getLuminance(c2.r, c2.g, c2.b);
+    var brightest = Math.max(lum1, lum2);
+    var darkest = Math.min(lum1, lum2);
+    return (brightest + 0.05) / (darkest + 0.05);
+  }
+
   function renderTriggerButton(target) {
     removeTriggerButton();
 
@@ -235,6 +457,23 @@
     var btnWeight = app.storeButtonFontWeight || '500';
     var btnTextColor = app.storeButtonTextColor || '#111111';
 
+    // Automatic Contrast Protection
+    var effectiveBgStr = getEffectiveBackgroundColor(target);
+    var bgRgb = parseRgbColor(effectiveBgStr);
+    var textRgb = parseRgbColor(btnTextColor);
+    var contrastRatio = getContrastRatio(bgRgb, textRgb);
+
+    if (contrastRatio < 4.5) {
+      var whiteRatio = getContrastRatio(bgRgb, { r: 255, g: 255, b: 255 });
+      var darkRatio = getContrastRatio(bgRgb, { r: 17, g: 17, b: 17 });
+      var adjustedColor = whiteRatio > darkRatio ? '#FFFFFF' : '#111111';
+      var isDev = window.location.hostname === 'localhost' || window.location.search.indexOf('debug=1') !== -1;
+      if (isDev) {
+        console.warn('[Zhaya Match] Ajuste automático de contraste do texto do launcher de ' + btnTextColor + ' para ' + adjustedColor + ' (fundo detectado: ' + effectiveBgStr + ', razão ' + contrastRatio.toFixed(2) + ':1)');
+      }
+      btnTextColor = adjustedColor;
+    }
+
     var styleStr = 'display: inline-flex; align-items: center; justify-content: flex-start; background: transparent; color: ' + btnTextColor + '; border: none; padding: 4px 0; margin: 10px 0; font-size: ' + btnFontSize + 'px; font-weight: ' + btnWeight + '; cursor: pointer; transition: opacity 0.2s ease; font-family: "Neue Einstellung", "Helvetica Neue", Helvetica, Arial, sans-serif; text-decoration: underline; text-underline-offset: 4px; outline: none; box-sizing: border-box; font-style: normal;';
     
     button.style.cssText = styleStr;
@@ -249,6 +488,7 @@
 
     button.onclick = function(e) {
       e.preventDefault();
+      sendWidgetAnalyticsEvent('launcher_clicked');
       openModal();
     };
 
@@ -256,6 +496,10 @@
 
     if (target && target.parentNode) {
       target.parentNode.insertBefore(button, target.nextSibling);
+      if (!hasTrackedLauncher) {
+        hasTrackedLauncher = true;
+        sendWidgetAnalyticsEvent('launcher_viewed');
+      }
     }
   }
 
@@ -272,6 +516,9 @@
     currentStep = 0;
     selectedType = null;
     userMeasurements = {};
+    hasTrackedMeasurementsInSession = false;
+
+    sendWidgetAnalyticsEvent('widget_opened');
 
     var overlay = document.getElementById('zhaya-match-modal-overlay');
     if (!overlay) {
@@ -292,8 +539,13 @@
     }
 
     var bgOverlayStr = hexToRgba(app.overlayColor || '#000000', opacityOverlay);
+    var isDesktop = window.innerWidth >= 640;
 
-    overlay.style.cssText = 'position: fixed; top: 0; left: 0; width: 100vw; height: 100vh; background: ' + bgOverlayStr + '; z-index: 999999; display: flex; align-items: center; justify-content: center; padding: 16px; box-sizing: border-box; backdrop-filter: blur(' + blurVal + '); -webkit-backdrop-filter: blur(' + blurVal + '); font-family: "Neue Einstellung", "Helvetica Neue", Helvetica, Arial, sans-serif;';
+    if (isDesktop) {
+      overlay.style.cssText = 'position: fixed; top: 0; left: 0; width: 100vw; height: 100vh; background: ' + bgOverlayStr + '; z-index: 999999; display: flex; align-items: center; justify-content: center; padding: 16px; box-sizing: border-box; backdrop-filter: blur(' + blurVal + '); -webkit-backdrop-filter: blur(' + blurVal + '); font-family: "Neue Einstellung", "Helvetica Neue", Helvetica, Arial, sans-serif;';
+    } else {
+      overlay.style.cssText = 'position: fixed; top: 0; left: 0; width: 100vw; height: 100vh; overflow-y: auto; -webkit-overflow-scrolling: touch; background: ' + bgOverlayStr + '; z-index: 999999; display: flex; align-items: flex-start; justify-content: center; padding: 12px 12px max(24px, env(safe-area-inset-bottom, 24px)) 12px; box-sizing: border-box; backdrop-filter: blur(' + blurVal + '); -webkit-backdrop-filter: blur(' + blurVal + '); font-family: "Neue Einstellung", "Helvetica Neue", Helvetica, Arial, sans-serif;';
+    }
 
     if (app.closeOnClickOutside !== false) {
       overlay.onclick = function(e) {
@@ -306,6 +558,7 @@
   }
 
   function closeModal() {
+    sendWidgetAnalyticsEvent('widget_closed');
     var overlay = document.getElementById('zhaya-match-modal-overlay');
     if (overlay) {
       overlay.style.display = 'none';
@@ -387,7 +640,7 @@
     var allTypes = (configData && configData.productTypes) || [];
     var types = [];
     for (var tIdx = 0; tIdx < allTypes.length; tIdx++) {
-      if (allTypes[tIdx].active !== false) {
+      if (allTypes[tIdx].active === true) {
         types.push(allTypes[tIdx]);
       }
     }
@@ -438,31 +691,100 @@
     // STEP 1: Escolha da Categoria (Tipo de Produto)
     else if (currentStep === 1) {
       innerHtml += '<div style="text-align: center; margin-bottom: 24px;">' +
-        '<h2 style="font-size: 18px; font-weight: 600; color: ' + escapeHtml(textColor) + '; margin-bottom: 6px; letter-spacing: -0.01em;">' + escapeHtml(txt.typeChoiceTitle || 'O que você está escolhendo?') + '</h2>' +
-        '<p style="font-size: 13px; color: ' + escapeHtml(secTextColor) + '; margin: 0;">Selecione a categoria da peça.</p>' +
+        '<h2 style="font-size: 18px; font-weight: 600; color: ' + escapeHtml(textColor) + '; margin-bottom: 6px; letter-spacing: -0.01em;">' + escapeHtml(txt.typeChoiceTitle || 'Qual peça você deseja escolher?') + '</h2>' +
+        '<p style="font-size: 13px; color: ' + escapeHtml(secTextColor) + '; margin: 0;">Selecione a categoria para ajustarmos as medidas recomendadas.</p>' +
       '</div>';
 
-      var gridCols = isDesktop ? (types.length >= 3 ? 'repeat(3, 1fr)' : 'repeat(2, 1fr)') : 'repeat(2, 1fr)';
-      innerHtml += '<div style="display: grid; grid-template-columns: ' + gridCols + '; gap: 12px; max-width: 640px; margin: 0 auto; max-height: 380px; overflow-y: auto; padding: 2px;">';
+      var activeTypesCount = types.length;
+      var gridColsDesktop = 'repeat(2, 1fr)';
+      var maxWDesktop = '640px';
+
+      if (activeTypesCount === 1) {
+        gridColsDesktop = '1fr';
+        maxWDesktop = '320px';
+      } else if (activeTypesCount === 2) {
+        gridColsDesktop = 'repeat(2, 1fr)';
+        maxWDesktop = '480px';
+      } else if (activeTypesCount === 3) {
+        gridColsDesktop = 'repeat(3, 1fr)';
+        maxWDesktop = '640px';
+      } else if (activeTypesCount === 4) {
+        gridColsDesktop = 'repeat(4, 1fr)';
+        maxWDesktop = '720px';
+      } else {
+        gridColsDesktop = 'repeat(auto-fill, minmax(130px, 1fr))';
+        maxWDesktop = '760px';
+      }
+
+      var gridColsMobile = activeTypesCount === 1 ? '1fr' : 'repeat(2, 1fr)';
+      var maxWMobile = activeTypesCount === 1 ? '280px' : '100%';
+
+      var gridStyle = isDesktop
+        ? 'display: grid; grid-template-columns: ' + gridColsDesktop + '; gap: 14px; width: 100%; max-width: ' + maxWDesktop + '; margin: 0 auto; padding: 4px; box-sizing: border-box;'
+        : 'display: grid; grid-template-columns: ' + gridColsMobile + '; gap: 10px; width: ' + maxWMobile + '; margin: 0 auto; padding: 4px; box-sizing: border-box;';
+      innerHtml += '<div style="' + gridStyle + '">';
 
       for (var i = 0; i < types.length; i++) {
         var pt = types[i];
         var isSel = selectedType && selectedType.id === pt.id;
-        var useIcon = (pt.useIconInSelector || pt.use_icon_in_selector) && (pt.iconUrl || pt.icon_url);
+        var useIcon = Boolean((pt.useIconInSelector || pt.use_icon_in_selector) && (pt.iconUrl || pt.icon_url));
         var iconSrc = pt.iconUrl || pt.icon_url;
-        var hasImg = pt.imageUrl || pt.image_url;
 
-        var visualBlock = '';
-        if (useIcon) {
-          visualBlock = '<div style="width: 36px; height: 36px; margin-bottom: 8px; display: flex; align-items: center; justify-content: center;"><img src="' + escapeHtml(iconSrc) + '" alt="' + escapeHtml(pt.name) + '" style="width: 100%; height: 100%; object-fit: contain;" loading="lazy" /></div>';
-        } else if (hasImg) {
-          visualBlock = '<img src="' + escapeHtml(hasImg) + '" style="width: 100%; height: 75px; object-fit: cover; border-radius: 8px; margin-bottom: 10px;" loading="lazy" />';
+        if (useIcon && iconSrc) {
+          var iconCardStyle = 'background: transparent;' +
+            ' border: none;' +
+            ' padding: 6px;' +
+            ' cursor: pointer;' +
+            ' text-align: center;' +
+            ' transition: transform 0.2s ease, opacity 0.2s ease;' +
+            ' display: flex;' +
+            ' flex-direction: column;' +
+            ' align-items: center;' +
+            ' justify-content: flex-start;' +
+            ' font-family: inherit;' +
+            ' opacity: ' + (isSel ? '1' : '0.8') + ';' +
+            ' transform: ' + (isSel ? 'scale(1.04)' : 'scale(1)') + ';' +
+            ' outline: none;' +
+            ' border-radius: 12px;';
+
+          var imgStyle = 'width: 100%; height: 100%; max-width: 100%; max-height: 100%; object-fit: contain; object-position: center; transition: filter 0.2s;' +
+            (isSel ? ' filter: drop-shadow(0 0 10px rgba(255,255,255,0.45));' : '');
+
+          var dotHtml = isSel ? '<span style="display: inline-block; width: 6px; height: 6px; border-radius: 50%; background: ' + escapeHtml(textColor) + '; margin-top: 4px;"></span>' : '';
+
+          innerHtml += '<button class="zhaya-type-card zhaya-icon-card" data-type-id="' + escapeHtml(pt.id) + '" style="' + iconCardStyle + '">' +
+            '<div class="zhaya-img-wrapper" style="width: 100%; max-width: clamp(110px, 22vh, 180px); height: clamp(110px, 22vh, 180px); display: flex; align-items: center; justify-content: center; margin: 0 auto; padding: 4px; box-sizing: border-box;">' +
+              '<img class="zhaya-type-icon-img" src="' + escapeHtml(iconSrc) + '" alt="' + escapeHtml(pt.name) + '" style="' + imgStyle + '" loading="lazy" />' +
+            '</div>' +
+            '<div style="display: flex; flex-direction: column; align-items: center; margin-top: 6px; width: 100%;">' +
+              '<span style="font-size: 12px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.04em; color: ' + escapeHtml(textColor) + '; line-height: 1.2; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden;">' + escapeHtml(pt.name) + '</span>' +
+              dotHtml +
+            '</div>' +
+          '</button>';
+        } else {
+          var cardStyle = 'background: ' + (isSel ? escapeHtml(textColor) : (app.inputBackgroundColor || 'rgba(255,255,255,0.04)')) + ';' +
+            ' color: ' + (isSel ? escapeHtml(bgColor) : escapeHtml(textColor)) + ';' +
+            ' border: 1px solid ' + (isSel ? escapeHtml(textColor) : (app.inputBorderColor || 'rgba(255,255,255,0.08)')) + ';' +
+            ' border-radius: ' + (app.inputBorderRadius !== undefined ? app.inputBorderRadius : 8) + 'px;' +
+            ' padding: 14px 10px;' +
+            ' font-size: 12px;' +
+            ' font-weight: 600;' +
+            ' text-transform: uppercase;' +
+            ' letter-spacing: 0.03em;' +
+            ' cursor: pointer;' +
+            ' text-align: center;' +
+            ' transition: all 0.2s;' +
+            ' display: flex;' +
+            ' flex-direction: column;' +
+            ' align-items: center;' +
+            ' justify-content: center;' +
+            ' font-family: inherit;' +
+            ' min-height: 76px;';
+
+          innerHtml += '<button class="zhaya-type-card" data-type-id="' + escapeHtml(pt.id) + '" style="' + cardStyle + '">' +
+            '<span style="line-height: 1.2; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden;">' + escapeHtml(pt.name) + '</span>' +
+          '</button>';
         }
-
-        innerHtml += '<button class="zhaya-type-card" data-type-id="' + escapeHtml(pt.id) + '" style="background: ' + (isSel ? '#ffffff' : 'rgba(255,255,255,0.04)') + '; color: ' + (isSel ? '#000000' : '#ffffff') + '; border: 1px solid ' + (isSel ? '#ffffff' : 'rgba(255,255,255,0.08)') + '; border-radius: 12px; padding: 16px; font-size: 13px; font-weight: 600; cursor: pointer; text-align: center; transition: all 0.2s; display: flex; flex-direction: column; align-items: center; justify-content: center; min-height: ' + (useIcon || hasImg ? '110px' : '84px') + '; font-family: inherit;">' +
-          visualBlock +
-          '<span>' + escapeHtml(pt.name) + '</span>' +
-        '</button>';
       }
 
       innerHtml += '</div>';
@@ -471,36 +793,181 @@
     // STEP 2: Formulário de Medidas
     else if (currentStep === 2 && selectedType) {
       var keys = selectedType.measurements || [];
-      var typeNameLower = (selectedType.name || '').toLowerCase();
-      var isFootwearType =
-        typeNameLower.indexOf('sapato') !== -1 ||
-        typeNameLower.indexOf('calçado') !== -1 ||
-        typeNameLower.indexOf('calcado') !== -1 ||
-        typeNameLower.indexOf('tenis') !== -1 ||
-        typeNameLower.indexOf('tênis') !== -1 ||
-        typeNameLower.indexOf('sapatilha') !== -1 ||
-        typeNameLower.indexOf('sandalia') !== -1 ||
-        typeNameLower.indexOf('sandália') !== -1 ||
-        typeNameLower.indexOf('mocassim') !== -1 ||
-        typeNameLower.indexOf('bota') !== -1 ||
-        keys.indexOf('footLength') !== -1 ||
-        keys.indexOf('footWidth') !== -1;
+     var typeNameLower = (selectedType.name || '').toLowerCase();
 
-      var activeImgUrl = selectedType.measurementImageUrl ||
-        (isFootwearType
-          ? app.footwearMeasurementImageUrl
-          : (app.apparelMeasurementImageUrl || app.mainMeasurementImageUrl));
-      var activeCaption = selectedType.measurementImageCaption || app.mainMeasurementImageCaption;
+var hasFootMeasurements =
+  keys.indexOf('footLength') !== -1 ||
+  keys.indexOf('footWidth') !== -1;
 
-      var imgBlockHtml = '<div style="background: ' + escapeHtml(app.imageAreaBgColor || 'rgba(255,255,255,0.03)') + '; border-radius: 12px; padding: 16px; display: flex; flex-direction: column; align-items: center; justify-content: space-between; width: 100%; box-sizing: border-box; ' + (isDesktop ? 'height: 100%;' : 'min-height: 200px;') + '">' +
-        '<div style="width: 100%; flex: 1; display: flex; align-items: center; justify-content: center; margin: 4px 0; overflow: hidden;">' +
-          (activeImgUrl ? '<img src="' + escapeHtml(activeImgUrl) + '" style="max-height: 220px; width: 100%; object-fit: contain; border-radius: 8px;" loading="lazy" />' : getFemaleSilhouetteSvg(selectedType)) +
-        '</div>' +
-        '<div style="width: 100%; text-align: center; padding-top: 10px; display: flex; flex-direction: column; align-items: center; gap: 8px;">' +
-          (app.showMeasurementCaption !== false && activeCaption ? '<div style="font-size: 11px; color: ' + escapeHtml(secTextColor) + '; line-height: 1.4;">' + escapeHtml(activeCaption) + '</div>' : '') +
-          '<button id="zhaya-saber-mais-btn" type="button" style="background: transparent; color: ' + escapeHtml(textColor) + '; border: none; padding: 6px 12px; font-size: 12px; font-weight: 500; cursor: pointer; text-decoration: underline; font-family: inherit; transition: opacity 0.2s;">Ver como medir</button>' +
-        '</div>' +
-      '</div>';
+var upperScore = 0;
+var lowerScore = 0;
+
+if (keys.indexOf('bust') !== -1) upperScore++;
+if (keys.indexOf('shoulders') !== -1) upperScore++;
+if (keys.indexOf('torsoLength') !== -1) upperScore++;
+
+if (keys.indexOf('hip') !== -1) lowerScore++;
+if (keys.indexOf('thigh') !== -1) lowerScore++;
+
+var measurementGroup = 'unknown';
+
+if (hasFootMeasurements) {
+  measurementGroup = 'footwear';
+} else if (upperScore > lowerScore) {
+  measurementGroup = 'upper_body';
+} else if (lowerScore > upperScore) {
+  measurementGroup = 'lower_body';
+} else if (
+  /sapato|calcado|calçado|tenis|tênis|sapatilha|sandalia|sandália|mocassim|bota|rasteira|scarpin|mule/.test(typeNameLower)
+) {
+  measurementGroup = 'footwear';
+} else if (
+  /camisa|blusa|jaqueta|blazer|casaco|colete|top|cropped|body|vestido|macacao|macacão/.test(typeNameLower)
+) {
+  measurementGroup = 'upper_body';
+} else if (
+  /calca|calça|short|shorts|saia|bermuda|legging/.test(typeNameLower)
+) {
+  measurementGroup = 'lower_body';
+}
+
+var activeImgUrl = '';
+var activeCaption = '';
+
+if (measurementGroup === 'footwear') {
+  activeImgUrl =
+    app.footwearMeasurementImageUrl || '';
+
+  activeCaption =
+    app.footwearMeasurementImageCaption ||
+    'Referência para comprimento e largura do pé.';
+} else if (measurementGroup === 'lower_body') {
+  activeImgUrl =
+    app.lowerBodyMeasurementImageUrl || '';
+
+  activeCaption =
+    app.lowerBodyMeasurementImageCaption ||
+    'Referência para cintura, quadril e coxa.';
+} else if (measurementGroup === 'upper_body') {
+  activeImgUrl =
+    app.upperBodyMeasurementImageUrl ||
+    app.apparelMeasurementImageUrl ||
+    app.mainMeasurementImageUrl ||
+    '';
+
+  activeCaption =
+    app.upperBodyMeasurementImageCaption ||
+    app.apparelMeasurementImageCaption ||
+    app.mainMeasurementImageCaption ||
+    'Referência para busto, cintura, ombros e comprimento do tronco.';
+}
+
+   var imageDisplayHeight = isDesktop
+  ? 320
+  : Math.max(
+      240,
+      Number(
+        app.mobileImageHeight !== undefined
+          ? app.mobileImageHeight
+          : 260
+      )
+    );
+
+var imageBlockMinHeight = isDesktop
+  ? 400
+  : imageDisplayHeight + 90;
+
+var imgBlockHtml =
+  '<div style="' +
+    'background: ' + escapeHtml(app.imageAreaBgColor || 'rgba(255,255,255,0.03)') + ';' +
+    'border-radius: ' + (app.imageBorderRadius !== undefined ? app.imageBorderRadius : 12) + 'px;' +
+    'padding: 8px;' +
+    'display: flex;' +
+    'flex-direction: column;' +
+    'align-items: center;' +
+    'justify-content: space-between;' +
+    'width: 100%;' +
+    'min-height: ' + imageBlockMinHeight + 'px;' +
+    'box-sizing: border-box;' +
+  '">' +
+
+    '<div style="' +
+      'width: 100%;' +
+      'height: ' + imageDisplayHeight + 'px;' +
+      'display: flex;' +
+      'align-items: center;' +
+      'justify-content: center;' +
+      'overflow: hidden;' +
+    '">' +
+
+      (
+        activeImgUrl
+          ? '<img ' +
+              'src="' + escapeHtml(activeImgUrl) + '" ' +
+              'alt="' + escapeHtml(activeCaption || 'Como tirar as medidas') + '" ' +
+              'style="' +
+                'display: block;' +
+                'width: 100%;' +
+                'height: 100%;' +
+                'max-width: 100%;' +
+                'max-height: none;' +
+                'object-fit: contain;' +
+                'object-position: center;' +
+                'border-radius: 8px;' +
+              '" ' +
+              'loading="lazy" ' +
+              'decoding="async" ' +
+            '/>'
+          : getFemaleSilhouetteSvg(selectedType)
+      ) +
+
+    '</div>' +
+
+    '<div style="' +
+      'width: 100%;' +
+      'text-align: center;' +
+      'padding-top: 10px;' +
+      'display: flex;' +
+      'flex-direction: column;' +
+      'align-items: center;' +
+      'gap: 8px;' +
+    '">' +
+
+      (
+        app.showMeasurementCaption !== false && activeCaption
+          ? '<div style="' +
+              'font-size: 11px;' +
+              'color: ' + escapeHtml(secTextColor) + ';' +
+              'line-height: 1.4;' +
+            '">' +
+              escapeHtml(activeCaption) +
+            '</div>'
+          : ''
+      ) +
+
+      '<button ' +
+        'id="zhaya-saber-mais-btn" ' +
+        'type="button" ' +
+        'style="' +
+          'background: transparent;' +
+          'color: ' + escapeHtml(textColor) + ';' +
+          'border: none;' +
+          'padding: 6px 12px;' +
+          'font-size: 12px;' +
+          'font-weight: 500;' +
+          'cursor: pointer;' +
+          'text-decoration: underline;' +
+          'text-underline-offset: 4px;' +
+          'font-family: inherit;' +
+          'transition: opacity 0.2s;' +
+        '"' +
+      '>' +
+        'Ver como medir' +
+      '</button>' +
+
+    '</div>' +
+
+  '</div>';
 
       var formBlockHtml = '<div style="display: flex; flex-direction: column; justify-content: space-between; gap: 16px; height: 100%;">' +
         '<div>' +
@@ -515,8 +982,11 @@
 
         formBlockHtml += '<div style="display: flex; flex-direction: column; gap: 6px;">' +
           '<label style="font-size: 12px; font-weight: 500; color: ' + escapeHtml(textColor) + ';">' + escapeHtml(h.label) + ' <span style="color: ' + escapeHtml(secTextColor) + '; font-size: 11px; font-weight: 400;">(cm)</span></label>' +
-          '<div style="position: relative; display: flex; align-items: center;">' +
-            '<input type="text" inputmode="decimal" class="zhaya-input" data-key="' + escapeHtml(k) + '" value="' + escapeHtml(val) + '" placeholder="Digite a medida em cm" style="width: 100%; background: #0F0F0F; border: 1px solid rgba(255,255,255,0.12); color: #ffffff; padding: 12px 14px; border-radius: 8px; font-size: 13px; outline: none; transition: border-color 0.2s; font-family: inherit; box-sizing: border-box;" />' +
+          '<div style="position: relative; display: flex; align-items: center; gap: 8px;">' +
+            '<input type="text" inputmode="decimal" class="zhaya-input" data-key="' + escapeHtml(k) + '" value="' + escapeHtml(val) + '" placeholder="Digite a medida em cm" style="flex: 1; min-width: 0; background: #0F0F0F; border: 1px solid rgba(255,255,255,0.12); color: #ffffff; padding: 12px 14px; border-radius: 8px; font-size: 13px; outline: none; transition: border-color 0.2s; font-family: inherit; box-sizing: border-box;" />' +
+            (!isDesktop
+              ? '<button type="button" class="zhaya-wheel-btn" data-key="' + escapeHtml(k) + '" aria-label="Selecionar medida" title="Selecionar medida" style="display: flex; align-items: center; justify-content: center; width: 44px; height: 44px; background: rgba(255,255,255,0.06); border: 1px solid rgba(255,255,255,0.12); border-radius: 8px; color: #ffffff; cursor: pointer; flex-shrink: 0; transition: background 0.2s; outline: none;"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="4" y1="21" x2="4" y2="14"/><line x1="4" y1="10" x2="4" y2="3"/><line x1="12" y1="21" x2="12" y2="12"/><line x1="12" y1="8" x2="12" y2="3"/><line x1="20" y1="21" x2="20" y2="16"/><line x1="20" y1="12" x2="20" y2="3"/><line x1="1" y1="14" x2="7" y2="14"/><line x1="9" y1="8" x2="15" y2="8"/><line x1="17" y1="16" x2="23" y2="16"/></svg></button>'
+              : '') +
           '</div>' +
           '<span class="zhaya-error-msg" data-error-for="' + escapeHtml(k) + '" style="color: #f87171; font-size: 11px; margin-top: 2px; display: none;"></span>' +
         '</div>';
@@ -550,15 +1020,15 @@
         if (res.status === 'recommended' && res.size) {
           innerHtml += '<div style="font-size: 11px; text-transform: uppercase; letter-spacing: 0.18em; color: ' + escapeHtml(secTextColor) + '; margin-bottom: 12px; font-weight: 500;">SEU TAMANHO SUGERIDO</div>';
           innerHtml += '<div style="font-size: 64px; font-weight: 700; color: ' + escapeHtml(textColor) + '; line-height: 1; margin-bottom: 16px; letter-spacing: -0.02em;">' + escapeHtml(res.size) + '</div>';
-          innerHtml += '<div style="font-size: 13px; color: ' + escapeHtml(secTextColor) + '; margin-bottom: 28px; line-height: 1.5;">Este tamanho apresenta a melhor correspondência com as medidas informadas.</div>';
+          innerHtml += '<div style="font-size: 13px; color: ' + escapeHtml(secTextColor) + '; margin-bottom: 28px; line-height: 1.5;">' + escapeHtml(res.message || 'Este tamanho apresenta a melhor correspondência com as medidas informadas.') + '</div>';
         } else if (res.status === 'between_sizes' && res.size && res.alternateSize) {
-          innerHtml += '<div style="font-size: 11px; text-transform: uppercase; letter-spacing: 0.18em; color: ' + escapeHtml(secTextColor) + '; margin-bottom: 12px; font-weight: 500;">VOCÊ ESTÁ ENTRE</div>';
+          innerHtml += '<div style="font-size: 11px; text-transform: uppercase; letter-spacing: 0.18em; color: ' + escapeHtml(secTextColor) + '; margin-bottom: 12px; font-weight: 500;">VOCÊ ESTÁ ENTRE DOIS TAMANHOS</div>';
           innerHtml += '<div style="font-size: 48px; font-weight: 700; color: ' + escapeHtml(textColor) + '; line-height: 1; margin-bottom: 16px; letter-spacing: -0.02em;">' + escapeHtml(res.size) + ' e ' + escapeHtml(res.alternateSize) + '</div>';
-          innerHtml += '<div style="font-size: 13px; color: ' + escapeHtml(secTextColor) + '; margin-bottom: 28px; line-height: 1.6;">' + escapeHtml(res.size) + ' pode oferecer um caimento mais ajustado.<br/>' + escapeHtml(res.alternateSize) + ' pode oferecer mais conforto.</div>';
+          innerHtml += '<div style="font-size: 13px; color: ' + escapeHtml(secTextColor) + '; margin-bottom: 28px; line-height: 1.6;">' + escapeHtml(res.message || (escapeHtml(res.size) + ' pode oferecer um caimento mais ajustado.<br/>' + escapeHtml(res.alternateSize) + ' pode oferecer mais conforto.')) + '</div>';
         } else {
           innerHtml += '<div style="font-size: 11px; text-transform: uppercase; letter-spacing: 0.18em; color: ' + escapeHtml(secTextColor) + '; margin-bottom: 12px; font-weight: 500;">NÃO ENCONTRADO</div>';
           innerHtml += '<div style="font-size: 16px; font-weight: 600; color: ' + escapeHtml(textColor) + '; margin-bottom: 10px;">Não encontramos um tamanho adequado.</div>';
-          innerHtml += '<div style="font-size: 13px; color: ' + escapeHtml(secTextColor) + '; margin-bottom: 28px; line-height: 1.5;">Confira suas medidas ou consulte a equipe da Zhaya.</div>';
+          innerHtml += '<div style="font-size: 13px; color: ' + escapeHtml(secTextColor) + '; margin-bottom: 28px; line-height: 1.5;">' + escapeHtml(res.message || 'Confira suas medidas ou consulte a equipe da Zhaya.') + '</div>';
         }
       }
 
@@ -572,157 +1042,248 @@
 
     // Modal Outer Box Wrapper
     var maxW = isDesktop ? desktopWidth : 'calc(100vw - 24px)';
-    var cardHtml = '<div style="position: relative; width: 100%; max-width: ' + maxW + '; max-height: 90vh; overflow-y: auto; background: ' + escapeHtml(finalCardBg) + '; border: 1px solid rgba(255,255,255,0.08); border-radius: ' + (isDesktop ? (app.borderRadius || 24) : 20) + 'px; padding: ' + (isDesktop ? (app.paddingInternal || 32) : 22) + 'px; box-shadow: 0 24px 60px rgba(0,0,0,0.85); box-sizing: border-box; font-family: &quot;Neue Einstellung&quot;, &quot;Helvetica Neue&quot;, Helvetica, Arial, sans-serif;">' + innerHtml + '</div>';
+    var cardStyle = isDesktop
+      ? 'position: relative; width: 100%; max-width: ' + maxW + '; max-height: 90vh; overflow-y: auto; background: ' + escapeHtml(finalCardBg) + '; border: 1px solid rgba(255,255,255,0.08); border-radius: ' + (app.borderRadius || 24) + 'px; padding: ' + (app.paddingInternal || 32) + 'px; box-shadow: 0 24px 60px rgba(0,0,0,0.85); box-sizing: border-box; font-family: &quot;Neue Einstellung&quot;, &quot;Helvetica Neue&quot;, Helvetica, Arial, sans-serif;'
+      : 'position: relative; width: 100%; max-width: ' + maxW + '; max-height: none; overflow: visible; height: auto; margin: auto 0; background: ' + escapeHtml(finalCardBg) + '; border: 1px solid rgba(255,255,255,0.08); border-radius: 20px; padding: 20px 18px max(24px, env(safe-area-inset-bottom, 24px)) 18px; box-shadow: 0 24px 60px rgba(0,0,0,0.85); box-sizing: border-box; font-family: &quot;Neue Einstellung&quot;, &quot;Helvetica Neue&quot;, Helvetica, Arial, sans-serif;';
+
+    var cardHtml = '<div style="' + cardStyle + '">' + innerHtml + '</div>';
 
     overlay.innerHTML = cardHtml;
     bindModalEvents();
   }
 
   function calculateRecommendationLocal(productType, measurements) {
-    if (!productType || !productType.sizes || productType.sizes.length === 0) {
-      return {
-        size: null,
-        status: 'not_found',
-        message: 'Não encontramos um tamanho adequado nesta tabela. Confira suas medidas ou consulte a equipe da Zhaya.'
-      };
-    }
+    return calculateRecommendation(productType, measurements);
+  }
 
-    var keys = (productType.measurements && productType.measurements.length > 0)
-      ? productType.measurements
-      : ['bust', 'waist', 'hip', 'shoulders', 'thigh', 'torsoLength', 'footLength', 'footWidth'];
+  function getWheelPickerConfig(key, productType) {
+    var helps = (configData && configData.measurementHelps) || {};
+    var h = helps[key] || {};
+    var label = h.label || MEASUREMENT_LABELS[key] || key;
+    var step = 0.5;
 
-    var activeMeasurements = [];
-    for (var i = 0; i < keys.length; i++) {
-      var k = keys[i];
-      var val = measurements[k];
-      if (val !== undefined && val !== null && !isNaN(val) && val > 0) {
-        activeMeasurements.push({ key: k, val: Number(val) });
-      }
-    }
+    var defaults = {
+      bust: { min: 60, max: 150, def: 90 },
+      waist: { min: 50, max: 140, def: 72 },
+      hip: { min: 60, max: 160, def: 98 },
+      shoulders: { min: 30, max: 60, def: 38 },
+      thigh: { min: 35, max: 90, def: 54 },
+      torsoLength: { min: 40, max: 90, def: 60 },
+      footLength: { min: 15, max: 35, def: 24 },
+      footWidth: { min: 5, max: 15, def: 9 }
+    };
 
-    if (activeMeasurements.length === 0) {
-      return {
-        size: null,
-        status: 'not_found',
-        message: 'Não encontramos um tamanho adequado nesta tabela. Confira suas medidas ou consulte a equipe da Zhaya.'
-      };
-    }
+    var cfg = defaults[key] || { min: 10, max: 200, def: 70 };
+    var minVal = cfg.min;
+    var maxVal = cfg.max;
+    var defVal = cfg.def;
 
-    var sortedSizes = productType.sizes.slice().sort(function(a, b) { return a.order - b.order; });
-
-    function getRefValue(range) {
-      if (!range) return null;
-      if (range.value !== undefined && !isNaN(range.value) && range.value > 0) return range.value;
-      if (range.min !== undefined && range.max !== undefined && !isNaN(range.min) && !isNaN(range.max)) {
-        return (range.min + range.max) / 2;
-      }
-      if (range.min !== undefined && !isNaN(range.min) && range.min > 0) return range.min;
-      if (range.max !== undefined && !isNaN(range.max) && range.max > 0) return range.max;
-      return null;
-    }
-
-    var matchedSizeIndexes = [];
-
-    for (var j = 0; j < activeMeasurements.length; j++) {
-      var item = activeMeasurements[j];
-      var mk = item.key;
-      var val = item.val;
-
-      var refValues = [];
-      for (var sIdx = 0; sIdx < sortedSizes.length; sIdx++) {
-        var sRow = sortedSizes[sIdx];
-        var range = sRow.ranges ? sRow.ranges[mk] : undefined;
-        var ref = getRefValue(range);
-        if (ref !== null && !isNaN(ref)) {
-          refValues.push({
-            index: sIdx,
-            ref: ref,
-            min: range ? range.min : undefined,
-            max: range ? range.max : undefined
-          });
+    if (productType && productType.sizes && productType.sizes.length > 0) {
+      var tableMins = [];
+      var tableMaxs = [];
+      for (var i = 0; i < productType.sizes.length; i++) {
+        var s = productType.sizes[i];
+        if (s.ranges && s.ranges[key]) {
+          var r = s.ranges[key];
+          var mn = parseNumber(r.min !== undefined ? r.min : r.value);
+          var mx = parseNumber(r.max !== undefined ? r.max : r.value);
+          if (mn !== null && mn > 0) tableMins.push(mn);
+          if (mx !== null && mx > 0) tableMaxs.push(mx);
         }
       }
-
-      if (refValues.length === 0) continue;
-
-      var minRef = refValues[0].min !== undefined ? refValues[0].min : refValues[0].ref;
-      var maxRef = refValues[refValues.length - 1].max !== undefined ? refValues[refValues.length - 1].max : refValues[refValues.length - 1].ref;
-
-      if (val < minRef - 8 || val > maxRef + 10) {
-        return {
-          size: null,
-          status: 'not_found',
-          message: 'Não encontramos um tamanho adequado nesta tabela. Confira suas medidas ou consulte a equipe da Zhaya.'
-        };
-      }
-
-      var directMatchIdx = -1;
-      for (var rIdx = 0; rIdx < refValues.length; rIdx++) {
-        var rv = refValues[rIdx];
-        if (rv.min !== undefined && rv.max !== undefined && val >= rv.min && val <= rv.max) {
-          directMatchIdx = rv.index;
-          break;
+      if (tableMins.length > 0 && tableMaxs.length > 0) {
+        var minFound = Math.min.apply(null, tableMins);
+        var maxFound = Math.max.apply(null, tableMaxs);
+        if (minFound > 0 && maxFound >= minFound) {
+          minVal = Math.max(5, Math.floor(minFound - 10));
+          maxVal = Math.ceil(maxFound + 10);
+          defVal = Math.round(((minFound + maxFound) / 2) * 2) / 2;
         }
       }
-
-      if (directMatchIdx !== -1) {
-        matchedSizeIndexes.push(directMatchIdx);
-        continue;
-      }
-
-      var closestIdx = refValues[0].index;
-      var minDiff = Math.abs(val - refValues[0].ref);
-      for (var cIdx = 1; cIdx < refValues.length; cIdx++) {
-        var diff = Math.abs(val - refValues[cIdx].ref);
-        if (diff < minDiff) {
-          minDiff = diff;
-          closestIdx = refValues[cIdx].index;
-        }
-      }
-
-      matchedSizeIndexes.push(closestIdx);
-    }
-
-    if (matchedSizeIndexes.length === 0) {
-      return {
-        size: null,
-        status: 'not_found',
-        message: 'Não encontramos um tamanho adequado nesta tabela. Confira suas medidas ou consulte a equipe da Zhaya.'
-      };
-    }
-
-    var minIdx = Math.min.apply(null, matchedSizeIndexes);
-    var maxIdx = Math.max.apply(null, matchedSizeIndexes);
-    var indexDiff = maxIdx - minIdx;
-
-    if (indexDiff === 0) {
-      var sizeLabel = sortedSizes[minIdx].label || sortedSizes[minIdx].name || 'Padrão';
-      return {
-        size: sizeLabel,
-        status: 'recommended',
-        message: 'Este tamanho apresenta a melhor correspondência com as medidas informadas.'
-      };
-    }
-
-    if (indexDiff === 1) {
-      var lowerLabel = sortedSizes[minIdx].label || sortedSizes[minIdx].name;
-      var upperLabel = sortedSizes[maxIdx].label || sortedSizes[maxIdx].name;
-      return {
-        size: lowerLabel,
-        alternateSize: upperLabel,
-        status: 'between_sizes',
-        message: 'Você está entre ' + lowerLabel + ' e ' + upperLabel + '. ' + lowerLabel + ' pode ficar mais ajustado, enquanto ' + upperLabel + ' pode oferecer mais conforto.'
-      };
     }
 
     return {
-      size: null,
-      status: 'not_found',
-      message: 'Não encontramos um tamanho adequado nesta tabela. Confira suas medidas ou consulte a equipe da Zhaya.'
+      key: key,
+      label: label,
+      step: step,
+      min: minVal,
+      max: maxVal,
+      def: defVal
     };
   }
 
+  function openWheelPickerSheet(key, rawCurrentValue) {
+    var cfg = getWheelPickerConfig(key, selectedType);
+    var parsedCurrent = parseNumber(rawCurrentValue);
+    var startVal = (parsedCurrent !== null && parsedCurrent > 0) ? parsedCurrent : cfg.def;
+
+    var options = [];
+    for (var v = cfg.min; v <= cfg.max + 0.001; v += cfg.step) {
+      var roundV = Math.round(v * 10) / 10;
+      options.push({
+        val: roundV,
+        display: formatMeasurementDisplay(roundV)
+      });
+    }
+
+    var selectedIdx = 0;
+    var minDiff = 999999;
+    for (var i = 0; i < options.length; i++) {
+      var diff = Math.abs(options[i].val - startVal);
+      if (diff < minDiff) {
+        minDiff = diff;
+        selectedIdx = i;
+      }
+    }
+
+    var existingSheet = document.getElementById('zhaya-wheel-sheet-backdrop');
+    if (existingSheet) existingSheet.remove();
+
+    var backdrop = document.createElement('div');
+    backdrop.id = 'zhaya-wheel-sheet-backdrop';
+    backdrop.style.cssText = 'position: fixed; inset: 0; background: rgba(0,0,0,0.75); z-index: 1000000; display: flex; flex-direction: column; justify-content: flex-end; backdrop-filter: blur(4px); -webkit-backdrop-filter: blur(4px); font-family: "Neue Einstellung", "Helvetica Neue", Helvetica, Arial, sans-serif; box-sizing: border-box; touch-action: none;';
+
+    var sheetHtml = '<div id="zhaya-wheel-sheet-container" role="dialog" aria-modal="true" aria-label="Seletor de medida" style="background: #171717; border-top-left-radius: 20px; border-top-right-radius: 20px; border-top: 1px solid rgba(255,255,255,0.15); padding: 20px 20px max(24px, env(safe-area-inset-bottom, 24px)) 20px; width: 100%; box-sizing: border-box; display: flex; flex-direction: column; gap: 16px; box-shadow: 0 -10px 40px rgba(0,0,0,0.85); touch-action: auto;">' +
+      '<div style="display: flex; align-items: center; justify-content: space-between; border-bottom: 1px solid rgba(255,255,255,0.1); padding-bottom: 12px;">' +
+        '<div>' +
+          '<h3 style="font-size: 16px; font-weight: 600; color: #ffffff; margin: 0;">' + escapeHtml(cfg.label) + '</h3>' +
+          '<p style="font-size: 12px; color: #a3a3a3; margin: 2px 0 0 0;">Unidade em centímetros (cm)</p>' +
+        '</div>' +
+        '<button id="zhaya-wheel-close-x" aria-label="Cancelar" style="background: transparent; border: none; color: #a3a3a3; font-size: 20px; cursor: pointer; padding: 4px; line-height: 1;">✕</button>' +
+      '</div>' +
+
+      '<div style="position: relative; height: 210px; overflow: hidden; user-select: none;">' +
+        '<div style="position: absolute; top: 84px; left: 0; right: 0; height: 42px; border-top: 1px solid rgba(255,255,255,0.25); border-bottom: 1px solid rgba(255,255,255,0.25); background: rgba(255,255,255,0.06); pointer-events: none; border-radius: 8px;"></div>' +
+        '<div id="zhaya-wheel-scroll-box" style="height: 100%; overflow-y: auto; scroll-snap-type: y mandatory; -webkit-overflow-scrolling: touch; padding: 84px 0; box-sizing: border-box; scrollbar-width: none; -ms-overflow-style: none;">' +
+          options.map(function(opt, idx) {
+            var isSel = idx === selectedIdx;
+            return '<div class="zhaya-wheel-opt" data-idx="' + idx + '" style="height: 42px; display: flex; align-items: center; justify-content: center; font-size: ' + (isSel ? '20px' : '14px') + '; font-weight: ' + (isSel ? '700' : '400') + '; color: ' + (isSel ? '#ffffff' : '#737373') + '; opacity: ' + (isSel ? '1' : '0.45') + '; scroll-snap-align: center; cursor: pointer; transition: font-size 0.1s, color 0.1s, opacity 0.1s;">' +
+              escapeHtml(opt.display) + ' cm' +
+            '</div>';
+          }).join('') +
+        '</div>' +
+      '</div>' +
+
+      '<div style="display: flex; gap: 12px; margin-top: 4px;">' +
+        '<button id="zhaya-wheel-btn-cancel" style="flex: 1; background: transparent; border: 1px solid rgba(255,255,255,0.2); color: #ffffff; height: 48px; border-radius: 8px; font-size: 13px; font-weight: 600; cursor: pointer; font-family: inherit;">Cancelar</button>' +
+        '<button id="zhaya-wheel-btn-confirm" style="flex: 1; background: #ffffff; border: none; color: #000000; height: 48px; border-radius: 8px; font-size: 13px; font-weight: 600; cursor: pointer; font-family: inherit;">Confirmar</button>' +
+      '</div>' +
+    '</div>';
+
+    backdrop.innerHTML = sheetHtml;
+    document.body.appendChild(backdrop);
+
+    var scrollBox = document.getElementById('zhaya-wheel-scroll-box');
+    if (scrollBox) {
+      scrollBox.scrollTop = selectedIdx * 42;
+    }
+
+    var lastVibratedIdx = selectedIdx;
+
+    function updateVisual(activeIdx) {
+      if (activeIdx === selectedIdx) return;
+      selectedIdx = activeIdx;
+      var opts = backdrop.querySelectorAll('.zhaya-wheel-opt');
+      opts.forEach(function(el, i) {
+        var isSel = i === activeIdx;
+        el.style.fontSize = isSel ? '20px' : '14px';
+        el.style.fontWeight = isSel ? '700' : '400';
+        el.style.color = isSel ? '#ffffff' : '#737373';
+        el.style.opacity = isSel ? '1' : '0.45';
+      });
+
+      if (activeIdx !== lastVibratedIdx) {
+        lastVibratedIdx = activeIdx;
+        if (typeof navigator !== 'undefined' && typeof navigator.vibrate === 'function') {
+          var prefersReduced = window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+          if (!prefersReduced) {
+            try { navigator.vibrate(5); } catch(e){}
+          }
+        }
+      }
+    }
+
+    if (scrollBox) {
+      scrollBox.onscroll = function() {
+        var idx = Math.round(scrollBox.scrollTop / 42);
+        idx = Math.max(0, Math.min(options.length - 1, idx));
+        updateVisual(idx);
+      };
+
+      var optElements = backdrop.querySelectorAll('.zhaya-wheel-opt');
+      optElements.forEach(function(opt) {
+        opt.onclick = function() {
+          var idx = parseInt(opt.getAttribute('data-idx') || '0', 10);
+          scrollBox.scrollTo({ top: idx * 42, behavior: 'smooth' });
+        };
+      });
+    }
+
+    backdrop.ontouchmove = function(e) {
+      if (scrollBox && scrollBox.contains(e.target)) {
+        return;
+      }
+      e.preventDefault();
+    };
+
+    function closeSheet() {
+      backdrop.remove();
+      document.removeEventListener('keydown', handleSheetKeyDown);
+      var targetInput = document.querySelector('.zhaya-input[data-key="' + key + '"]');
+      if (targetInput) targetInput.focus();
+    }
+
+    function handleSheetKeyDown(e) {
+      if (e.key === 'Escape') {
+        closeSheet();
+      }
+    }
+    document.addEventListener('keydown', handleSheetKeyDown);
+
+    var cancelX = document.getElementById('zhaya-wheel-close-x');
+    if (cancelX) cancelX.onclick = closeSheet;
+
+    var btnCancel = document.getElementById('zhaya-wheel-btn-cancel');
+    if (btnCancel) btnCancel.onclick = closeSheet;
+
+    backdrop.onclick = function(e) {
+      if (e.target === backdrop) closeSheet();
+    };
+
+    var btnConfirm = document.getElementById('zhaya-wheel-btn-confirm');
+    if (btnConfirm) {
+      btnConfirm.onclick = function() {
+        var confirmedOpt = options[selectedIdx];
+        if (confirmedOpt) {
+          var formattedVal = confirmedOpt.display;
+          userMeasurements[key] = formattedVal;
+          var targetInput = document.querySelector('.zhaya-input[data-key="' + key + '"]');
+          if (targetInput) {
+            targetInput.value = formattedVal;
+          }
+          var errEl = document.querySelector('.zhaya-error-msg[data-error-for="' + key + '"]');
+          if (errEl) {
+            errEl.style.display = 'none';
+            errEl.textContent = '';
+          }
+        }
+        closeSheet();
+      };
+    }
+  }
+
   function bindModalEvents() {
+    var wheelBtns = document.querySelectorAll('.zhaya-wheel-btn');
+    wheelBtns.forEach(function(btn) {
+      btn.onclick = function(e) {
+        if (e && e.preventDefault) e.preventDefault();
+        var k = btn.getAttribute('data-key');
+        if (!k) return;
+        var inp = document.querySelector('.zhaya-input[data-key="' + k + '"]');
+        var currentVal = inp ? inp.value : (userMeasurements[k] || '');
+        openWheelPickerSheet(k, currentVal);
+      };
+    });
     var closeX = document.getElementById('zhaya-close-x');
     if (closeX) closeX.onclick = closeModal;
 
@@ -732,6 +1293,7 @@
     var startBtn = document.getElementById('zhaya-start-btn');
     if (startBtn) {
       startBtn.onclick = function() {
+        sendWidgetAnalyticsEvent('flow_started');
         currentStep = 1;
         renderModalContent();
       };
@@ -764,6 +1326,38 @@
     }
 
     // Type selection buttons
+    var iconImgs = document.querySelectorAll('.zhaya-type-icon-img');
+    iconImgs.forEach(function(img) {
+      img.onerror = function() {
+        img.style.display = 'none';
+        var card = img.closest('.zhaya-type-card');
+        if (card) {
+          card.classList.remove('zhaya-icon-card');
+          card.classList.add('zhaya-icon-fallback');
+          card.style.background = 'rgba(255,255,255,0.06)';
+          card.style.border = '1px solid rgba(255,255,255,0.12)';
+          card.style.borderRadius = '8px';
+          card.style.padding = '14px 10px';
+          card.style.minHeight = '76px';
+          card.style.aspectRatio = 'auto';
+        }
+      };
+    });
+
+    var iconCards = document.querySelectorAll('.zhaya-icon-card');
+    iconCards.forEach(function(card) {
+      card.onmouseover = function() {
+        card.style.opacity = '1';
+        card.style.transform = 'scale(1.04)';
+      };
+      card.onmouseout = function() {
+        var tid = card.getAttribute('data-type-id');
+        var isSelectedCard = selectedType && selectedType.id === tid;
+        card.style.opacity = isSelectedCard ? '1' : '0.75';
+        card.style.transform = isSelectedCard ? 'scale(1.05)' : 'scale(1)';
+      };
+    });
+
     var typeBtns = document.querySelectorAll('.zhaya-type-card');
     typeBtns.forEach(function(btn) {
       btn.onclick = function() {
@@ -775,6 +1369,13 @@
             break;
           }
         }
+        if (selectedType) {
+          sendWidgetAnalyticsEvent('product_type_selected', {
+            productTypeId: selectedType.id,
+            productTypeName: selectedType.name,
+            productCategory: selectedType.category
+          });
+        }
         userMeasurements = {};
         currentStep = 2;
         renderModalContent();
@@ -785,16 +1386,19 @@
     var inputs = document.querySelectorAll('.zhaya-input');
     inputs.forEach(function(inp) {
       inp.oninput = function() {
+        if (!hasTrackedMeasurementsInSession) {
+          hasTrackedMeasurementsInSession = true;
+          sendWidgetAnalyticsEvent('measurements_started');
+        }
         var k = inp.getAttribute('data-key');
         var errEl = document.querySelector('.zhaya-error-msg[data-error-for="' + k + '"]');
         if (errEl) {
           errEl.style.display = 'none';
           errEl.textContent = '';
         }
-        var rawVal = inp.value ? inp.value.trim().replace(',', '.') : '';
-        var val = parseFloat(rawVal);
-        if (!isNaN(val) && val > 0) {
-          userMeasurements[k] = val;
+        var rawVal = inp.value;
+        if (rawVal !== undefined && rawVal !== null && rawVal.trim() !== '') {
+          userMeasurements[k] = rawVal;
         } else {
           delete userMeasurements[k];
         }
@@ -830,16 +1434,13 @@
           var errEl = document.querySelector('.zhaya-error-msg[data-error-for="' + k + '"]');
 
           var rawVal = inp ? inp.value.trim() : '';
-          var numStr = rawVal.replace(',', '.');
-          var num = parseFloat(numStr);
+          var parsedNum = parseNumber(rawVal);
 
           var errorMsg = '';
           if (!rawVal) {
-            errorMsg = 'Informe esta medida.';
-          } else if (isNaN(num)) {
-            errorMsg = 'Digite uma medida válida.';
-          } else if (num <= 0) {
-            errorMsg = 'A medida deve ser maior que zero.';
+            errorMsg = 'Informe esta medida em cm.';
+          } else if (parsedNum === null) {
+            errorMsg = 'Digite um número válido maior que 0 (ex: 22,5 ou 94,5).';
           }
 
           if (errorMsg) {
@@ -852,7 +1453,7 @@
               firstErrorInput = inp;
             }
           } else {
-            userMeasurements[k] = num;
+            userMeasurements[k] = rawVal;
           }
         }
 
@@ -871,6 +1472,17 @@
           if (isPreview) console.log('[Zhaya Match] resultado: ' + result.status);
 
           userMeasurements.__result = result;
+
+          if (result.status === 'none' || result.status === 'not_found') {
+            sendWidgetAnalyticsEvent('recommendation_not_found', {
+              recommendationStatus: 'not_found'
+            });
+          } else {
+            sendWidgetAnalyticsEvent('recommendation_generated', {
+              recommendationStatus: result.status
+            });
+          }
+
           currentStep = 3;
           renderModalContent();
           if (isPreview) console.log('[Zhaya Match] etapa final renderizada');
@@ -883,6 +1495,7 @@
     var saberMaisBtn = document.getElementById('zhaya-saber-mais-btn');
     if (saberMaisBtn && selectedType) {
       saberMaisBtn.onclick = function() {
+        sendWidgetAnalyticsEvent('measurement_help_opened');
         var card = document.querySelector('#zhaya-match-modal-overlay > div');
         if (!card) return;
         var helps = (configData && configData.measurementHelps) || {};
@@ -904,10 +1517,30 @@
         for (var m = 0; m < keys.length; m++) {
           var mk = keys[m];
           var h = helps[mk] || {};
+
+          var obsHtml = '';
+          if (h.observations && Array.isArray(h.observations)) {
+            var validObs = h.observations.filter(function(obs) {
+              if (!obs || obs.active === false || !obs.text || !obs.text.trim()) return false;
+              if (obs.condition && obs.condition.type === 'always') return true;
+              if (obs.condition && obs.condition.type === 'measurement_active' && obs.condition.measurementKey) {
+                return keys.indexOf(obs.condition.measurementKey) !== -1;
+              }
+              return false;
+            }).sort(function(a, b) { return (a.order || 0) - (b.order || 0); });
+
+            for (var o = 0; o < validObs.length; o++) {
+              obsHtml += '<div style="font-size: 10px; color: #a3a3a3; margin-top: 6px; padding: 6px 8px; background: rgba(255,255,255,0.03); border: 1px solid rgba(255,255,255,0.06); border-radius: 4px; line-height: 1.3;">' +
+                '<strong style="color: #ffffff;">Obs:</strong> ' + escapeHtml(validObs[o].text) +
+              '</div>';
+            }
+          }
+
           overlayContent += '<div style="background: rgba(255,255,255,0.04); border: 1px solid rgba(255,255,255,0.08); padding: 10px 12px; border-radius: 6px;">' +
             '<div style="font-size: 11px; font-weight: 700; color: #ffffff; text-transform: uppercase; margin-bottom: 2px;">' + escapeHtml(h.label || mk) + '</div>' +
             '<div style="font-size: 11px; font-weight: 600; color: #d4d4d4; margin-bottom: 4px;">' + escapeHtml(h.title || ('Como medir ' + (h.label || mk))) + '</div>' +
             '<div style="font-size: 11px; color: #a3a3a3; line-height: 1.4;">' + escapeHtml(h.description || 'Posicione a fita métrica confortavelmente ao redor da área sem apertar em demasia.') + '</div>' +
+            obsHtml +
           '</div>';
         }
 
@@ -934,6 +1567,43 @@
     }
   }
 
+  function applyPreviewConfigUpdate(payload) {
+    if (!payload || !payload.config) return;
+    configData = payload.config;
+    isPreviewSessionActive = true;
+
+    // Re-sync selectedType if present
+    if (selectedType && selectedType.id) {
+      var allTypes = (configData && configData.productTypes) || [];
+      for (var tIdx = 0; tIdx < allTypes.length; tIdx++) {
+        if (allTypes[tIdx].id === selectedType.id) {
+          selectedType = allTypes[tIdx];
+          break;
+        }
+      }
+    }
+
+    var target = findProductTargetElement();
+    if (target) {
+      renderTriggerButton(target);
+    }
+    var overlay = document.getElementById('zhaya-match-modal-overlay');
+    if (overlay && overlay.style.display !== 'none') {
+      renderModalContent();
+    }
+
+    try {
+      if (window.parent && window.parent !== window) {
+        var targetOrigin = (window.location && window.location.origin) ? window.location.origin : '*';
+        window.parent.postMessage({
+          type: 'ZHAYA_MATCH_PREVIEW_APPLIED',
+          revision: payload.revision,
+          sessionId: payload.sessionId
+        }, targetOrigin);
+      }
+    } catch (e) {}
+  }
+
   // Escuta de mensagens para preview em tempo real (Secure Preview Bridge)
   window.addEventListener('message', function(event) {
     if (!event.data) return;
@@ -943,40 +1613,31 @@
     }
 
     if (event.data.type === 'ZHAYA_MATCH_PREVIEW_CONFIG_UPDATE') {
-      if (event.data.config) {
-        configData = event.data.config;
+      applyPreviewConfigUpdate(event.data);
+    }
+  });
 
-        // Re-sync selectedType if present
-        if (selectedType && selectedType.id) {
-          var allTypes = (configData && configData.productTypes) || [];
-          for (var tIdx = 0; tIdx < allTypes.length; tIdx++) {
-            if (allTypes[tIdx].id === selectedType.id) {
-              selectedType = allTypes[tIdx];
-              break;
-            }
-          }
+  // Escuta BroadcastChannel para sincronização em tempo real em abas separadas
+  try {
+    if (typeof window.BroadcastChannel !== 'undefined') {
+      var bcChannel = new window.BroadcastChannel('zhaya-match-preview');
+      bcChannel.onmessage = function(ev) {
+        if (ev && ev.data && ev.data.type === 'ZHAYA_MATCH_PREVIEW_CONFIG_UPDATE') {
+          applyPreviewConfigUpdate(ev.data);
         }
+      };
+    }
+  } catch (e) {}
 
-        var target = findProductTargetElement();
-        if (target) {
-          renderTriggerButton(target);
+  // Fallback via evento storage
+  window.addEventListener('storage', function(ev) {
+    if (ev.key && ev.key.indexOf('zhaya_preview_snapshot_') === 0 && ev.newValue) {
+      try {
+        var snap = JSON.parse(ev.newValue);
+        if (snap && snap.appearance) {
+          applyPreviewConfigUpdate({ config: snap, revision: snap.revision, sessionId: snap.sessionId });
         }
-        var overlay = document.getElementById('zhaya-match-modal-overlay');
-        if (overlay && overlay.style.display !== 'none') {
-          renderModalContent();
-        }
-
-        try {
-          if (window.parent && window.parent !== window) {
-            var targetOrigin = (window.location && window.location.origin) ? window.location.origin : '*';
-            window.parent.postMessage({
-              type: 'ZHAYA_MATCH_PREVIEW_APPLIED',
-              revision: event.data.revision,
-              sessionId: event.data.sessionId
-            }, targetOrigin);
-          }
-        } catch (e) {}
-      }
+      } catch (err) {}
     }
   });
 

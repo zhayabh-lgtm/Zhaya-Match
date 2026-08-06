@@ -10,6 +10,7 @@ import { TiposEMedidas } from './pages/admin/TiposEMedidas';
 import { Aparencia } from './pages/admin/Aparencia';
 import { TextosEImagens } from './pages/admin/TextosEImagens';
 import { Visualizacao } from './pages/admin/Visualizacao';
+import { AnalyticsPage } from './pages/admin/Analytics';
 import { Configuracoes } from './pages/admin/Configuracoes';
 import { Preview } from './pages/Preview';
 
@@ -63,6 +64,16 @@ export default function App() {
                 <ProtectedRoute>
                   <AdminLayout>
                     <Visualizacao />
+                  </AdminLayout>
+                </ProtectedRoute>
+              }
+            />
+            <Route
+              path="/admin/analytics"
+              element={
+                <ProtectedRoute>
+                  <AdminLayout>
+                    <AnalyticsPage />
                   </AdminLayout>
                 </ProtectedRoute>
               }

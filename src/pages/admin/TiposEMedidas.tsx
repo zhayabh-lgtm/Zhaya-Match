@@ -1,9 +1,10 @@
 import React, { useState, useEffect } from 'react';
 import { Repository } from '../../lib/repository';
-import { ProductType, MeasurementKey, SizeRow } from '../../types/zhaya';
+import { ProductType, MeasurementKey, SizeRow, ProductCategory, ProductFitType } from '../../types/zhaya';
 import { Plus, Trash2, Copy, Check, Save, AlertCircle, RefreshCw, Image } from 'lucide-react';
 import { MediaUploader } from '../../components/admin/MediaUploader';
 import { useConfigDraft } from '../../context/ConfigDraftContext';
+import { parseNumber, getProductCategoryAndFit } from '../../domain/recommendation';
 import { detectMeasurementGroup } from '../../lib/measurementGroup';
 
 const ALL_MEASUREMENTS: { key: MeasurementKey; label: string }[] = [
@@ -16,6 +17,73 @@ const ALL_MEASUREMENTS: { key: MeasurementKey; label: string }[] = [
   { key: 'footLength', label: 'Comprimento do pé' },
   { key: 'footWidth', label: 'Largura do pé' },
 ];
+
+function validateProductTypes(typesList: ProductType[]): string | null {
+  for (const pt of typesList) {
+    if (!pt.active) continue;
+    if (!pt.name || !pt.name.trim()) {
+      return `O tipo ID ${pt.id} não possui nome.`;
+    }
+    if (pt.useIconInSelector && (!pt.iconUrl || !pt.iconUrl.trim())) {
+      return `O tipo "${pt.name}" está com a opção "Ícone e Nome" ativada, mas não possui imagem de ícone enviada. Envie o PNG/WebP personalizado ou altere para "Somente Texto".`;
+    }
+    if (!pt.measurements || pt.measurements.length === 0) {
+      return `O tipo "${pt.name}" precisa ter pelo menos 1 medida ativada.`;
+    }
+    if (!pt.sizes || pt.sizes.length === 0) {
+      return `O tipo "${pt.name}" precisa ter pelo menos 1 tamanho cadastrado.`;
+    }
+
+    const sortedSizes = [...pt.sizes].sort((a, b) => a.order - b.order);
+
+    for (const sizeRow of sortedSizes) {
+      for (const mKey of pt.measurements) {
+        const mLabel = ALL_MEASUREMENTS.find((m) => m.key === mKey)?.label || mKey;
+        const range = sizeRow.ranges?.[mKey];
+        if (!range) {
+          return `O tamanho "${sizeRow.label}" em "${pt.name}" não possui valores para a medida ${mLabel}.`;
+        }
+        const minVal = range.min !== undefined ? range.min : range.value;
+        const maxVal = range.max !== undefined ? range.max : range.value;
+
+        if (minVal === undefined || minVal === null || isNaN(minVal) || minVal <= 0) {
+          return `O tamanho "${sizeRow.label}" em "${pt.name}" possui Mínimo inválido para ${mLabel}.`;
+        }
+        if (maxVal === undefined || maxVal === null || isNaN(maxVal) || maxVal <= 0) {
+          return `O tamanho "${sizeRow.label}" em "${pt.name}" possui Máximo inválido para ${mLabel}.`;
+        }
+        if (minVal > maxVal) {
+          return `No tamanho "${sizeRow.label}" em "${pt.name}", a medida ${mLabel} tem Mínimo (${minVal}) maior que o Máximo (${maxVal}).`;
+        }
+      }
+    }
+
+    // Ascending order validation between size rows
+    for (const mKey of pt.measurements) {
+      const mLabel = ALL_MEASUREMENTS.find((m) => m.key === mKey)?.label || mKey;
+      for (let i = 0; i < sortedSizes.length - 1; i++) {
+        const s1 = sortedSizes[i];
+        const s2 = sortedSizes[i + 1];
+        const r1 = s1.ranges?.[mKey];
+        const r2 = s2.ranges?.[mKey];
+        if (r1 && r2) {
+          const min1 = r1.min !== undefined ? r1.min : r1.value;
+          const min2 = r2.min !== undefined ? r2.min : r2.value;
+          const max1 = r1.max !== undefined ? r1.max : r1.value;
+          const max2 = r2.max !== undefined ? r2.max : r2.value;
+
+          if (min2 !== undefined && min1 !== undefined && min2 < min1) {
+            return `Em "${pt.name}", a medida ${mLabel} no tamanho "${s2.label}" (Mín: ${min2}) não pode ser menor que no tamanho "${s1.label}" (Mín: ${min1}).`;
+          }
+          if (max2 !== undefined && max1 !== undefined && max2 < max1) {
+            return `Em "${pt.name}", a medida ${mLabel} no tamanho "${s2.label}" (Máx: ${max2}) não pode ser menor que no tamanho "${s1.label}" (Máx: ${max1}).`;
+          }
+        }
+      }
+    }
+  }
+  return null;
+}
 
 export const TiposEMedidas: React.FC = () => {
   const { replaceProductTypes } = useConfigDraft();
@@ -169,6 +237,13 @@ export const TiposEMedidas: React.FC = () => {
         typesToSave = typesToSave.map((pt) => (pt.id === activeType.id ? activeType : pt));
       }
 
+      const valErr = validateProductTypes(typesToSave);
+      if (valErr) {
+        setErrorMessage(valErr);
+        setSaving(false);
+        return;
+      }
+
       await Repository.saveProductTypes(typesToSave);
 
       const reloaded = await Repository.getProductTypes();
@@ -192,6 +267,15 @@ export const TiposEMedidas: React.FC = () => {
     }
   };
 
+  const updateActiveType = (updatedType: ProductType) => {
+    setActiveType(updatedType);
+    setTypes((prevTypes) => {
+      const updatedTypes = prevTypes.map((t) => (t.id === updatedType.id ? updatedType : t));
+      replaceProductTypes(updatedTypes);
+      return updatedTypes;
+    });
+  };
+
   const handleToggleMeasurement = (key: MeasurementKey) => {
     if (!activeType) return;
     const current = activeType.measurements || [];
@@ -201,7 +285,7 @@ export const TiposEMedidas: React.FC = () => {
     } else {
       updatedKeys = [...current, key];
     }
-    setActiveType({ ...activeType, measurements: updatedKeys });
+    updateActiveType({ ...activeType, measurements: updatedKeys });
   };
 
   const handleAddSizeRow = () => {
@@ -215,7 +299,7 @@ export const TiposEMedidas: React.FC = () => {
     activeType.measurements.forEach((k) => {
       newRow.ranges[k] = { min: 90, max: 98 };
     });
-    setActiveType({ ...activeType, sizes: [...activeType.sizes, newRow] });
+    updateActiveType({ ...activeType, sizes: [...activeType.sizes, newRow] });
   };
 
   const handleDuplicateSizeRow = (idx: number) => {
@@ -229,30 +313,41 @@ export const TiposEMedidas: React.FC = () => {
     };
     const updatedSizes = [...activeType.sizes];
     updatedSizes.splice(idx + 1, 0, newRow);
-    setActiveType({ ...activeType, sizes: updatedSizes });
+    updateActiveType({ ...activeType, sizes: updatedSizes });
   };
 
   const handleRemoveSizeRow = (idx: number) => {
     if (!activeType) return;
     const updated = activeType.sizes.filter((_, i) => i !== idx);
-    setActiveType({ ...activeType, sizes: updated });
+    updateActiveType({ ...activeType, sizes: updated });
   };
 
-  const handleSingleValueChange = (
+  const handleRangeChange = (
     sizeIdx: number,
     key: MeasurementKey,
-    val: number
+    field: 'min' | 'max',
+    valStr: string
   ) => {
     if (!activeType) return;
     const updatedSizes = [...activeType.sizes];
     const row = { ...updatedSizes[sizeIdx] };
     const ranges = { ...(row.ranges || {}) };
-    const numVal = isNaN(val) ? 0 : val;
-    // Set value, min, and max for full backwards & forwards compatibility
-    ranges[key] = { value: numVal, min: numVal, max: numVal };
+    const currentRange = { ...(ranges[key] || {}) };
+
+    const parsed = parseNumber(valStr);
+
+    if (field === 'min') {
+      currentRange.min = parsed !== null ? parsed : (valStr as any);
+    } else {
+      currentRange.max = parsed !== null ? parsed : (valStr as any);
+    }
+
+    delete currentRange.value;
+
+    ranges[key] = currentRange;
     row.ranges = ranges;
     updatedSizes[sizeIdx] = row;
-    setActiveType({ ...activeType, sizes: updatedSizes });
+    updateActiveType({ ...activeType, sizes: updatedSizes });
   };
 
   return (
@@ -369,7 +464,7 @@ export const TiposEMedidas: React.FC = () => {
                       type="text"
                       value={activeType.name}
                       onChange={(e) =>
-                        setActiveType({ ...activeType, name: e.target.value })
+                        updateActiveType({ ...activeType, name: e.target.value })
                       }
                       className="w-full bg-neutral-50 border border-neutral-200 rounded-md px-3 py-2 text-sm font-semibold text-neutral-900 focus:outline-none focus:border-neutral-900"
                     />
@@ -441,6 +536,40 @@ export const TiposEMedidas: React.FC = () => {
                     );
                   })()}
 
+                  {/* Category and Fit Selectors */}
+                  <div className="grid grid-cols-2 gap-3 p-3 bg-neutral-50 border border-neutral-200 rounded-lg">
+                    <div>
+                      <label className="text-xs font-bold text-neutral-800 uppercase tracking-wider block mb-1">
+                        Categoria do Produto
+                      </label>
+                      <select
+                        value={activeType.category || getProductCategoryAndFit(activeType).category}
+                        onChange={(e) => updateActiveType({ ...activeType, category: e.target.value as ProductCategory })}
+                        className="w-full bg-white border border-neutral-200 rounded-md p-2 text-xs font-medium text-neutral-900 focus:border-neutral-900 focus:outline-none"
+                      >
+                        <option value="upper_body">Parte Superior (Camisetas, Jaquetas, Blusas)</option>
+                        <option value="lower_body">Parte Inferior (Calças, Bermudas, Saias)</option>
+                        <option value="full_body">Corpo Inteiro (Macacões, Vestidos)</option>
+                        <option value="footwear">Calçados (Sapatos, Tênis, Botas)</option>
+                        <option value="generic">Genérico / Outros</option>
+                      </select>
+                    </div>
+                    <div>
+                      <label className="text-xs font-bold text-neutral-800 uppercase tracking-wider block mb-1">
+                        Tipo de Caimento
+                      </label>
+                      <select
+                        value={activeType.fitType || getProductCategoryAndFit(activeType).fitType}
+                        onChange={(e) => updateActiveType({ ...activeType, fitType: e.target.value as ProductFitType })}
+                        className="w-full bg-white border border-neutral-200 rounded-md p-2 text-xs font-medium text-neutral-900 focus:border-neutral-900 focus:outline-none"
+                      >
+                        <option value="regular">Padrão / Regular (Equilibrado)</option>
+                        <option value="fitted">Ajustado / Slim Fit (Modelagem justa)</option>
+                        <option value="oversized">Oversized / Amplo (Modelagem solta)</option>
+                      </select>
+                    </div>
+                  </div>
+
                   {/* Icon Selector Option Block */}
                   <div className="border border-neutral-200 rounded-lg p-4 bg-neutral-50/50 space-y-3">
                     <div className="flex items-center justify-between">
@@ -455,7 +584,7 @@ export const TiposEMedidas: React.FC = () => {
                       <div className="flex items-center gap-1.5 bg-neutral-200 p-1 rounded-md">
                         <button
                           type="button"
-                          onClick={() => setActiveType({ ...activeType, useIconInSelector: false })}
+                          onClick={() => updateActiveType({ ...activeType, useIconInSelector: false })}
                           className={`px-3 py-1 rounded text-xs font-bold transition-all cursor-pointer ${
                             !activeType.useIconInSelector
                               ? 'bg-neutral-900 text-white shadow-xs'
@@ -466,7 +595,7 @@ export const TiposEMedidas: React.FC = () => {
                         </button>
                         <button
                           type="button"
-                          onClick={() => setActiveType({ ...activeType, useIconInSelector: true })}
+                          onClick={() => updateActiveType({ ...activeType, useIconInSelector: true })}
                           className={`px-3 py-1 rounded text-xs font-bold transition-all cursor-pointer ${
                             activeType.useIconInSelector
                               ? 'bg-neutral-900 text-white shadow-xs'
@@ -485,8 +614,15 @@ export const TiposEMedidas: React.FC = () => {
                           label={`Ícone para ${activeType.name} (Proporção 1:1, rec. 500x500px)`}
                           description="Imagem limpa sem moldura, fundo transparente (PNG/WebP), proporção 1:1 e sem cortes."
                           value={activeType.iconUrl}
-                          onChange={(url) => setActiveType({ ...activeType, iconUrl: url })}
+                          onChange={(url) => updateActiveType({ ...activeType, iconUrl: url })}
                         />
+
+                        {!activeType.iconUrl && (
+                          <div className="p-2.5 bg-amber-50 border border-amber-200 rounded-md text-amber-900 text-[11px] flex items-center gap-2">
+                            <AlertCircle className="w-3.5 h-3.5 text-amber-600 shrink-0" />
+                            <span>Aviso: É necessário enviar um arquivo PNG/WebP com fundo transparente para utilizar a opção "Ícone e Nome", ou altere para "Somente Texto".</span>
+                          </div>
+                        )}
 
                         {activeType.iconUrl && (
                           <div className="flex items-center gap-3 bg-white p-3 rounded-md border border-neutral-200">
@@ -556,7 +692,7 @@ export const TiposEMedidas: React.FC = () => {
                         2. Tabela de Tamanhos
                       </h3>
                       <p className="text-xs text-neutral-500 mt-0.5">
-                        Informe o intervalo em centímetros de cada tamanho para as medidas ativas:
+                        Informe os intervalos Mínimo e Máximo em cm para cada tamanho (aceita números decimais ex: 22,5 ou 94.5):
                       </p>
                     </div>
                     <button
@@ -576,8 +712,12 @@ export const TiposEMedidas: React.FC = () => {
                           {activeType.measurements?.map((mKey) => {
                             const mInfo = ALL_MEASUREMENTS.find((m) => m.key === mKey);
                             return (
-                              <th key={mKey} className="p-2.5 font-bold text-center border-l border-neutral-200">
-                                {mInfo?.label || mKey} (cm)
+                              <th key={mKey} className="p-2.5 font-bold text-center border-l border-neutral-200 min-w-[150px]">
+                                <div>{mInfo?.label || mKey} (cm)</div>
+                                <div className="text-[10px] font-normal text-neutral-500 flex justify-center gap-8 mt-0.5">
+                                  <span>Mín.</span>
+                                  <span>Máx.</span>
+                                </div>
                               </th>
                             );
                           })}
@@ -594,7 +734,7 @@ export const TiposEMedidas: React.FC = () => {
                                 onChange={(e) => {
                                   const updated = [...activeType.sizes];
                                   updated[idx].label = e.target.value;
-                                  setActiveType({ ...activeType, sizes: updated });
+                                  updateActiveType({ ...activeType, sizes: updated });
                                 }}
                                 className="w-16 bg-white border border-neutral-200 rounded px-2 py-1 text-xs font-bold text-neutral-900 text-center"
                               />
@@ -602,18 +742,42 @@ export const TiposEMedidas: React.FC = () => {
 
                             {activeType.measurements?.map((mKey) => {
                               const range = sizeRow.ranges?.[mKey] || {};
-                              const displayVal = range.value !== undefined ? range.value : (range.min !== undefined ? range.min : '');
+                              const minVal = range.min !== undefined ? range.min : (range.value !== undefined ? range.value : '');
+                              const maxVal = range.max !== undefined ? range.max : (range.value !== undefined ? range.value : '');
+
+                              const parsedMin = parseNumber(minVal);
+                              const parsedMax = parseNumber(maxVal);
+
+                              const hasMinErr = minVal === '' || parsedMin === null || parsedMin <= 0;
+                              const hasMaxErr = maxVal === '' || parsedMax === null || parsedMax <= 0;
+                              const isMinGreater = !hasMinErr && !hasMaxErr && parsedMin > parsedMax;
+                              const cellHasErr = hasMinErr || hasMaxErr || isMinGreater;
+
                               return (
-                                <td key={mKey} className="p-1.5 border-l border-neutral-200 text-center">
-                                  <input
-                                    type="number"
-                                    value={displayVal}
-                                    placeholder="ex: 88"
-                                    onChange={(e) =>
-                                      handleSingleValueChange(idx, mKey, parseFloat(e.target.value))
-                                    }
-                                    className="w-24 bg-white border border-neutral-200 rounded px-2 py-1 text-xs text-center font-medium text-neutral-900 focus:border-neutral-900 focus:outline-none"
-                                  />
+                                <td key={mKey} className={`p-1.5 border-l border-neutral-200 text-center ${cellHasErr ? 'bg-red-50/50' : ''}`}>
+                                  <div className="flex items-center gap-1 justify-center">
+                                    <input
+                                      type="text"
+                                      inputMode="decimal"
+                                      value={minVal}
+                                      placeholder="Mín"
+                                      onChange={(e) => handleRangeChange(idx, mKey, 'min', e.target.value)}
+                                      className={`w-14 bg-white border rounded px-1.5 py-1 text-xs text-center font-medium ${
+                                        hasMinErr || isMinGreater ? 'border-red-500 text-red-900 bg-red-50' : 'border-neutral-200 text-neutral-900'
+                                      }`}
+                                    />
+                                    <span className="text-neutral-400 text-[10px]">-</span>
+                                    <input
+                                      type="text"
+                                      inputMode="decimal"
+                                      value={maxVal}
+                                      placeholder="Máx"
+                                      onChange={(e) => handleRangeChange(idx, mKey, 'max', e.target.value)}
+                                      className={`w-14 bg-white border rounded px-1.5 py-1 text-xs text-center font-medium ${
+                                        hasMaxErr || isMinGreater ? 'border-red-500 text-red-900 bg-red-50' : 'border-neutral-200 text-neutral-900'
+                                      }`}
+                                    />
+                                  </div>
                                 </td>
                               );
                             })}

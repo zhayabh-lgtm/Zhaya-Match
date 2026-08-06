@@ -6,6 +6,7 @@ import { Repository } from '../../lib/repository';
 export type MediaCategory =
   | 'logos'
   | 'product-types'
+  | 'product-type-icons'
   | 'measurement-guides'
   | 'main-images'
   | 'backgrounds-desktop'
@@ -61,6 +62,16 @@ const CATEGORY_CONFIG: Record<
     recommendedRatio: '4:5 (Vertical)',
     minDim: { w: 800, h: 1000 },
     ratioRange: { min: 0.72, max: 0.88 },
+  },
+  'product-type-icons': {
+    folder: 'product-type-icons',
+    label: 'Ícone do Tipo de Peça (PNG transparente recomendado)',
+    accept: 'image/png,image/webp',
+    maxSizeMB: 2,
+    recommendedDim: '500 × 500 px (Mín: 256 × 256 px)',
+    recommendedRatio: '1:1 (Quadrado)',
+    minDim: { w: 256, h: 256 },
+    ratioRange: { min: 0.8, max: 1.2 },
   },
   'measurement-guides': {
     folder: 'measurement-guides',
@@ -128,6 +139,17 @@ export const MediaUploader: React.FC<MediaUploaderProps> = ({
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [validationDetails, setValidationDetails] = useState<string | null>(null);
   const [showAdvancedUrl, setShowAdvancedUrl] = useState(false);
+
+  if (!config) {
+    if (process.env.NODE_ENV !== 'production') {
+      console.error(`[MediaUploader] Categoria de mídia inválida recebida: "${category}"`);
+    }
+    return (
+      <div className="p-3 bg-red-500/10 border border-red-500/30 rounded-lg text-red-600 dark:text-red-400 text-xs font-mono">
+        Categoria de mídia inválida ({String(category)}).
+      </div>
+    );
+  }
 
   const isFont = category === 'fonts';
 

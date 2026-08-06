@@ -6,8 +6,11 @@ import {
   AppConfig,
   MeasurementKey,
   MediaAsset,
+  MeasurementObservation,
+  PeriodType,
 } from '../types/zhaya';
 import { supabase, isSupabaseConfigured } from './supabase';
+import { normalizeMeasurementObservation } from './normalize';
 
 // Default initial values used for database seed or initial state
 export const defaultProductTypes: ProductType[] = [
@@ -569,6 +572,55 @@ function ensureSupabase() {
   return supabase;
 }
 
+async function executeWithRetry<T = any>(
+  queryFn: () => PromiseLike<{ data: T | null; error: any }>,
+  retries = 3,
+  delayMs = 800
+): Promise<{ data: T | null; error: any }> {
+  let lastResult: { data: T | null; error: any } = { data: null, error: null };
+  for (let attempt = 0; attempt < retries; attempt++) {
+    lastResult = (await queryFn()) as { data: T | null; error: any };
+    if (!lastResult.error) {
+      return lastResult;
+    }
+    const errMsg = String(lastResult.error?.message || lastResult.error || '');
+    const errCode = lastResult.error?.code;
+    const isJwtFuture = errMsg.includes('JWT issued at future') || errCode === 'PGRST301';
+
+    if (isJwtFuture && attempt < retries - 1) {
+      console.warn(`[Supabase] JWT issued at future detectado (tentativa ${attempt + 1}/${retries}). Aguardando ${delayMs}ms para sincronização do tempo...`);
+      await new Promise((r) => setTimeout(r, delayMs));
+      continue;
+    }
+    break;
+  }
+  return lastResult;
+}
+
+async function runWithRetry<T>(
+  actionFn: () => Promise<T>,
+  retries = 3,
+  delayMs = 800
+): Promise<T> {
+  let lastError: any;
+  for (let attempt = 0; attempt < retries; attempt++) {
+    try {
+      return await actionFn();
+    } catch (err: any) {
+      lastError = err;
+      const msg = String(err?.message || err || '');
+      const isJwtFuture = msg.includes('JWT issued at future') || err?.code === 'PGRST301';
+      if (isJwtFuture && attempt < retries - 1) {
+        console.warn(`[Supabase] JWT issued at future na escrita (tentativa ${attempt + 1}/${retries}). Aguardando ${delayMs}ms...`);
+        await new Promise((r) => setTimeout(r, delayMs));
+        continue;
+      }
+      throw err;
+    }
+  }
+  throw lastError;
+}
+
 let cachedAppearance: PopupAppearance | null = null;
 
 export const Repository = {
@@ -578,21 +630,21 @@ export const Repository = {
       return defaultProductTypes;
     }
     const client = ensureSupabase();
-    const { data, error } = await client
-      .from('product_types')
-      .select('*')
-      .order('sort_order', { ascending: true });
+    const { data, error } = await executeWithRetry<any[]>(async () =>
+      await client.from('product_types').select('*').order('sort_order', { ascending: true })
+    );
 
     if (error) {
-      console.error('Erro ao buscar tipos de produtos:', error);
-      throw new Error(`Falha ao buscar tipos de produtos: ${error.message}`);
-    }
-
-    if (!data || data.length === 0) {
+      console.warn('Erro ao buscar tipos de produtos no Supabase (usando dados padrão):', error.message || error);
       return defaultProductTypes;
     }
 
-    return data.map((row) => ({
+    const rows = (data || []) as any[];
+    if (rows.length === 0) {
+      return defaultProductTypes;
+    }
+
+    return rows.map((row: any) => ({
       id: row.id,
       name: row.name,
       active: row.active ?? true,
@@ -608,102 +660,108 @@ export const Repository = {
   },
 
   async saveProductType(pt: ProductType): Promise<ProductType> {
-    const client = ensureSupabase();
-    const dbPayload: Record<string, any> = {
-      id: pt.id,
-      name: pt.name,
-      active: pt.active,
-      sort_order: pt.order,
-      image_url: pt.imageUrl || null,
-      icon_url: pt.iconUrl || null,
-      use_icon_in_selector: pt.useIconInSelector ?? false,
-      measurement_image_url: pt.measurementImageUrl || null,
-      measurement_image_caption: pt.measurementImageCaption || null,
-      measurements: pt.measurements,
-      sizes: pt.sizes,
-    };
+    return runWithRetry(async () => {
+      const client = ensureSupabase();
+      const dbPayload: Record<string, any> = {
+        id: pt.id,
+        name: pt.name,
+        active: pt.active,
+        sort_order: pt.order,
+        image_url: pt.imageUrl || null,
+        icon_url: pt.iconUrl || null,
+        use_icon_in_selector: pt.useIconInSelector ?? false,
+        measurement_image_url: pt.measurementImageUrl || null,
+        measurement_image_caption: pt.measurementImageCaption || null,
+        measurements: pt.measurements,
+        sizes: pt.sizes,
+      };
 
-    let { error } = await client.from('product_types').upsert(dbPayload);
+      let { error } = await client.from('product_types').upsert(dbPayload);
 
-    if (
-      error &&
-      (error.message?.includes('icon_url') ||
-        error.message?.includes('use_icon_in_selector') ||
-        error.code === 'PGRST204')
-    ) {
-      console.warn(
-        'Coluna icon_url ou use_icon_in_selector não encontrada na tabela product_types do Supabase. Salvando sem esses campos...',
-        error.message
-      );
-      delete dbPayload.icon_url;
-      delete dbPayload.use_icon_in_selector;
-      const fallbackRes = await client.from('product_types').upsert(dbPayload);
-      error = fallbackRes.error;
-    }
+      if (
+        error &&
+        (error.message?.includes('icon_url') ||
+          error.message?.includes('use_icon_in_selector') ||
+          error.code === 'PGRST204')
+      ) {
+        console.warn(
+          'Coluna icon_url ou use_icon_in_selector não encontrada na tabela product_types do Supabase. Salvando sem esses campos...',
+          error.message
+        );
+        delete dbPayload.icon_url;
+        delete dbPayload.use_icon_in_selector;
+        const fallbackRes = await client.from('product_types').upsert(dbPayload);
+        error = fallbackRes.error;
+      }
 
-    if (error) {
-      console.error('Erro ao salvar tipo de produto:', error);
-      throw new Error(`Falha ao salvar no banco de dados: ${error.message}`);
-    }
+      if (error) {
+        console.error('Erro ao salvar tipo de produto:', error);
+        throw new Error(`Falha ao salvar no banco de dados: ${error.message}`);
+      }
 
-    return pt;
+      return pt;
+    });
   },
 
   async saveProductTypes(typesList: ProductType[]): Promise<ProductType[]> {
     if (!typesList || typesList.length === 0) return [];
-    const client = ensureSupabase();
-    const dbPayloads: Record<string, any>[] = typesList.map((pt) => ({
-      id: pt.id,
-      name: pt.name,
-      active: pt.active,
-      sort_order: pt.order,
-      image_url: pt.imageUrl || null,
-      icon_url: pt.iconUrl || null,
-      use_icon_in_selector: pt.useIconInSelector ?? false,
-      measurement_image_url: pt.measurementImageUrl || null,
-      measurement_image_caption: pt.measurementImageCaption || null,
-      measurements: pt.measurements,
-      sizes: pt.sizes,
-    }));
+    return runWithRetry(async () => {
+      const client = ensureSupabase();
+      const dbPayloads: Record<string, any>[] = typesList.map((pt) => ({
+        id: pt.id,
+        name: pt.name,
+        active: pt.active,
+        sort_order: pt.order,
+        image_url: pt.imageUrl || null,
+        icon_url: pt.iconUrl || null,
+        use_icon_in_selector: pt.useIconInSelector ?? false,
+        measurement_image_url: pt.measurementImageUrl || null,
+        measurement_image_caption: pt.measurementImageCaption || null,
+        measurements: pt.measurements,
+        sizes: pt.sizes,
+      }));
 
-    let { error } = await client.from('product_types').upsert(dbPayloads);
+      let { error } = await client.from('product_types').upsert(dbPayloads);
 
-    if (
-      error &&
-      (error.message?.includes('icon_url') ||
-        error.message?.includes('use_icon_in_selector') ||
-        error.code === 'PGRST204')
-    ) {
-      console.warn(
-        'Coluna icon_url ou use_icon_in_selector não encontrada na tabela product_types do Supabase. Salvando sem esses campos...',
-        error.message
-      );
-      const fallbackPayloads = dbPayloads.map((payload) => {
-        const copy = { ...payload };
-        delete copy.icon_url;
-        delete copy.use_icon_in_selector;
-        return copy;
-      });
-      const fallbackRes = await client.from('product_types').upsert(fallbackPayloads);
-      error = fallbackRes.error;
-    }
+      if (
+        error &&
+        (error.message?.includes('icon_url') ||
+          error.message?.includes('use_icon_in_selector') ||
+          error.code === 'PGRST204')
+      ) {
+        console.warn(
+          'Coluna icon_url ou use_icon_in_selector não encontrada na tabela product_types do Supabase. Salvando sem esses campos...',
+          error.message
+        );
+        const fallbackPayloads = dbPayloads.map((payload) => {
+          const copy = { ...payload };
+          delete copy.icon_url;
+          delete copy.use_icon_in_selector;
+          return copy;
+        });
+        const fallbackRes = await client.from('product_types').upsert(fallbackPayloads);
+        error = fallbackRes.error;
+      }
 
-    if (error) {
-      console.error('Erro ao salvar tipos de produtos em lote:', error);
-      throw new Error(`Falha ao salvar tipos de peças no banco de dados: ${error.message}`);
-    }
+      if (error) {
+        console.error('Erro ao salvar tipos de produtos em lote:', error);
+        throw new Error(`Falha ao salvar tipos de peças no banco de dados: ${error.message}`);
+      }
 
-    return typesList;
+      return typesList;
+    });
   },
 
   async deleteProductType(id: string): Promise<void> {
-    const client = ensureSupabase();
-    const { error } = await client.from('product_types').delete().eq('id', id);
+    return runWithRetry(async () => {
+      const client = ensureSupabase();
+      const { error } = await client.from('product_types').delete().eq('id', id);
 
-    if (error) {
-      console.error('Erro ao excluir tipo de produto:', error);
-      throw new Error(`Falha ao excluir no banco de dados: ${error.message}`);
-    }
+      if (error) {
+        console.error('Erro ao excluir tipo de produto:', error);
+        throw new Error(`Falha ao excluir no banco de dados: ${error.message}`);
+      }
+    });
   },
 
   // Appearance
@@ -716,15 +774,19 @@ export const Repository = {
       return defaultAppearance;
     }
     const client = ensureSupabase();
-    const { data, error } = await client.from('popup_settings').select('*').limit(1);
+    const { data, error } = await executeWithRetry<any[]>(async () =>
+      await client.from('popup_settings').select('*').limit(1)
+    );
 
     if (error) {
-      console.error('Erro ao buscar configurações de aparência:', error);
-      throw new Error(`Falha ao buscar aparência: ${error.message}`);
+      console.warn('Erro ao buscar configurações de aparência (usando padrão):', error.message || error);
+      cachedAppearance = defaultAppearance;
+      return defaultAppearance;
     }
 
-    if (data && data.length > 0) {
-      cachedAppearance = data[0].settings as PopupAppearance;
+    const rows = (data || []) as any[];
+    if (rows.length > 0) {
+      cachedAppearance = rows[0].settings as PopupAppearance;
       return cachedAppearance;
     }
 
@@ -733,32 +795,34 @@ export const Repository = {
   },
 
   async saveAppearance(app: PopupAppearance): Promise<PopupAppearance> {
-    const client = ensureSupabase();
-    const { data: existing } = await client.from('popup_settings').select('id').limit(1);
+    return runWithRetry(async () => {
+      const client = ensureSupabase();
+      const { data: existing } = await client.from('popup_settings').select('id').limit(1);
 
-    if (existing && existing.length > 0) {
-      const { error } = await client
-        .from('popup_settings')
-        .update({ settings: app })
-        .eq('id', existing[0].id);
+      if (existing && existing.length > 0) {
+        const { error } = await client
+          .from('popup_settings')
+          .update({ settings: app })
+          .eq('id', existing[0].id);
 
-      if (error) {
-        console.error('Erro ao atualizar aparência:', error);
-        throw new Error(`Falha ao atualizar aparência: ${error.message}`);
+        if (error) {
+          console.error('Erro ao atualizar aparência:', error);
+          throw new Error(`Falha ao atualizar aparência: ${error.message}`);
+        }
+      } else {
+        const { error } = await client
+          .from('popup_settings')
+          .insert({ settings: app, version: 1 });
+
+        if (error) {
+          console.error('Erro ao inserir aparência:', error);
+          throw new Error(`Falha ao salvar aparência: ${error.message}`);
+        }
       }
-    } else {
-      const { error } = await client
-        .from('popup_settings')
-        .insert({ settings: app, version: 1 });
 
-      if (error) {
-        console.error('Erro ao inserir aparência:', error);
-        throw new Error(`Falha ao salvar aparência: ${error.message}`);
-      }
-    }
-
-    cachedAppearance = app;
-    return app;
+      cachedAppearance = app;
+      return app;
+    });
   },
 
   // Texts
@@ -767,44 +831,49 @@ export const Repository = {
       return defaultTexts;
     }
     const client = ensureSupabase();
-    const { data, error } = await client.from('text_settings').select('*').limit(1);
+    const { data, error } = await executeWithRetry<any[]>(async () =>
+      await client.from('text_settings').select('*').limit(1)
+    );
 
     if (error) {
-      console.error('Erro ao buscar textos:', error);
-      throw new Error(`Falha ao buscar textos: ${error.message}`);
+      console.warn('Erro ao buscar textos (usando padrão):', error.message || error);
+      return defaultTexts;
     }
 
-    if (data && data.length > 0) {
-      return data[0].settings as TextSettings;
+    const rows = (data || []) as any[];
+    if (rows.length > 0) {
+      return rows[0].settings as TextSettings;
     }
 
     return defaultTexts;
   },
 
   async saveTexts(txt: TextSettings): Promise<TextSettings> {
-    const client = ensureSupabase();
-    const { data: existing } = await client.from('text_settings').select('id').limit(1);
+    return runWithRetry(async () => {
+      const client = ensureSupabase();
+      const { data: existing } = await client.from('text_settings').select('id').limit(1);
 
-    if (existing && existing.length > 0) {
-      const { error } = await client
-        .from('text_settings')
-        .update({ settings: txt })
-        .eq('id', existing[0].id);
+      if (existing && existing.length > 0) {
+        const { error } = await client
+          .from('text_settings')
+          .update({ settings: txt })
+          .eq('id', existing[0].id);
 
-      if (error) {
-        console.error('Erro ao atualizar textos:', error);
-        throw new Error(`Falha ao atualizar textos: ${error.message}`);
+        if (error) {
+          console.error('Erro ao atualizar textos:', error);
+          throw new Error(`Falha ao atualizar textos: ${error.message}`);
+        }
+      } else {
+        const { error } = await client.from('text_settings').insert({ settings: txt });
+
+        if (error) {
+          console.error('Erro ao inserir textos:', error);
+          throw new Error(`Falha ao salvar textos: ${error.message}`);
+        }
       }
-    } else {
-      const { error } = await client.from('text_settings').insert({ settings: txt });
 
-      if (error) {
-        console.error('Erro ao inserir textos:', error);
-        throw new Error(`Falha ao salvar textos: ${error.message}`);
-      }
-    }
-
-    return txt;
+      return txt;
+    });
   },
 
   // Measurement Helps / Guides
@@ -813,26 +882,31 @@ export const Repository = {
       return defaultMeasurementHelps;
     }
     const client = ensureSupabase();
-    const { data, error } = await client.from('measurement_guides').select('*');
+    const { data, error } = await executeWithRetry<any[]>(async () =>
+      await client.from('measurement_guides').select('*')
+    );
 
     if (error) {
-      console.error('Erro ao buscar guias de medição:', error);
-      throw new Error(`Falha ao buscar guias de medição: ${error.message}`);
+      console.warn('Erro ao buscar guias de medição (usando padrão):', error.message || error);
+      return defaultMeasurementHelps;
     }
 
-    if (!data || data.length === 0) {
+    const rows = (data || []) as any[];
+    if (rows.length === 0) {
       return defaultMeasurementHelps;
     }
 
     const result: Record<string, MeasurementHelp> = { ...defaultMeasurementHelps };
-    for (const row of data) {
+    for (const row of rows) {
       if (row.measurement_key) {
+        const rawObs = Array.isArray(row.observations) ? row.observations : [];
         result[row.measurement_key as MeasurementKey] = {
           key: row.measurement_key as MeasurementKey,
           label: row.label,
           title: row.title,
           description: row.description || '',
           imageUrl: row.image_url || undefined,
+          observations: rawObs.map(normalizeMeasurementObservation),
         };
       }
     }
@@ -841,26 +915,60 @@ export const Repository = {
   },
 
   async saveMeasurementHelp(key: MeasurementKey, help: MeasurementHelp): Promise<Record<MeasurementKey, MeasurementHelp>> {
-    const client = ensureSupabase();
-    const payload = {
-      measurement_key: key,
-      label: help.label,
-      title: help.title,
-      description: help.description,
-      image_url: help.imageUrl || null,
-      active: true,
-    };
+    return runWithRetry(async () => {
+      const client = ensureSupabase();
+      const payload = {
+        measurement_key: key,
+        label: help.label,
+        title: help.title,
+        description: help.description,
+        image_url: help.imageUrl || null,
+        observations: help.observations || [],
+        active: true,
+      };
 
-    const { error } = await client
-      .from('measurement_guides')
-      .upsert(payload, { onConflict: 'measurement_key' });
+      const { error } = await client
+        .from('measurement_guides')
+        .upsert(payload, { onConflict: 'measurement_key' });
 
-    if (error) {
-      console.error('Erro ao salvar guia de medição:', error);
-      throw new Error(`Falha ao salvar guia de medição: ${error.message}`);
+      if (error) {
+        console.error('Erro ao salvar guia de medição:', error);
+        throw new Error(`Falha ao salvar guia de medição: ${error.message}`);
+      }
+
+      return this.getMeasurementHelps();
+    });
+  },
+
+  async saveMeasurementHelps(helpsMap: Record<MeasurementKey, MeasurementHelp>): Promise<Record<MeasurementKey, MeasurementHelp>> {
+    if (!isSupabaseConfigured || !supabase) {
+      return helpsMap;
     }
+    return runWithRetry(async () => {
+      const client = ensureSupabase();
+      const payloads = Object.entries(helpsMap).map(([key, help]) => ({
+        measurement_key: key,
+        label: help.label,
+        title: help.title,
+        description: help.description || '',
+        image_url: help.imageUrl || null,
+        observations: help.observations || [],
+        active: true,
+      }));
 
-    return this.getMeasurementHelps();
+      if (payloads.length === 0) return helpsMap;
+
+      const { error } = await client
+        .from('measurement_guides')
+        .upsert(payloads, { onConflict: 'measurement_key' });
+
+      if (error) {
+        console.error('Erro ao salvar guias de medição em lote:', error);
+        throw new Error(`Falha ao salvar guias de medição: ${error.message}`);
+      }
+
+      return this.getMeasurementHelps();
+    });
   },
 
   // App Config
@@ -869,15 +977,18 @@ export const Repository = {
       return defaultAppConfig;
     }
     const client = ensureSupabase();
-    const { data, error } = await client.from('app_settings').select('*').limit(1);
+    const { data, error } = await executeWithRetry<any[]>(async () =>
+      await client.from('app_settings').select('*').limit(1)
+    );
 
     if (error) {
-      console.error('Erro ao buscar configurações do app:', error);
-      throw new Error(`Falha ao buscar configurações: ${error.message}`);
+      console.warn('Erro ao buscar configurações do app (usando padrão):', error.message || error);
+      return defaultAppConfig;
     }
 
-    if (data && data.length > 0) {
-      const row = data[0];
+    const rows = (data || []) as any[];
+    if (rows.length > 0) {
+      const row = rows[0];
       return {
         enabled: row.enabled ?? true,
         widgetUrl: row.widget_url || '/widget.js',
@@ -893,38 +1004,40 @@ export const Repository = {
   },
 
   async saveConfig(cfg: AppConfig): Promise<AppConfig> {
-    const client = ensureSupabase();
-    const { data: existing } = await client.from('app_settings').select('id, version').limit(1);
+    return runWithRetry(async () => {
+      const client = ensureSupabase();
+      const { data: existing } = await client.from('app_settings').select('id, version').limit(1);
 
-    const newVersion = ((existing && existing[0] && existing[0].version) || 1) + 1;
-    const payload = {
-      enabled: cfg.enabled,
-      widget_url: cfg.widgetUrl,
-      test_mode: cfg.testMode,
-      allowed_domains: cfg.allowedDomains || ['zhaya.com.br', 'www.zhaya.com.br'],
-      version: newVersion,
-    };
+      const newVersion = ((existing && existing[0] && existing[0].version) || 1) + 1;
+      const payload = {
+        enabled: cfg.enabled,
+        widget_url: cfg.widgetUrl,
+        test_mode: cfg.testMode,
+        allowed_domains: cfg.allowedDomains || ['zhaya.com.br', 'www.zhaya.com.br'],
+        version: newVersion,
+      };
 
-    if (existing && existing.length > 0) {
-      const { error } = await client
-        .from('app_settings')
-        .update(payload)
-        .eq('id', existing[0].id);
+      if (existing && existing.length > 0) {
+        const { error } = await client
+          .from('app_settings')
+          .update(payload)
+          .eq('id', existing[0].id);
 
-      if (error) {
-        console.error('Erro ao atualizar configurações:', error);
-        throw new Error(`Falha ao atualizar configurações: ${error.message}`);
+        if (error) {
+          console.error('Erro ao atualizar configurações:', error);
+          throw new Error(`Falha ao atualizar configurações: ${error.message}`);
+        }
+      } else {
+        const { error } = await client.from('app_settings').insert(payload);
+
+        if (error) {
+          console.error('Erro ao salvar configurações:', error);
+          throw new Error(`Falha ao salvar configurações: ${error.message}`);
+        }
       }
-    } else {
-      const { error } = await client.from('app_settings').insert(payload);
 
-      if (error) {
-        console.error('Erro ao salvar configurações:', error);
-        throw new Error(`Falha ao salvar configurações: ${error.message}`);
-      }
-    }
-
-    return { ...cfg, version: newVersion };
+      return { ...cfg, version: newVersion };
+    });
   },
 
   // Media Assets
@@ -936,29 +1049,31 @@ export const Repository = {
         created_at: new Date().toISOString(),
       };
     }
-    const client = ensureSupabase();
-    const { data, error } = await client
-      .from('media_assets')
-      .insert({
-        name: asset.name,
-        category: asset.category,
-        storage_path: asset.storage_path,
-        public_url: asset.public_url,
-        mime_type: asset.mime_type,
-        width: asset.width || null,
-        height: asset.height || null,
-        file_size: asset.file_size || null,
-        alt_text: asset.alt_text || null,
-      })
-      .select()
-      .single();
+    return runWithRetry(async () => {
+      const client = ensureSupabase();
+      const { data, error } = await client
+        .from('media_assets')
+        .insert({
+          name: asset.name,
+          category: asset.category,
+          storage_path: asset.storage_path,
+          public_url: asset.public_url,
+          mime_type: asset.mime_type,
+          width: asset.width || null,
+          height: asset.height || null,
+          file_size: asset.file_size || null,
+          alt_text: asset.alt_text || null,
+        })
+        .select()
+        .single();
 
-    if (error) {
-      console.error('Erro ao salvar mídia em media_assets:', error);
-      throw new Error(`Falha ao registrar mídia: ${error.message}`);
-    }
+      if (error) {
+        console.error('Erro ao salvar mídia em media_assets:', error);
+        throw new Error(`Falha ao registrar mídia: ${error.message}`);
+      }
 
-    return data as MediaAsset;
+      return data as MediaAsset;
+    });
   },
 
   async getMediaAssets(category?: string): Promise<MediaAsset[]> {
@@ -966,35 +1081,522 @@ export const Repository = {
       return [];
     }
     const client = ensureSupabase();
-    let query = client.from('media_assets').select('*').order('created_at', { ascending: false });
-    if (category) {
-      query = query.eq('category', category);
-    }
-    const { data, error } = await query;
+    const { data, error } = await executeWithRetry(() => {
+      let query = client.from('media_assets').select('*').order('created_at', { ascending: false });
+      if (category) {
+        query = query.eq('category', category);
+      }
+      return query;
+    });
+
     if (error) {
-      console.error('Erro ao buscar mídias:', error);
+      console.warn('Erro ao buscar mídias:', error.message || error);
       return [];
     }
-    return data as MediaAsset[];
+    return (data || []) as MediaAsset[];
   },
 
   async deleteMediaAsset(id: string, storagePath?: string): Promise<void> {
     if (!isSupabaseConfigured || !supabase) return;
-    const client = ensureSupabase();
+    return runWithRetry(async () => {
+      const client = ensureSupabase();
 
-    if (storagePath) {
-      const { error: storageErr } = await client.storage
-        .from('zhaya-match-media')
-        .remove([storagePath]);
-      if (storageErr) {
-        console.warn('Aviso ao remover arquivo do Storage:', storageErr.message);
+      if (storagePath) {
+        const { error: storageErr } = await client.storage
+          .from('zhaya-match-media')
+          .remove([storagePath]);
+        if (storageErr) {
+          console.warn('Aviso ao remover arquivo do Storage:', storageErr.message);
+        }
+      }
+
+      const { error } = await client.from('media_assets').delete().eq('id', id);
+      if (error) {
+        console.error('Erro ao remover registro de media_assets:', error);
+        throw new Error(`Falha ao remover mídia: ${error.message}`);
+      }
+    });
+  },
+
+  // Analytics
+  async saveAnalyticsEvent(eventPayload: {
+    eventId: string;
+    eventName: string;
+    visitorId?: string;
+    sessionId: string;
+    productTypeId?: string;
+    productTypeName?: string;
+    productCategory?: string;
+    recommendationStatus?: 'recommended' | 'between_sizes' | 'not_found';
+    sourceDomain?: string;
+    pagePath?: string;
+    deviceType?: 'mobile' | 'desktop';
+    configVersion?: number;
+    metadata?: Record<string, any>;
+    occurredAt?: string;
+  }): Promise<void> {
+    const record: any = {
+      event_id: eventPayload.eventId,
+      event_name: eventPayload.eventName,
+      visitor_id: eventPayload.visitorId || null,
+      session_id: eventPayload.sessionId,
+      product_type_id: eventPayload.productTypeId || null,
+      product_type_name: eventPayload.productTypeName || null,
+      product_category: eventPayload.productCategory || null,
+      recommendation_status: eventPayload.recommendationStatus || null,
+      source_domain: eventPayload.sourceDomain || null,
+      page_path: eventPayload.pagePath || null,
+      device_type: eventPayload.deviceType || 'desktop',
+      config_version: eventPayload.configVersion || 1,
+      metadata: eventPayload.metadata || {},
+      occurred_at: eventPayload.occurredAt || new Date().toISOString(),
+    };
+
+    // Always maintain in-memory fallback
+    if (!inMemoryAnalyticsEvents.some((e) => e.event_id === record.event_id)) {
+      inMemoryAnalyticsEvents.push(record);
+    }
+
+    if (!isSupabaseConfigured || !supabase) {
+      return;
+    }
+
+    try {
+      const client = ensureSupabase();
+      const { error } = await client
+        .from('widget_analytics_events')
+        .upsert(record, { onConflict: 'event_id', ignoreDuplicates: true });
+
+      if (error) {
+        console.warn('Aviso ao registrar evento de analytics no Supabase:', error.message || error);
+      }
+    } catch (e: any) {
+      console.warn('Exceção ao salvar evento de analytics no Supabase:', e?.message || e);
+    }
+  },
+
+  async getAnalyticsSummary(
+    period: PeriodType | 'today' = '7days',
+    customStart?: string,
+    customEnd?: string
+  ): Promise<any> {
+    const now = new Date();
+    let startDate = new Date();
+    let endDate = new Date();
+
+    if (period === 'today') {
+      startDate.setHours(0, 0, 0, 0);
+    } else if (period === '7days') {
+      startDate.setDate(now.getDate() - 6);
+      startDate.setHours(0, 0, 0, 0);
+    } else if (period === '30days') {
+      startDate.setDate(now.getDate() - 29);
+      startDate.setHours(0, 0, 0, 0);
+    } else if (period === '90days') {
+      startDate.setDate(now.getDate() - 89);
+      startDate.setHours(0, 0, 0, 0);
+    } else if (period === 'custom' && customStart && customEnd) {
+      startDate = new Date(customStart);
+      endDate = new Date(customEnd);
+      endDate.setHours(23, 59, 59, 999);
+    }
+
+    const startIso = startDate.toISOString();
+    const endIso = endDate.toISOString();
+
+    let records: any[] = [];
+
+    if (isSupabaseConfigured && supabase) {
+      try {
+        const client = ensureSupabase();
+        const { data, error } = await executeWithRetry<any[]>(async () =>
+          await client
+            .from('widget_analytics_events')
+            .select('*')
+            .gte('occurred_at', startIso)
+            .lte('occurred_at', endIso)
+            .order('occurred_at', { ascending: true })
+        );
+
+        if (!error && data) {
+          records = data;
+        } else {
+          console.warn('Usando dados em memória para Analytics devido a aviso no Supabase:', error?.message);
+          records = inMemoryAnalyticsEvents.filter((e) => {
+            const occ = new Date(e.occurred_at || e.created_at || '').getTime();
+            return occ >= startDate.getTime() && occ <= endDate.getTime();
+          });
+        }
+      } catch (e) {
+        records = inMemoryAnalyticsEvents.filter((e) => {
+          const occ = new Date(e.occurred_at || e.created_at || '').getTime();
+          return occ >= startDate.getTime() && occ <= endDate.getTime();
+        });
+      }
+    } else {
+      records = inMemoryAnalyticsEvents.filter((e) => {
+        const occ = new Date(e.occurred_at || e.created_at || '').getTime();
+        return occ >= startDate.getTime() && occ <= endDate.getTime();
+      });
+    }
+
+    // Exclui eventos de pré-visualização (modo admin preview)
+    records = records.filter(
+      (r) => !r.metadata || (r.metadata.preview !== true && r.metadata.is_preview !== true)
+    );
+
+    // Métricas principais
+    const totalLauncherClicked = records.filter((r) => r.event_name === 'launcher_clicked').length;
+    const totalWidgetOpened = records.filter((r) => r.event_name === 'widget_opened').length;
+    const totalFlowStarted = records.filter((r) => r.event_name === 'flow_started').length;
+    const totalProductTypeSelected = records.filter((r) => r.event_name === 'product_type_selected').length;
+    const totalMeasurementsStarted = records.filter((r) => r.event_name === 'measurements_started').length;
+
+    const recommendedList = records.filter((r) => r.event_name === 'recommendation_generated');
+    const notFoundList = records.filter((r) => r.event_name === 'recommendation_not_found');
+
+    const totalRecommendedFound = recommendedList.length;
+    const totalNotFound = notFoundList.length;
+    const totalCalculations = totalRecommendedFound + totalNotFound;
+
+    // Visitantes e Sessões Únicos
+    const visitorIdSet = new Set<string>();
+    const sessionIdSet = new Set<string>();
+    records.forEach((r) => {
+      if (r.visitor_id) visitorIdSet.add(r.visitor_id);
+      if (r.session_id) sessionIdSet.add(r.session_id);
+    });
+
+    const uniqueVisitors = visitorIdSet.size > 0 ? visitorIdSet.size : sessionIdSet.size;
+    const uniqueSessions = sessionIdSet.size;
+
+    // Taxas de conversão (com proteção contra divisão por zero)
+    const openRate = totalLauncherClicked > 0 ? totalWidgetOpened / totalLauncherClicked : 0;
+    const startRate = totalWidgetOpened > 0 ? totalFlowStarted / totalWidgetOpened : 0;
+    const completionRate = totalFlowStarted > 0 ? totalCalculations / totalFlowStarted : 0;
+    const notFoundRate = totalCalculations > 0 ? totalNotFound / totalCalculations : 0;
+
+    // Cálculo de abandono por sessão (sessões onde ocorreu flow_started mas NENHUM cálculo foi concluído)
+    const sessionsWithFlowStarted = new Set<string>();
+    const sessionsWithCalculation = new Set<string>();
+
+    records.forEach((r) => {
+      if (r.event_name === 'flow_started' && r.session_id) {
+        sessionsWithFlowStarted.add(r.session_id);
+      }
+      if (
+        (r.event_name === 'recommendation_generated' || r.event_name === 'recommendation_not_found') &&
+        r.session_id
+      ) {
+        sessionsWithCalculation.add(r.session_id);
+      }
+    });
+
+    let abandonmentCount = 0;
+    sessionsWithFlowStarted.forEach((sid) => {
+      if (!sessionsWithCalculation.has(sid)) {
+        abandonmentCount++;
+      }
+    });
+
+    const abandonmentRate =
+      sessionsWithFlowStarted.size > 0 ? abandonmentCount / sessionsWithFlowStarted.size : 0;
+
+    // Agregação diária por fuso horário brasileiro America/Sao_Paulo
+    const dailyMap: Record<string, { aberturas: number; inicios: number; calculos: number }> = {};
+
+    // Inicializa todos os dias do período no mapa para garantir continuidade visual no gráfico
+    const curr = new Date(startDate);
+    while (curr <= endDate) {
+      const dayKey = curr.toLocaleDateString('pt-BR', { timeZone: 'America/Sao_Paulo' });
+      dailyMap[dayKey] = { aberturas: 0, inicios: 0, calculos: 0 };
+      curr.setDate(curr.getDate() + 1);
+    }
+
+    records.forEach((r) => {
+      const dt = new Date(r.occurred_at || r.created_at || Date.now());
+      const dayKey = dt.toLocaleDateString('pt-BR', { timeZone: 'America/Sao_Paulo' });
+      if (!dailyMap[dayKey]) {
+        dailyMap[dayKey] = { aberturas: 0, inicios: 0, calculos: 0 };
+      }
+      if (r.event_name === 'widget_opened') {
+        dailyMap[dayKey].aberturas++;
+      } else if (r.event_name === 'flow_started') {
+        dailyMap[dayKey].inicios++;
+      } else if (
+        r.event_name === 'recommendation_generated' ||
+        r.event_name === 'recommendation_not_found'
+      ) {
+        dailyMap[dayKey].calculos++;
+      }
+    });
+
+    const dailyMetrics = Object.entries(dailyMap).map(([dateStr, counts]) => ({
+      date: dateStr.slice(0, 5), // DD/MM
+      fullDate: dateStr,
+      aberturas: counts.aberturas,
+      inicios: counts.inicios,
+      calculos: counts.calculos,
+    }));
+
+    // Funil de conversão
+    const baseCount = Math.max(totalLauncherClicked, totalWidgetOpened, 1);
+    const funnelStages = [
+      {
+        stage: 'launcher_clicked',
+        label: 'Botão clicado',
+        count: totalLauncherClicked,
+        percentage: totalLauncherClicked > 0 ? 100 : 0,
+      },
+      {
+        stage: 'widget_opened',
+        label: 'Widget aberto',
+        count: totalWidgetOpened,
+        percentage: totalLauncherClicked > 0 ? Math.round((totalWidgetOpened / totalLauncherClicked) * 100) : (totalWidgetOpened > 0 ? 100 : 0),
+      },
+      {
+        stage: 'flow_started',
+        label: 'Fluxo iniciado',
+        count: totalFlowStarted,
+        percentage: totalWidgetOpened > 0 ? Math.round((totalFlowStarted / totalWidgetOpened) * 100) : 0,
+      },
+      {
+        stage: 'product_type_selected',
+        label: 'Tipo selecionado',
+        count: totalProductTypeSelected,
+        percentage: totalFlowStarted > 0 ? Math.round((totalProductTypeSelected / totalFlowStarted) * 100) : 0,
+      },
+      {
+        stage: 'measurements_started',
+        label: 'Medidas iniciadas',
+        count: totalMeasurementsStarted,
+        percentage: totalProductTypeSelected > 0 ? Math.round((totalMeasurementsStarted / totalProductTypeSelected) * 100) : 0,
+      },
+      {
+        stage: 'recommendation_completed',
+        label: 'Cálculo concluído',
+        count: totalCalculations,
+        percentage: totalFlowStarted > 0 ? Math.round((totalCalculations / totalFlowStarted) * 100) : 0,
+      },
+    ];
+
+    // Categorias/Tipos mais escolhidos
+    const categoryCounts: Record<string, { name: string; category?: string; count: number }> = {};
+    records
+      .filter((r) => r.event_name === 'product_type_selected' && r.product_type_name)
+      .forEach((r) => {
+        const name = r.product_type_name!;
+        if (!categoryCounts[name]) {
+          categoryCounts[name] = {
+            name,
+            category: r.product_category || undefined,
+            count: 0,
+          };
+        }
+        categoryCounts[name].count++;
+      });
+
+    const totalCategorySelections = Object.values(categoryCounts).reduce((acc, c) => acc + c.count, 0);
+    const topCategories = Object.values(categoryCounts)
+      .sort((a, b) => b.count - a.count)
+      .map((cat) => ({
+        name: cat.name,
+        category: cat.category,
+        count: cat.count,
+        percentage: totalCategorySelections > 0 ? Math.round((cat.count / totalCategorySelections) * 100) : 0,
+      }));
+
+    // Distribuição dos Resultados
+    let exactCount = 0;
+    let betweenSizesCount = 0;
+    recommendedList.forEach((r) => {
+      if (r.recommendation_status === 'between_sizes') {
+        betweenSizesCount++;
+      } else {
+        exactCount++;
+      }
+    });
+
+    const recommendationBreakdown = {
+      recommended: exactCount,
+      betweenSizes: betweenSizesCount,
+      notFound: totalNotFound,
+    };
+
+    const recommendationTypes = {
+      recommended: exactCount,
+      between_sizes: betweenSizesCount,
+      not_found: totalNotFound,
+    };
+
+    const dailyEvolution = Object.entries(dailyMap).map(([dateStr, counts]) => ({
+      date: dateStr.slice(0, 5),
+      fullDate: dateStr,
+      viewed: totalLauncherClicked,
+      opened: counts.aberturas,
+      started: counts.inicios,
+      completed: counts.calculos,
+      abandoned: 0,
+      aberturas: counts.aberturas,
+      inicios: counts.inicios,
+      calculos: counts.calculos,
+    }));
+
+    const funnel = funnelStages.map((st) => ({
+      step: st.stage,
+      label: st.label,
+      count: st.count,
+      rate: st.percentage,
+    }));
+
+    const topTypes = topCategories.map((cat) => ({
+      typeName: cat.name,
+      category: cat.category,
+      started: cat.count,
+      completed: Math.round((cat.count * (completionRate || 0))),
+    }));
+
+    return {
+      period,
+      startDate: startDate.toLocaleDateString('pt-BR'),
+      endDate: endDate.toLocaleDateString('pt-BR'),
+      startDateStr: startDate.toLocaleDateString('pt-BR'),
+      endDateStr: endDate.toLocaleDateString('pt-BR'),
+      totalViewed: totalLauncherClicked,
+      totalClicked: totalLauncherClicked,
+      totalLauncherClicked,
+      totalWidgetOpened,
+      totalOpened: totalWidgetOpened,
+      totalFlowStarted,
+      totalStarted: totalFlowStarted,
+      totalProductTypeSelected,
+      totalTypeSelected: totalProductTypeSelected,
+      totalMeasurementsStarted,
+      totalCalculations,
+      totalRecommendedFound,
+      totalRecommended: totalRecommendedFound,
+      totalNotFound,
+      totalHelpOpened: 0,
+      totalClosed: 0,
+      uniqueVisitors,
+      uniqueSessions,
+      openRate,
+      startRate,
+      completionRate,
+      notFoundRate,
+      abandonmentCount,
+      abandonmentRate,
+      dailyMetrics,
+      dailyEvolution,
+      funnelStages,
+      funnel,
+      topCategories,
+      topTypes,
+      recommendationBreakdown,
+      recommendationTypes,
+      totalRecords: records.length,
+    };
+  },
+
+  async getActivityStatus(): Promise<any> {
+    if (isSupabaseConfigured && supabase) {
+      try {
+        const client = ensureSupabase();
+        const { data, error } = await client
+          .from('system_activity_status')
+          .select('*')
+          .eq('id', 'supabase-activity-monitor')
+          .maybeSingle();
+
+        if (!error && data) {
+          let lastStatus = data.last_status || 'success';
+          if (data.last_run_at) {
+            const lastRunTime = new Date(data.last_run_at).getTime();
+            const now = Date.now();
+            if (now - lastRunTime > 48 * 60 * 60 * 1000 && lastStatus === 'success') {
+              lastStatus = 'warning';
+            }
+          }
+          return {
+            id: data.id,
+            lastRunAt: data.last_run_at,
+            lastSuccessAt: data.last_success_at,
+            lastStatus,
+            lastError: data.last_error,
+            updatedAt: data.updated_at,
+          };
+        }
+      } catch (e) {
+        console.warn('Erro ao consultar status de atividade no Supabase:', e);
+      }
+    }
+    return inMemoryActivityStatus;
+  },
+
+  async runActivityCheck(): Promise<any> {
+    const nowIso = new Date().toISOString();
+    if (isSupabaseConfigured && supabase) {
+      try {
+        const client = ensureSupabase();
+        const { data: rpcRes, error: rpcErr } = await client.rpc('execute_system_activity_check');
+        if (!rpcErr && rpcRes) {
+          const status = await this.getActivityStatus();
+          return { ok: true, status };
+        }
+
+        const { error: countErr } = await client
+          .from('app_settings')
+          .select('*', { count: 'exact', head: true });
+
+        const record = {
+          id: 'supabase-activity-monitor',
+          last_run_at: nowIso,
+          last_success_at: !countErr ? nowIso : undefined,
+          last_status: !countErr ? 'success' : 'error',
+          last_error: countErr ? countErr.message : null,
+          updated_at: nowIso,
+        };
+
+        await client
+          .from('system_activity_status')
+          .upsert(record, { onConflict: 'id' });
+
+        inMemoryActivityStatus = {
+          id: 'supabase-activity-monitor',
+          lastRunAt: nowIso,
+          lastSuccessAt: !countErr ? nowIso : inMemoryActivityStatus.lastSuccessAt,
+          lastStatus: !countErr ? 'success' : 'error',
+          lastError: countErr ? countErr.message : null,
+          updatedAt: nowIso,
+        };
+
+        const status = await this.getActivityStatus();
+        return { ok: true, status };
+      } catch (e: any) {
+        console.warn('Exceção ao executar verificação de atividade:', e);
       }
     }
 
-    const { error } = await client.from('media_assets').delete().eq('id', id);
-    if (error) {
-      console.error('Erro ao remover registro de media_assets:', error);
-      throw new Error(`Falha ao remover mídia: ${error.message}`);
-    }
+    inMemoryActivityStatus = {
+      id: 'supabase-activity-monitor',
+      lastRunAt: nowIso,
+      lastSuccessAt: nowIso,
+      lastStatus: 'success',
+      lastError: null,
+      updatedAt: nowIso,
+    };
+
+    return { ok: true, status: inMemoryActivityStatus };
   },
 };
+
+const inMemoryAnalyticsEvents: any[] = [];
+let inMemoryActivityStatus: any = {
+  id: 'supabase-activity-monitor',
+  lastRunAt: new Date().toISOString(),
+  lastSuccessAt: new Date().toISOString(),
+  lastStatus: 'success',
+  lastError: null,
+  updatedAt: new Date().toISOString(),
+};
+

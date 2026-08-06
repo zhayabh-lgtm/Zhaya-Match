@@ -17,6 +17,8 @@ interface ConfigDraftContextType {
   publishedAppearance: PopupAppearance;
   publishedTexts: TextSettings;
   publishedConfig: AppConfig;
+  publishedProductTypes: ProductType[];
+  publishedHelps: Record<string, MeasurementHelp>;
 
   // Handshake & Sync Protocol
   revision: number;
@@ -64,6 +66,8 @@ export const ConfigDraftProvider: React.FC<{ children: ReactNode }> = ({ childre
   const [publishedAppearance, setPublishedAppearance] = useState<PopupAppearance>(() => normalizeAppearance(defaultAppearance));
   const [publishedTexts, setPublishedTexts] = useState<TextSettings>(() => normalizeTexts(defaultTexts));
   const [publishedConfig, setPublishedConfig] = useState<AppConfig>(defaultAppConfig);
+  const [publishedProductTypes, setPublishedProductTypes] = useState<ProductType[]>([]);
+  const [publishedHelps, setPublishedHelps] = useState<Record<string, MeasurementHelp>>({});
 
   const [loading, setLoading] = useState<boolean>(true);
   const [status, setStatus] = useState<PublishStatus>('saved');
@@ -75,7 +79,9 @@ export const ConfigDraftProvider: React.FC<{ children: ReactNode }> = ({ childre
   const isDirty =
     !isDeepEqual(appearance, publishedAppearance) ||
     !isDeepEqual(texts, publishedTexts) ||
-    !isDeepEqual(config, publishedConfig);
+    !isDeepEqual(config, publishedConfig) ||
+    !isDeepEqual(productTypes, publishedProductTypes) ||
+    !isDeepEqual(helps, publishedHelps);
 
   useEffect(() => {
     reloadFromDatabase();
@@ -112,12 +118,14 @@ export const ConfigDraftProvider: React.FC<{ children: ReactNode }> = ({ childre
       setAppearance(normApp);
       setTexts(normTxt);
       setConfig(cfgData);
-      setProductTypes(normPt); // Keep all product types for admin panel
+      setProductTypes(normPt);
       setHelps(hlpData);
 
       setPublishedAppearance(normApp);
       setPublishedTexts(normTxt);
       setPublishedConfig(cfgData);
+      setPublishedProductTypes(normPt);
+      setPublishedHelps(hlpData);
 
       setVersion(cfgData.version || 1);
       setStatus('saved');
@@ -177,18 +185,23 @@ export const ConfigDraftProvider: React.FC<{ children: ReactNode }> = ({ childre
       const nextVersion = (version || 1) + 1;
       const updatedConfigPayload = { ...config, version: nextVersion };
 
-      const [savedApp, savedTxt, savedCfg] = await Promise.all([
+      const [savedApp, savedTxt, savedCfg, savedPt, savedHlp] = await Promise.all([
         Repository.saveAppearance(appearance),
         Repository.saveTexts(texts),
         Repository.saveConfig(updatedConfigPayload),
+        Repository.saveProductTypes(productTypes),
+        Repository.saveMeasurementHelps(helps),
       ]);
 
       const normApp = normalizeAppearance(savedApp);
       const normTxt = normalizeTexts(savedTxt);
+      const normPt = savedPt.map(normalizeProductType);
 
       setPublishedAppearance(normApp);
       setPublishedTexts(normTxt);
       setPublishedConfig(savedCfg);
+      setPublishedProductTypes(normPt);
+      setPublishedHelps(savedHlp);
       setVersion(savedCfg.version || nextVersion);
 
       const nowStr = new Date().toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' });
@@ -211,6 +224,8 @@ export const ConfigDraftProvider: React.FC<{ children: ReactNode }> = ({ childre
     setAppearance(publishedAppearance);
     setTexts(publishedTexts);
     setConfig(publishedConfig);
+    setProductTypes(publishedProductTypes);
+    setHelps(publishedHelps);
     setStatus('saved');
     setErrorMessage(null);
     setSuccessMessage('Alterações descartadas. Restaurada última publicação.');
@@ -231,6 +246,8 @@ export const ConfigDraftProvider: React.FC<{ children: ReactNode }> = ({ childre
         publishedAppearance,
         publishedTexts,
         publishedConfig,
+        publishedProductTypes,
+        publishedHelps,
         revision,
         sessionId: sessionIdRef.current,
         status,

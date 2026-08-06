@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { useConfigDraft } from '../../context/ConfigDraftContext';
-import { Monitor, Smartphone, ExternalLink, RefreshCw, Sparkles, ShieldCheck } from 'lucide-react';
+import { Monitor, Smartphone, ExternalLink, RefreshCw, Sparkles, ShieldCheck, CheckCircle2 } from 'lucide-react';
 
 export const Visualizacao: React.FC = () => {
   const {
@@ -18,18 +18,45 @@ export const Visualizacao: React.FC = () => {
   const [isSynced, setIsSynced] = useState<boolean>(false);
   const iframeRef = useRef<HTMLIFrameElement | null>(null);
 
+  // Build complete draft snapshot payload
+  const getDraftSnapshot = () => ({
+    appearance,
+    texts,
+    config,
+    productTypes,
+    measurementHelps: helps,
+    revision,
+    sessionId,
+    timestamp: Date.now(),
+  });
+
   // Send real-time updates to iframe via postMessage whenever draft config changes
   const sendConfigToIframe = () => {
+    setIsSynced(false);
+    const snapshot = getDraftSnapshot();
+
+    // Store temporary snapshot for new tabs / external preview window
+    try {
+      localStorage.setItem(`zhaya_preview_snapshot_${sessionId}`, JSON.stringify(snapshot));
+      localStorage.setItem('zhaya_preview_latest_session', sessionId);
+
+      // Broadcast update to open tabs
+      if (typeof window.BroadcastChannel !== 'undefined') {
+        const bc = new BroadcastChannel('zhaya-match-preview');
+        bc.postMessage({
+          type: 'ZHAYA_MATCH_PREVIEW_CONFIG_UPDATE',
+          sessionId,
+          revision,
+          config: snapshot,
+        });
+        bc.close();
+      }
+    } catch (e) {}
+
     if (iframeRef.current && iframeRef.current.contentWindow) {
       const payload = {
         type: 'ZHAYA_MATCH_PREVIEW_CONFIG_UPDATE',
-        config: {
-          appearance,
-          texts,
-          config,
-          productTypes,
-          measurementHelps: helps,
-        },
+        config: snapshot,
         revision,
         sessionId,
       };
@@ -38,13 +65,27 @@ export const Visualizacao: React.FC = () => {
   };
 
   useEffect(() => {
+    let bcAck: BroadcastChannel | null = null;
+    if (typeof window.BroadcastChannel !== 'undefined') {
+      bcAck = new BroadcastChannel('zhaya-match-preview-ack');
+      bcAck.onmessage = (ev) => {
+        if (ev && ev.data && ev.data.type === 'ZHAYA_MATCH_PREVIEW_APPLIED') {
+          if (ev.data.sessionId === sessionId && ev.data.revision === revision) {
+            setIsSynced(true);
+          }
+        }
+      };
+    }
+
     const handleMessage = (event: MessageEvent) => {
       if (!event.data) return;
 
       if (event.data.type === 'ZHAYA_MATCH_PREVIEW_READY') {
         sendConfigToIframe();
       } else if (event.data.type === 'ZHAYA_MATCH_PREVIEW_APPLIED') {
-        setIsSynced(true);
+        if (event.data.sessionId === sessionId && event.data.revision === revision) {
+          setIsSynced(true);
+        }
       }
     };
     window.addEventListener('message', handleMessage);
@@ -54,19 +95,32 @@ export const Visualizacao: React.FC = () => {
 
     return () => {
       window.removeEventListener('message', handleMessage);
+      if (bcAck) bcAck.close();
     };
-  }, []);
+  }, [sessionId, revision]);
 
   useEffect(() => {
     sendConfigToIframe();
   }, [appearance, texts, config, productTypes, helps, revision, sessionId]);
+
+  const handleOpenNewTab = (e: React.MouseEvent) => {
+    e.preventDefault();
+    const snapshot = getDraftSnapshot();
+    try {
+      localStorage.setItem(`zhaya_preview_snapshot_${sessionId}`, JSON.stringify(snapshot));
+      localStorage.setItem('zhaya_preview_latest_session', sessionId);
+    } catch (err) {}
+
+    const url = `/preview?admin_preview=1&debug=1&previewSession=${encodeURIComponent(sessionId)}`;
+    window.open(url, '_blank', 'noopener,noreferrer');
+  };
 
   return (
     <div className="max-w-6xl mx-auto space-y-6 font-sans">
       {/* Top Bar Header */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between border-b border-neutral-200 pb-4 gap-4">
         <div>
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-2 flex-wrap">
             <h1 className="text-xl font-bold text-neutral-900 tracking-tight">
               Visualização da Loja em Tempo Real
             </h1>
@@ -74,6 +128,16 @@ export const Visualizacao: React.FC = () => {
               <ShieldCheck className="w-3 h-3 text-emerald-600" />
               Runtime Oficial (widget.js)
             </span>
+            {isSynced ? (
+              <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold bg-neutral-900 text-white border border-neutral-800">
+                <CheckCircle2 className="w-3 h-3 text-emerald-400" />
+                Rascunho Sincronizado (v{revision})
+              </span>
+            ) : (
+              <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold bg-amber-100 text-amber-800 border border-amber-300 animate-pulse">
+                Sincronizando...
+              </span>
+            )}
           </div>
           <p className="text-xs text-neutral-500 mt-1">
             Simulação da loja real executando o script oficial. Qualquer alteração nas abas de Aparência, Textos ou Tipos é atualizada instantaneamente nesta tela sem recarregar.
@@ -82,15 +146,14 @@ export const Visualizacao: React.FC = () => {
 
         {/* Action Controls */}
         <div className="flex items-center gap-3">
-          <a
-            href="/preview?debug=1"
-            target="_blank"
-            rel="noopener noreferrer"
-            className="inline-flex items-center gap-1.5 px-3 py-2 bg-neutral-100 hover:bg-neutral-200 text-neutral-900 rounded-lg text-xs font-bold transition-colors cursor-pointer border border-neutral-200"
+          <button
+            type="button"
+            onClick={handleOpenNewTab}
+            className="inline-flex items-center gap-1.5 px-3 py-2 bg-neutral-900 hover:bg-black text-white rounded-lg text-xs font-bold transition-colors cursor-pointer shadow-xs"
           >
             <span>Abrir Loja em Nova Aba</span>
             <ExternalLink className="w-3.5 h-3.5" />
-          </a>
+          </button>
         </div>
       </div>
 

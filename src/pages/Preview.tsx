@@ -5,6 +5,12 @@ declare global {
   interface Window {
     dataLayer?: any[];
     openZhayaMatchModal?: () => void;
+    __ZHAYA_MATCH_ADMIN_PREVIEW__?: {
+      config: any;
+      revision?: number;
+      sessionId?: string;
+      timestamp: number;
+    };
   }
 }
 
@@ -19,12 +25,43 @@ export const Preview: React.FC = () => {
   const [activeImageIndex, setActiveImageIndex] = useState<number>(0);
   const [dataLayerLogs, setDataLayerLogs] = useState<any[]>([]);
   const [activeTab, setActiveTab] = useState<'details' | 'care' | 'shipping'>('details');
+  const [sessionExpired, setSessionExpired] = useState<boolean>(false);
+  const [loadPublishedAnyway, setLoadPublishedAnyway] = useState<boolean>(false);
 
   const searchParams = new URLSearchParams(window.location.search);
   const isDebug = searchParams.get('debug') === '1';
-  const isAdminPreview = searchParams.get('admin_preview') === '1';
+  const isAdminPreview = searchParams.get('admin_preview') === '1' || searchParams.get('zhaya-match-preview') === '1';
+  const previewSession = searchParams.get('previewSession') || (typeof localStorage !== 'undefined' ? localStorage.getItem('zhaya_preview_latest_session') : null);
 
   useEffect(() => {
+    // Check session validity if admin preview
+    if (isAdminPreview && !loadPublishedAnyway) {
+      let isValid = false;
+      if (previewSession) {
+        try {
+          const raw = localStorage.getItem(`zhaya_preview_snapshot_${previewSession}`);
+          if (raw) {
+            const snap = JSON.parse(raw);
+            if (snap && snap.timestamp && (Date.now() - snap.timestamp <= 30 * 60 * 1000)) {
+              isValid = true;
+              window.__ZHAYA_MATCH_ADMIN_PREVIEW__ = {
+                config: snap,
+                revision: snap.revision,
+                sessionId: snap.sessionId || previewSession,
+                timestamp: snap.timestamp,
+              };
+            }
+          }
+        } catch (e) {}
+      }
+      if (!isValid) {
+        setSessionExpired(true);
+        return;
+      }
+    }
+
+    setSessionExpired(false);
+
     // Initialize dataLayer
     window.dataLayer = window.dataLayer || [];
     const viewItemEvent = {
@@ -47,7 +84,7 @@ export const Preview: React.FC = () => {
 
     // Auto inject static widget script
     loadWidgetScript();
-  }, []);
+  }, [isAdminPreview, previewSession, loadPublishedAnyway]);
 
   const loadWidgetScript = () => {
     if (document.getElementById('zhaya-widget-script-preview')) return;
@@ -71,6 +108,23 @@ export const Preview: React.FC = () => {
 
   return (
     <div className="min-h-screen bg-white text-neutral-900 font-sans selection:bg-neutral-900 selection:text-white">
+      {/* Session Expired Banner if admin preview session is missing or expired */}
+      {sessionExpired && (
+        <div className="bg-amber-500 text-neutral-950 px-4 py-3 text-xs font-medium border-b border-amber-600 flex flex-col sm:flex-row items-center justify-between gap-3 shadow-md">
+          <div className="flex items-center gap-2">
+            <span className="font-bold text-sm">⚠️</span>
+            <span>A sessão de visualização expirou. Reabra esta página pelo painel de administração.</span>
+          </div>
+          <button
+            type="button"
+            onClick={() => setLoadPublishedAnyway(true)}
+            className="px-3 py-1.5 bg-neutral-950 text-white rounded-lg font-bold text-[11px] hover:bg-black transition-colors cursor-pointer shrink-0"
+          >
+            Carregar versão publicada
+          </button>
+        </div>
+      )}
+
       {/* Top Banner Debug Bar (ONLY shown if ?debug=1 or in debug mode) */}
       {isDebug && (
         <div className="bg-neutral-900 text-white px-4 py-2 text-xs flex items-center justify-between border-b border-neutral-800">

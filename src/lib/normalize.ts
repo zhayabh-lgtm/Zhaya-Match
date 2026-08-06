@@ -1,5 +1,38 @@
-import { PopupAppearance, TextSettings, ProductType, AppConfig, SizeRow } from '../types/zhaya';
+import { PopupAppearance, TextSettings, ProductType, AppConfig, SizeRow, MeasurementHelp, MeasurementObservation, MeasurementKey } from '../types/zhaya';
 import { migrateLegacyTypography } from './fontRegistry';
+
+export function normalizeMeasurementObservation(raw: any): MeasurementObservation {
+  const condType = raw?.condition?.type === 'measurement_active' ? 'measurement_active' : 'always';
+  const condKey = raw?.condition?.measurementKey || raw?.condition?.measurement_key || undefined;
+
+  return {
+    ...raw,
+    id: String(raw?.id || 'obs-' + Math.random().toString(36).substring(2, 9)),
+    text: String(raw?.text || ''),
+    active: raw?.active !== false,
+    order: typeof raw?.order === 'number' ? raw.order : 1,
+    condition: {
+      type: condType,
+      measurementKey: condKey,
+    },
+  };
+}
+
+export function normalizeMeasurementHelp(raw: any, defaultKey?: MeasurementKey): MeasurementHelp {
+  const key = (raw?.key || defaultKey) as MeasurementKey;
+  const rawObs = Array.isArray(raw?.observations) ? raw.observations : [];
+  const obs = rawObs.map(normalizeMeasurementObservation).sort((a: MeasurementObservation, b: MeasurementObservation) => a.order - b.order);
+
+  return {
+    ...raw,
+    key,
+    label: String(raw?.label || key || ''),
+    title: String(raw?.title || ''),
+    description: String(raw?.description || ''),
+    imageUrl: raw?.imageUrl || raw?.image_url || undefined,
+    observations: obs,
+  };
+}
 
 export function normalizeSizeRow(raw: any): SizeRow {
   return {
@@ -179,7 +212,11 @@ export function normalizePublicConfig(raw: any) {
     .filter((pt: ProductType) => pt.active === true)
     .sort((a: ProductType, b: ProductType) => a.order - b.order);
 
-  const helps = raw?.measurementHelps || raw?.helps || {};
+  const rawHelps = raw?.measurementHelps || raw?.helps || {};
+  const normalizedHelps: Record<string, MeasurementHelp> = {};
+  for (const k of Object.keys(rawHelps)) {
+    normalizedHelps[k] = normalizeMeasurementHelp(rawHelps[k], k as MeasurementKey);
+  }
 
   return {
     enabled: config.enabled,
@@ -190,6 +227,6 @@ export function normalizePublicConfig(raw: any) {
     texts,
     config,
     productTypes: activeProductTypes,
-    measurementHelps: helps,
+    measurementHelps: normalizedHelps,
   };
 }

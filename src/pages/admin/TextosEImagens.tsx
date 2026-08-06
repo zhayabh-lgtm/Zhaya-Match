@@ -1,9 +1,20 @@
 import React, { useState, useEffect } from 'react';
 import { useConfigDraft } from '../../context/ConfigDraftContext';
-import { MeasurementHelp, MeasurementKey } from '../../types/zhaya';
-import { Save, Check, FileText, Image, Info } from 'lucide-react';
+import { MeasurementHelp, MeasurementKey, MeasurementObservation } from '../../types/zhaya';
+import { Save, Check, FileText, Image, Info, Plus, Trash2, ArrowUp, ArrowDown } from 'lucide-react';
 import { MediaUploader } from '../../components/admin/MediaUploader';
 import { Repository } from '../../lib/repository';
+
+const ALL_MEASUREMENT_KEYS: { key: MeasurementKey; label: string }[] = [
+  { key: 'bust', label: 'Busto' },
+  { key: 'waist', label: 'Cintura' },
+  { key: 'hip', label: 'Quadril' },
+  { key: 'shoulders', label: 'Ombros' },
+  { key: 'thigh', label: 'Coxa' },
+  { key: 'torsoLength', label: 'Comprimento do tronco' },
+  { key: 'footLength', label: 'Comprimento do pé' },
+  { key: 'footWidth', label: 'Largura do pé' },
+];
 
 export const TextosEImagens: React.FC = () => {
   const {
@@ -12,6 +23,7 @@ export const TextosEImagens: React.FC = () => {
     helps: contextHelps,
     updateTexts,
     updateAppearance,
+    updateHelps,
   } = useConfigDraft();
 
   const [activeTab, setActiveTab] = useState<'flowTexts' | 'groupImages' | 'measurementHelp' | 'logos'>('flowTexts');
@@ -30,19 +42,133 @@ export const TextosEImagens: React.FC = () => {
 
   const handleSaveHelp = async (key: MeasurementKey) => {
     const helpObj = measurementHelps[key];
-    if (helpObj) {
-      setSaving(true);
-      setErrorMessage(null);
-      try {
-        await Repository.saveMeasurementHelp(key, helpObj);
-        setSavedMessage(`Instrução de ${helpObj.label} salva!`);
-        setTimeout(() => setSavedMessage(null), 3000);
-      } catch (err: any) {
-        setErrorMessage(err?.message || 'Erro ao salvar instrução.');
-      } finally {
-        setSaving(false);
+    if (!helpObj) return;
+
+    if (helpObj.observations && helpObj.observations.length > 0) {
+      for (const obs of helpObj.observations) {
+        if (obs.active && (!obs.text || !obs.text.trim())) {
+          setErrorMessage(`Em "${helpObj.label}", existe uma observação ativa sem texto. Preencha o texto ou desative-a.`);
+          return;
+        }
+        if (obs.active && obs.condition.type === 'measurement_active' && !obs.condition.measurementKey) {
+          setErrorMessage(`Em "${helpObj.label}", selecione qual medida ativará a regra da observação.`);
+          return;
+        }
       }
     }
+
+    setSaving(true);
+    setErrorMessage(null);
+    try {
+      await Repository.saveMeasurementHelp(key, helpObj);
+      setSavedMessage(`Instrução de ${helpObj.label} salva!`);
+      setTimeout(() => setSavedMessage(null), 3000);
+    } catch (err: any) {
+      setErrorMessage(err?.message || 'Erro ao salvar instrução.');
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const handleAddObservation = (mKey: MeasurementKey) => {
+    const current = measurementHelps[mKey];
+    if (!current) return;
+
+    const obsList = current.observations || [];
+    const nextOrder = obsList.length > 0 ? Math.max(...obsList.map((o) => o.order || 0)) + 1 : 1;
+
+    const newObs: MeasurementObservation = {
+      id: 'obs-' + Date.now() + '-' + Math.random().toString(36).substring(2, 7),
+      text: '',
+      active: true,
+      order: nextOrder,
+      condition: {
+        type: 'always',
+      },
+    };
+
+    const updatedHelps = {
+      ...measurementHelps,
+      [mKey]: {
+        ...current,
+        observations: [...obsList, newObs],
+      },
+    };
+
+    setMeasurementHelps(updatedHelps);
+    updateHelps(updatedHelps);
+  };
+
+  const handleUpdateObservation = (
+    mKey: MeasurementKey,
+    obsId: string,
+    updatedFields: Partial<MeasurementObservation>
+  ) => {
+    const current = measurementHelps[mKey];
+    if (!current) return;
+
+    const obsList = (current.observations || []).map((o) => {
+      if (o.id === obsId) {
+        return { ...o, ...updatedFields };
+      }
+      return o;
+    });
+
+    const updatedHelps = {
+      ...measurementHelps,
+      [mKey]: {
+        ...current,
+        observations: obsList,
+      },
+    };
+
+    setMeasurementHelps(updatedHelps);
+    updateHelps(updatedHelps);
+  };
+
+  const handleDeleteObservation = (mKey: MeasurementKey, obsId: string) => {
+    const current = measurementHelps[mKey];
+    if (!current) return;
+
+    const obsList = (current.observations || []).filter((o) => o.id !== obsId);
+
+    const updatedHelps = {
+      ...measurementHelps,
+      [mKey]: {
+        ...current,
+        observations: obsList,
+      },
+    };
+
+    setMeasurementHelps(updatedHelps);
+    updateHelps(updatedHelps);
+  };
+
+  const handleMoveObservation = (mKey: MeasurementKey, index: number, direction: 'up' | 'down') => {
+    const current = measurementHelps[mKey];
+    if (!current) return;
+
+    const obsList = [...(current.observations || [])].sort((a, b) => (a.order || 0) - (b.order || 0));
+    const targetIndex = direction === 'up' ? index - 1 : index + 1;
+
+    if (targetIndex < 0 || targetIndex >= obsList.length) return;
+
+    const tempOrder = obsList[index].order;
+    obsList[index].order = obsList[targetIndex].order;
+    obsList[targetIndex].order = tempOrder;
+
+    obsList.sort((a, b) => a.order - b.order);
+
+    const updatedHelps = {
+      ...measurementHelps,
+      [mKey]: {
+        ...current,
+        observations: obsList,
+      },
+    };
+
+    setMeasurementHelps(updatedHelps);
+    updateHelps(updatedHelps);
   };
 
   return (
@@ -460,8 +586,9 @@ export const TextosEImagens: React.FC = () => {
                       value={help.title}
                       onChange={(e) => {
                         const updated = { ...measurementHelps };
-                        updated[mKey].title = e.target.value;
+                        updated[mKey] = { ...updated[mKey], title: e.target.value };
                         setMeasurementHelps(updated);
+                        updateHelps(updated);
                       }}
                       className="w-full bg-neutral-50 border border-neutral-200 rounded px-3 py-1.5 text-xs text-neutral-900 font-medium"
                     />
@@ -476,11 +603,149 @@ export const TextosEImagens: React.FC = () => {
                       value={help.description}
                       onChange={(e) => {
                         const updated = { ...measurementHelps };
-                        updated[mKey].description = e.target.value;
+                        updated[mKey] = { ...updated[mKey], description: e.target.value };
                         setMeasurementHelps(updated);
+                        updateHelps(updated);
                       }}
                       className="w-full bg-neutral-50 border border-neutral-200 rounded px-3 py-1.5 text-xs text-neutral-900"
                     />
+                  </div>
+
+                  {/* Section: Observações Condicionais */}
+                  <div className="pt-3 border-t border-neutral-100 space-y-3">
+                    <div className="flex items-center justify-between">
+                      <label className="block text-[11px] font-bold text-neutral-800 uppercase tracking-wider">
+                        Observações (Orientações Condicionais)
+                      </label>
+                      <button
+                        type="button"
+                        onClick={() => handleAddObservation(mKey)}
+                        className="inline-flex items-center gap-1 text-[11px] font-semibold text-neutral-900 hover:underline cursor-pointer"
+                      >
+                        <Plus className="w-3 h-3" />
+                        <span>Adicionar observação</span>
+                      </button>
+                    </div>
+
+                    {(!help.observations || help.observations.length === 0) ? (
+                      <p className="text-[11px] text-neutral-400 italic">
+                        Nenhuma observação cadastrada para esta medida.
+                      </p>
+                    ) : (
+                      <div className="space-y-3">
+                        {help.observations.map((obs, obsIdx) => (
+                          <div
+                            key={obs.id}
+                            className={`p-3 rounded-lg border text-xs space-y-2.5 ${
+                              obs.active ? 'bg-neutral-50/70 border-neutral-200' : 'bg-neutral-100/50 border-neutral-200 opacity-60'
+                            }`}
+                          >
+                            <div className="flex items-start gap-2">
+                              <textarea
+                                rows={2}
+                                value={obs.text}
+                                placeholder="Digite a observação... Ex: Você pode usar uma folha de papel..."
+                                onChange={(e) =>
+                                  handleUpdateObservation(mKey, obs.id, { text: e.target.value })
+                                }
+                                className="w-full bg-white border border-neutral-200 rounded px-2.5 py-1.5 text-xs text-neutral-900 focus:outline-none focus:border-neutral-900"
+                              />
+                            </div>
+
+                            <div className="flex flex-wrap items-center justify-between gap-2 pt-1 border-t border-neutral-200/60">
+                              <div className="flex flex-wrap items-center gap-2">
+                                <div className="flex items-center gap-1">
+                                  <span className="text-[10px] text-neutral-500 font-semibold">Regra:</span>
+                                  <select
+                                    value={obs.condition?.type || 'always'}
+                                    onChange={(e) =>
+                                      handleUpdateObservation(mKey, obs.id, {
+                                        condition: {
+                                          type: e.target.value as 'always' | 'measurement_active',
+                                          measurementKey: obs.condition?.measurementKey,
+                                        },
+                                      })
+                                    }
+                                    className="bg-white border border-neutral-200 rounded px-2 py-1 text-[11px] font-medium text-neutral-900 focus:outline-none"
+                                  >
+                                    <option value="always">Sempre</option>
+                                    <option value="measurement_active">Se uma medida estiver ativa</option>
+                                  </select>
+                                </div>
+
+                                {obs.condition?.type === 'measurement_active' && (
+                                  <div className="flex items-center gap-1">
+                                    <span className="text-[10px] text-neutral-500 font-semibold">Medida:</span>
+                                    <select
+                                      value={obs.condition?.measurementKey || ''}
+                                      onChange={(e) =>
+                                        handleUpdateObservation(mKey, obs.id, {
+                                          condition: {
+                                            type: 'measurement_active',
+                                            measurementKey: e.target.value as MeasurementKey,
+                                          },
+                                        })
+                                      }
+                                      className="bg-white border border-neutral-200 rounded px-2 py-1 text-[11px] font-medium text-neutral-900 focus:outline-none"
+                                    >
+                                      <option value="">Selecione a medida...</option>
+                                      {ALL_MEASUREMENT_KEYS.map((m) => (
+                                        <option key={m.key} value={m.key}>
+                                          {m.label}
+                                        </option>
+                                      ))}
+                                    </select>
+                                  </div>
+                                )}
+                              </div>
+
+                              <div className="flex items-center gap-2 ml-auto">
+                                <label className="flex items-center gap-1 cursor-pointer text-[11px] font-medium text-neutral-700">
+                                  <input
+                                    type="checkbox"
+                                    checked={obs.active !== false}
+                                    onChange={(e) =>
+                                      handleUpdateObservation(mKey, obs.id, { active: e.target.checked })
+                                    }
+                                    className="rounded border-neutral-300 text-neutral-900 focus:ring-0"
+                                  />
+                                  <span>Ativa</span>
+                                </label>
+
+                                <div className="flex items-center gap-0.5 border-l border-neutral-200 pl-2">
+                                  <button
+                                    type="button"
+                                    disabled={obsIdx === 0}
+                                    onClick={() => handleMoveObservation(mKey, obsIdx, 'up')}
+                                    className="p-1 text-neutral-500 hover:text-neutral-900 disabled:opacity-30 cursor-pointer"
+                                    title="Mover para cima"
+                                  >
+                                    <ArrowUp className="w-3.5 h-3.5" />
+                                  </button>
+                                  <button
+                                    type="button"
+                                    disabled={obsIdx === help.observations.length - 1}
+                                    onClick={() => handleMoveObservation(mKey, obsIdx, 'down')}
+                                    className="p-1 text-neutral-500 hover:text-neutral-900 disabled:opacity-30 cursor-pointer"
+                                    title="Mover para baixo"
+                                  >
+                                    <ArrowDown className="w-3.5 h-3.5" />
+                                  </button>
+                                  <button
+                                    type="button"
+                                    onClick={() => handleDeleteObservation(mKey, obs.id)}
+                                    className="p-1 text-neutral-400 hover:text-red-600 transition-colors cursor-pointer ml-1"
+                                    title="Excluir observação"
+                                  >
+                                    <Trash2 className="w-3.5 h-3.5" />
+                                  </button>
+                                </div>
+                              </div>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    )}
                   </div>
                 </div>
               );

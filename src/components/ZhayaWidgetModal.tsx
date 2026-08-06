@@ -5,11 +5,32 @@ import {
   ProductType,
   MeasurementHelp,
   MeasurementKey,
+  MeasurementObservation,
 } from '../types/zhaya';
 import { MeasurementIllustration } from './MeasurementIllustration';
-import { ChevronLeft, X, Sparkles, Check, HelpCircle, ArrowRight, RefreshCw } from 'lucide-react';
+import { ChevronLeft, X, Sparkles, Check, HelpCircle, ArrowRight, RefreshCw, SlidersHorizontal } from 'lucide-react';
 import { resolveMeasurementImage } from '../lib/measurementGroup';
 import { getFontFamilyString, parseFontWeight } from '../lib/fontRegistry';
+import { parseNumber, formatMeasurementDisplay, calculateRecommendation } from '../domain/recommendation';
+import { trackAnalyticsEvent } from '../lib/analyticsTracker';
+
+export function getVisibleObservations(
+  observations: MeasurementObservation[] | undefined,
+  activeMeasurements: MeasurementKey[]
+): MeasurementObservation[] {
+  if (!observations || !Array.isArray(observations)) return [];
+
+  return observations
+    .filter((obs) => {
+      if (!obs || obs.active === false || !obs.text || !obs.text.trim()) return false;
+      if (obs.condition?.type === 'always') return true;
+      if (obs.condition?.type === 'measurement_active' && obs.condition.measurementKey) {
+        return activeMeasurements.includes(obs.condition.measurementKey);
+      }
+      return false;
+    })
+    .sort((a, b) => (a.order || 0) - (b.order || 0));
+}
 
 interface ZhayaWidgetModalProps {
   appearance: PopupAppearance;
@@ -66,8 +87,23 @@ export const ZhayaWidgetModal: React.FC<ZhayaWidgetModalProps> = ({
   });
   const [showGuideModal, setShowGuideModal] = useState<boolean>(false);
   const [activeGuideKey, setActiveGuideKey] = useState<MeasurementKey | null>(null);
+  const [activeWheelKey, setActiveWheelKey] = useState<MeasurementKey | null>(null);
+  const [hasTrackedOpen, setHasTrackedOpen] = useState<boolean>(false);
+  const [hasTrackedFlowStarted, setHasTrackedFlowStarted] = useState<boolean>(false);
+  const [hasTrackedMeasurements, setHasTrackedMeasurements] = useState<boolean>(false);
+  const [failedIcons, setFailedIcons] = useState<Record<string, boolean>>({});
 
   const activeStep = externalStep !== undefined ? externalStep : internalStep;
+
+  // Track widget_opened when modal opens
+  useEffect(() => {
+    if (isOpen && !hasTrackedOpen) {
+      setHasTrackedOpen(true);
+      trackAnalyticsEvent('widget_opened', { isPreview: true });
+    } else if (!isOpen && hasTrackedOpen) {
+      setHasTrackedOpen(false);
+    }
+  }, [isOpen, hasTrackedOpen]);
 
   useEffect(() => {
     if (externalStep !== undefined) {
@@ -81,15 +117,66 @@ export const ZhayaWidgetModal: React.FC<ZhayaWidgetModalProps> = ({
     return types.length > 0 ? types[0] : null;
   }, [externalSelectedType, internalSelectedType, types]);
 
+  const calculatedResult = useMemo(() => {
+    if (!activeType) return null;
+    return calculateRecommendation(activeType, userMeasurements);
+  }, [activeType, userMeasurements]);
+
   const handleSetStep = (nextStep: 0 | 1 | 2 | 3) => {
+    if (nextStep === 1 && !hasTrackedFlowStarted) {
+      setHasTrackedFlowStarted(true);
+      trackAnalyticsEvent('flow_started', { isPreview: true });
+    }
+
+    if (nextStep === 3) {
+      const status = calculatedResult?.status || 'not_found';
+
+      if (status === 'not_found') {
+        trackAnalyticsEvent('recommendation_not_found', {
+          productTypeId: activeType?.id,
+          productTypeName: activeType?.name,
+          productCategory: activeType?.category,
+          recommendationStatus: 'not_found',
+          isPreview: true,
+        });
+      } else {
+        trackAnalyticsEvent('recommendation_generated', {
+          productTypeId: activeType?.id,
+          productTypeName: activeType?.name,
+          productCategory: activeType?.category,
+          recommendationStatus: status,
+          isPreview: true,
+        });
+      }
+    }
+
     if (onStepChange) onStepChange(nextStep);
     setInternalStep(nextStep);
   };
 
   const handleSelectType = (type: ProductType) => {
+    trackAnalyticsEvent('product_type_selected', {
+      productTypeId: type.id,
+      productTypeName: type.name,
+      productCategory: type.category,
+      isPreview: true,
+    });
     if (onSelectType) onSelectType(type);
     setInternalSelectedType(type);
     handleSetStep(2);
+  };
+
+  const handleMeasurementChange = (key: string, value: string) => {
+    if (!hasTrackedMeasurements) {
+      setHasTrackedMeasurements(true);
+      trackAnalyticsEvent('measurements_started', {
+        productTypeId: activeType?.id,
+        productTypeName: activeType?.name,
+        productCategory: activeType?.category,
+        isPreview: true,
+      });
+    }
+    setUserMeasurements((prev) => ({ ...prev, [key]: value }));
   };
 
   // Helper values with Nullish Coalescing (??)
@@ -204,6 +291,7 @@ export const ZhayaWidgetModal: React.FC<ZhayaWidgetModalProps> = ({
           {/* Close Button */}
           <button
             onClick={() => {
+              trackAnalyticsEvent('widget_closed', { isPreview: true });
               if (onClose) onClose();
             }}
             className="w-7 h-7 rounded-full border flex items-center justify-center hover:opacity-80 transition-opacity cursor-pointer z-10"
@@ -271,27 +359,98 @@ export const ZhayaWidgetModal: React.FC<ZhayaWidgetModalProps> = ({
               </p>
             </div>
 
-            <div className="grid grid-cols-2 sm:grid-cols-3 gap-3 max-h-[380px] overflow-y-auto pr-1">
+            <div
+              className={`w-full mx-auto max-h-[400px] overflow-y-auto pr-1 ${
+                types.length === 1
+                  ? 'max-w-[320px] grid grid-cols-1'
+                  : types.length === 2
+                  ? 'max-w-[480px] grid grid-cols-2 gap-3 sm:gap-4'
+                  : types.length === 3
+                  ? 'max-w-[640px] grid grid-cols-2 sm:grid-cols-3 gap-3 sm:gap-4'
+                  : types.length === 4
+                  ? 'max-w-[720px] grid grid-cols-2 sm:grid-cols-4 gap-3'
+                  : 'max-w-[760px] grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-3'
+              }`}
+            >
               {types.length > 0 ? (
-                types.map((t) => (
-                  <button
-                    key={t.id}
-                    onClick={() => handleSelectType(t)}
-                    style={{
-                      backgroundColor: inputBgColor,
-                      borderColor: activeType?.id === t.id ? textColor : inputBorderColor,
-                      borderRadius: `${inputRadius}px`,
-                    }}
-                    className="p-3 border text-left transition-all hover:border-neutral-400 cursor-pointer flex flex-col justify-between group h-24"
-                  >
-                    <span style={{ color: secondaryTextColor }} className="text-[10px] font-mono uppercase tracking-wider">
-                      Categoria
-                    </span>
-                    <span style={{ color: textColor, fontWeight: titleWeight }} className="text-xs tracking-wide uppercase group-hover:underline">
-                      {t.name}
-                    </span>
-                  </button>
-                ))
+                types.map((t) => {
+                  const useIconConfig = Boolean(
+                    (t.useIconInSelector || (t as any).use_icon_in_selector) &&
+                    (t.iconUrl || (t as any).icon_url)
+                  );
+                  const iconSrc = t.iconUrl || (t as any).icon_url;
+                  const hasIcon = useIconConfig && Boolean(iconSrc) && !failedIcons[t.id];
+                  const isSelected = activeType?.id === t.id;
+
+                  if (hasIcon) {
+                    return (
+                      <button
+                        key={t.id}
+                        onClick={() => handleSelectType(t)}
+                        type="button"
+                        className={`group relative flex flex-col items-center justify-between p-2 rounded-xl transition-all cursor-pointer bg-transparent border-none outline-none focus-visible:ring-2 focus-visible:ring-white/80 ${
+                          isSelected ? 'scale-105 opacity-100' : 'opacity-75 hover:opacity-100 hover:scale-103'
+                        }`}
+                      >
+                        {/* Square Image Area */}
+                        <div className="w-full aspect-square flex items-center justify-center relative p-1">
+                          <img
+                            src={iconSrc}
+                            alt={t.name}
+                            className={`w-full h-full object-contain transition-all duration-200 ${
+                              isSelected ? 'drop-shadow-[0_0_8px_rgba(255,255,255,0.4)]' : ''
+                            }`}
+                            loading="lazy"
+                            onError={() => {
+                              setFailedIcons((prev) => ({ ...prev, [t.id]: true }));
+                            }}
+                          />
+                        </div>
+
+                        {/* Name and Selection Indicator */}
+                        <div className="flex flex-col items-center gap-1 mt-1 text-center w-full">
+                          <span
+                            style={{ color: textColor, fontWeight: titleWeight }}
+                            className="text-xs tracking-wider uppercase leading-tight line-clamp-2"
+                          >
+                            {t.name}
+                          </span>
+                          {isSelected && (
+                            <span
+                              style={{ backgroundColor: textColor }}
+                              className="w-1.5 h-1.5 rounded-full inline-block mt-0.5 shadow-xs"
+                            />
+                          )}
+                        </div>
+                      </button>
+                    );
+                  }
+
+                  // Text Mode / Fallback Mode
+                  return (
+                    <button
+                      key={t.id}
+                      onClick={() => handleSelectType(t)}
+                      type="button"
+                      style={{
+                        backgroundColor: isSelected ? textColor : inputBgColor,
+                        color: isSelected ? bgColor : textColor,
+                        borderColor: isSelected ? textColor : inputBorderColor,
+                        borderRadius: `${inputRadius}px`,
+                      }}
+                      className={`p-3.5 border text-center transition-all hover:border-neutral-400 cursor-pointer flex flex-col items-center justify-center gap-2 outline-none focus-visible:ring-2 focus-visible:ring-white/80 ${
+                        isSelected ? 'font-bold shadow-md scale-[1.02]' : 'min-h-[76px]'
+                      }`}
+                    >
+                      <span
+                        style={{ fontWeight: titleWeight }}
+                        className="text-xs tracking-wide uppercase text-center leading-tight line-clamp-2"
+                      >
+                        {t.name}
+                      </span>
+                    </button>
+                  );
+                })
               ) : (
                 <div style={{ color: secondaryTextColor }} className="col-span-full py-8 text-center text-xs">
                   Nenhum tipo de peça cadastrado.
@@ -322,7 +481,7 @@ export const ZhayaWidgetModal: React.FC<ZhayaWidgetModalProps> = ({
                   />
                 ) : (
                   <MeasurementIllustration
-                    activeKey={activeType.measurements?.[0] || 'bust'}
+                    activeMeasurement={activeType.measurements?.[0] || 'bust'}
                     className="w-full h-full"
                   />
                 )}
@@ -374,6 +533,12 @@ export const ZhayaWidgetModal: React.FC<ZhayaWidgetModalProps> = ({
                         <button
                           type="button"
                           onClick={() => {
+                            trackAnalyticsEvent('measurement_help_opened', {
+                              productTypeId: activeType?.id,
+                              productTypeName: activeType?.name,
+                              productCategory: activeType?.category,
+                              isPreview: true,
+                            });
                             setActiveGuideKey(mKey as MeasurementKey);
                             setShowGuideModal(true);
                           }}
@@ -385,24 +550,35 @@ export const ZhayaWidgetModal: React.FC<ZhayaWidgetModalProps> = ({
                         </button>
                       </div>
 
-                      <input
-                        type="number"
-                        step="0.1"
-                        value={userMeasurements[mKey] || ''}
-                        onChange={(e) =>
-                          setUserMeasurements({ ...userMeasurements, [mKey]: e.target.value })
-                        }
-                        placeholder="Ex: 88"
-                        style={{
-                          backgroundColor: inputBgColor,
-                          color: inputTextColor,
-                          borderColor: inputBorderColor,
-                          borderRadius: `${inputRadius}px`,
-                          fontSize: `${appearance.fieldFontSize ?? 13}px`,
-                          fontWeight: textWeight,
-                        }}
-                        className="w-full border px-3 py-2 font-mono focus:outline-none focus:border-white transition-colors"
-                      />
+                      <div className="flex items-center gap-2">
+                        <input
+                          type="text"
+                          inputMode="decimal"
+                          value={userMeasurements[mKey] || ''}
+                          onChange={(e) => handleMeasurementChange(mKey, e.target.value)}
+                          placeholder="Digite a medida em cm"
+                          style={{
+                            backgroundColor: inputBgColor,
+                            color: inputTextColor,
+                            borderColor: inputBorderColor,
+                            borderRadius: `${inputRadius}px`,
+                            fontSize: `${appearance.fieldFontSize ?? 13}px`,
+                            fontWeight: textWeight,
+                          }}
+                          className="flex-1 border px-3 py-2 font-mono focus:outline-none focus:border-white transition-colors"
+                        />
+                        {device === 'mobile' && (
+                          <button
+                            type="button"
+                            aria-label="Selecionar medida"
+                            title="Selecionar medida"
+                            onClick={() => setActiveWheelKey(mKey as MeasurementKey)}
+                            className="w-10 h-10 flex items-center justify-center bg-white/5 border border-white/10 rounded-lg text-white hover:bg-white/10 transition-colors shrink-0 cursor-pointer"
+                          >
+                            <SlidersHorizontal className="w-4 h-4" />
+                          </button>
+                        )}
+                      </div>
                     </div>
                   );
                 })}
@@ -439,68 +615,139 @@ export const ZhayaWidgetModal: React.FC<ZhayaWidgetModalProps> = ({
         {/* STEP 3: RESULT SCREEN */}
         {activeStep === 3 && (
           <div className="py-6 text-center space-y-6 max-w-md mx-auto">
-            {resultMode === 'recommended' && (
-              <div className="space-y-4">
-                <div className="inline-flex items-center justify-center w-12 h-12 rounded-full bg-emerald-500/20 text-emerald-400 border border-emerald-500/40">
-                  <Check className="w-6 h-6" />
-                </div>
-                <div>
-                  <span
-                    style={{ color: secondaryTextColor, fontWeight: textWeight }}
-                    className="text-xs uppercase tracking-widest font-mono block mb-1"
-                  >
-                    {texts.resultTitle || 'Sugerimos o tamanho'}
-                  </span>
-                  <div
-                    style={{ fontWeight: resultWeight }}
-                    className="text-5xl uppercase tracking-tight my-2"
-                  >
-                    M
+            {calculatedResult ? (
+              <>
+                {calculatedResult.status === 'recommended' && (
+                  <div className="space-y-4">
+                    <div className="inline-flex items-center justify-center w-12 h-12 rounded-full bg-emerald-500/20 text-emerald-400 border border-emerald-500/40">
+                      <Check className="w-6 h-6" />
+                    </div>
+                    <div>
+                      <span
+                        style={{ color: secondaryTextColor, fontWeight: textWeight }}
+                        className="text-xs uppercase tracking-widest font-mono block mb-1"
+                      >
+                        {texts.resultTitle || 'Sugerimos o tamanho'}
+                      </span>
+                      <div
+                        style={{ fontWeight: resultWeight }}
+                        className="text-5xl uppercase tracking-tight my-2"
+                      >
+                        {calculatedResult.size}
+                      </div>
+                      <p style={{ color: secondaryTextColor, fontSize: `${appearance.bodyFontSize ?? 13}px`, fontWeight: textWeight }}>
+                        {calculatedResult.message}
+                      </p>
+                    </div>
                   </div>
-                  <p style={{ color: secondaryTextColor, fontSize: `${appearance.bodyFontSize ?? 13}px`, fontWeight: textWeight }}>
-                    Com base nas suas medidas ({userMeasurements.bust || '88'}cm busto / {userMeasurements.waist || '70'}cm cintura), o tamanho <strong>M</strong> veste perfeitamente.
-                  </p>
-                </div>
-              </div>
-            )}
+                )}
 
-            {resultMode === 'between' && (
-              <div className="space-y-4">
-                <div className="inline-flex items-center justify-center w-12 h-12 rounded-full bg-amber-500/20 text-amber-400 border border-amber-500/40">
-                  <Sparkles className="w-6 h-6" />
-                </div>
-                <div>
-                  <span
-                    style={{ color: secondaryTextColor, fontWeight: textWeight }}
-                    className="text-xs uppercase tracking-widest font-mono block mb-1"
-                  >
-                    {texts.betweenSizesMessage || 'Você está entre dois tamanhos.'}
-                  </span>
-                  <div
-                    style={{ fontWeight: resultWeight }}
-                    className="text-4xl uppercase tracking-tight my-2"
-                  >
-                    M ou G
+                {calculatedResult.status === 'between_sizes' && (
+                  <div className="space-y-4">
+                    <div className="inline-flex items-center justify-center w-12 h-12 rounded-full bg-amber-500/20 text-amber-400 border border-amber-500/40">
+                      <Sparkles className="w-6 h-6" />
+                    </div>
+                    <div>
+                      <span
+                        style={{ color: secondaryTextColor, fontWeight: textWeight }}
+                        className="text-xs uppercase tracking-widest font-mono block mb-1"
+                      >
+                        {texts.betweenSizesMessage || 'Você está entre dois tamanhos.'}
+                      </span>
+                      <div
+                        style={{ fontWeight: resultWeight }}
+                        className="text-4xl uppercase tracking-tight my-2"
+                      >
+                        {calculatedResult.size} ou {calculatedResult.alternateSize}
+                      </div>
+                      <p style={{ color: secondaryTextColor, fontSize: `${appearance.bodyFontSize ?? 13}px`, fontWeight: textWeight }}>
+                        {calculatedResult.message}
+                      </p>
+                    </div>
                   </div>
-                  <p style={{ color: secondaryTextColor, fontSize: `${appearance.bodyFontSize ?? 13}px`, fontWeight: textWeight }}>
-                    Para um caimento justo, sugerimos o <strong>M</strong>. Se preferir mais solto e confortável, sugerimos o <strong>G</strong>.
-                  </p>
-                </div>
-              </div>
-            )}
+                )}
 
-            {resultMode === 'none' && (
-              <div className="space-y-4">
-                <div className="inline-flex items-center justify-center w-12 h-12 rounded-full bg-neutral-800 text-neutral-400 border border-neutral-700">
-                  <HelpCircle className="w-6 h-6" />
-                </div>
-                <div>
-                  <p style={{ color: secondaryTextColor, fontSize: `${appearance.bodyFontSize ?? 13}px`, fontWeight: textWeight }} className="leading-relaxed">
-                    {texts.notFoundMessage ||
-                      'Não foi possível indicar um tamanho com segurança. Verifique suas medidas ou consulte nossa equipe para suporte customizado.'}
-                  </p>
-                </div>
-              </div>
+                {calculatedResult.status === 'not_found' && (
+                  <div className="space-y-4">
+                    <div className="inline-flex items-center justify-center w-12 h-12 rounded-full bg-neutral-800 text-neutral-400 border border-neutral-700">
+                      <HelpCircle className="w-6 h-6" />
+                    </div>
+                    <div>
+                      <p style={{ color: secondaryTextColor, fontSize: `${appearance.bodyFontSize ?? 13}px`, fontWeight: textWeight }} className="leading-relaxed">
+                        {calculatedResult.message ||
+                          texts.notFoundMessage ||
+                          'Não foi possível indicar um tamanho com segurança. Verifique suas medidas ou consulte nossa equipe para suporte customizado.'}
+                      </p>
+                    </div>
+                  </div>
+                )}
+              </>
+            ) : (
+              <>
+                {resultMode === 'recommended' && (
+                  <div className="space-y-4">
+                    <div className="inline-flex items-center justify-center w-12 h-12 rounded-full bg-emerald-500/20 text-emerald-400 border border-emerald-500/40">
+                      <Check className="w-6 h-6" />
+                    </div>
+                    <div>
+                      <span
+                        style={{ color: secondaryTextColor, fontWeight: textWeight }}
+                        className="text-xs uppercase tracking-widest font-mono block mb-1"
+                      >
+                        {texts.resultTitle || 'Sugerimos o tamanho'}
+                      </span>
+                      <div
+                        style={{ fontWeight: resultWeight }}
+                        className="text-5xl uppercase tracking-tight my-2"
+                      >
+                        M
+                      </div>
+                      <p style={{ color: secondaryTextColor, fontSize: `${appearance.bodyFontSize ?? 13}px`, fontWeight: textWeight }}>
+                        Com base nas suas medidas ({userMeasurements.bust || '88'}cm busto / {userMeasurements.waist || '70'}cm cintura), o tamanho <strong>M</strong> veste perfeitamente.
+                      </p>
+                    </div>
+                  </div>
+                )}
+
+                {resultMode === 'between' && (
+                  <div className="space-y-4">
+                    <div className="inline-flex items-center justify-center w-12 h-12 rounded-full bg-amber-500/20 text-amber-400 border border-amber-500/40">
+                      <Sparkles className="w-6 h-6" />
+                    </div>
+                    <div>
+                      <span
+                        style={{ color: secondaryTextColor, fontWeight: textWeight }}
+                        className="text-xs uppercase tracking-widest font-mono block mb-1"
+                      >
+                        {texts.betweenSizesMessage || 'Você está entre dois tamanhos.'}
+                      </span>
+                      <div
+                        style={{ fontWeight: resultWeight }}
+                        className="text-4xl uppercase tracking-tight my-2"
+                      >
+                        M ou G
+                      </div>
+                      <p style={{ color: secondaryTextColor, fontSize: `${appearance.bodyFontSize ?? 13}px`, fontWeight: textWeight }}>
+                        Para um caimento justo, sugerimos o <strong>M</strong>. Se preferir mais solto e confortável, sugerimos o <strong>G</strong>.
+                      </p>
+                    </div>
+                  </div>
+                )}
+
+                {resultMode === 'none' && (
+                  <div className="space-y-4">
+                    <div className="inline-flex items-center justify-center w-12 h-12 rounded-full bg-neutral-800 text-neutral-400 border border-neutral-700">
+                      <HelpCircle className="w-6 h-6" />
+                    </div>
+                    <div>
+                      <p style={{ color: secondaryTextColor, fontSize: `${appearance.bodyFontSize ?? 13}px`, fontWeight: textWeight }} className="leading-relaxed">
+                        {texts.notFoundMessage ||
+                          'Não foi possível indicar um tamanho com segurança. Verifique suas medidas ou consulte nossa equipe para suporte customizado.'}
+                      </p>
+                    </div>
+                  </div>
+                )}
+              </>
             )}
 
             {/* Actions */}
@@ -581,6 +828,30 @@ export const ZhayaWidgetModal: React.FC<ZhayaWidgetModalProps> = ({
                   'Passe a fita métrica suavemente ao redor do corpo sem apertar.'}
               </p>
 
+              {(() => {
+                const guideObs = activeGuideKey && helps[activeGuideKey]
+                  ? getVisibleObservations(helps[activeGuideKey].observations, activeType?.measurements || [])
+                  : [];
+                if (guideObs.length === 0) return null;
+
+                return (
+                  <div className="space-y-2 pt-1 border-t border-neutral-100/20">
+                    {guideObs.map((obs) => (
+                      <div
+                        key={obs.id}
+                        style={{ borderColor: borderColor }}
+                        className="text-[11px] p-2.5 rounded bg-white/5 border leading-snug"
+                      >
+                        <span style={{ color: textColor }} className="font-bold mr-1.5">
+                          Obs:
+                        </span>
+                        <span style={{ color: secondaryTextColor }}>{obs.text}</span>
+                      </div>
+                    ))}
+                  </div>
+                );
+              })()}
+
               <button
                 type="button"
                 onClick={() => setShowGuideModal(false)}
@@ -597,6 +868,228 @@ export const ZhayaWidgetModal: React.FC<ZhayaWidgetModalProps> = ({
             </div>
           </div>
         )}
+        {/* Wheel Picker Sheet */}
+        {activeWheelKey && (
+          <ReactWheelPickerSheet
+            measurementKey={activeWheelKey}
+            label={helps[activeWheelKey]?.label || activeWheelKey}
+            currentValue={userMeasurements[activeWheelKey] || ''}
+            productType={activeType}
+            onConfirm={(val) => {
+              setUserMeasurements({ ...userMeasurements, [activeWheelKey]: val });
+              setActiveWheelKey(null);
+            }}
+            onClose={() => setActiveWheelKey(null)}
+          />
+        )}
+      </div>
+    </div>
+  );
+};
+
+interface ReactWheelPickerSheetProps {
+  measurementKey: string;
+  label: string;
+  currentValue: string;
+  productType: ProductType | null;
+  onConfirm: (val: string) => void;
+  onClose: () => void;
+}
+
+const ReactWheelPickerSheet: React.FC<ReactWheelPickerSheetProps> = ({
+  measurementKey,
+  label,
+  currentValue,
+  productType,
+  onConfirm,
+  onClose,
+}) => {
+  const scrollBoxRef = React.useRef<HTMLDivElement>(null);
+
+  const config = useMemo(() => {
+    const step = 0.5;
+    const defaults: Record<string, { min: number; max: number; def: number }> = {
+      bust: { min: 60, max: 150, def: 90 },
+      waist: { min: 50, max: 140, def: 72 },
+      hip: { min: 60, max: 160, def: 98 },
+      shoulders: { min: 30, max: 60, def: 38 },
+      thigh: { min: 35, max: 90, def: 54 },
+      torsoLength: { min: 40, max: 90, def: 60 },
+      footLength: { min: 15, max: 35, def: 24 },
+      footWidth: { min: 5, max: 15, def: 9 },
+    };
+
+    let minVal = defaults[measurementKey]?.min ?? 10;
+    let maxVal = defaults[measurementKey]?.max ?? 200;
+    let defVal = defaults[measurementKey]?.def ?? 70;
+
+    if (productType?.sizes && productType.sizes.length > 0) {
+      const mins: number[] = [];
+      const maxs: number[] = [];
+      productType.sizes.forEach((s) => {
+        if (s.ranges && s.ranges[measurementKey]) {
+          const r = s.ranges[measurementKey];
+          const mn = parseNumber(r.min !== undefined ? r.min : r.value);
+          const mx = parseNumber(r.max !== undefined ? r.max : r.value);
+          if (mn !== null && mn > 0) mins.push(mn);
+          if (mx !== null && mx > 0) maxs.push(mx);
+        }
+      });
+      if (mins.length > 0 && maxs.length > 0) {
+        const minFound = Math.min(...mins);
+        const maxFound = Math.max(...maxs);
+        if (minFound > 0 && maxFound >= minFound) {
+          minVal = Math.max(5, Math.floor(minFound - 10));
+          maxVal = Math.ceil(maxFound + 10);
+          defVal = Math.round(((minFound + maxFound) / 2) * 2) / 2;
+        }
+      }
+    }
+
+    return { step, min: minVal, max: maxVal, def: defVal };
+  }, [measurementKey, productType]);
+
+  const options = useMemo(() => {
+    const opts: { val: number; display: string }[] = [];
+    for (let v = config.min; v <= config.max + 0.001; v += config.step) {
+      const roundV = Math.round(v * 10) / 10;
+      opts.push({
+        val: roundV,
+        display: formatMeasurementDisplay(roundV),
+      });
+    }
+    return opts;
+  }, [config]);
+
+  const initialIdx = useMemo(() => {
+    const parsed = parseNumber(currentValue);
+    const target = parsed !== null && parsed > 0 ? parsed : config.def;
+    let closestIdx = 0;
+    let minDiff = 999999;
+    options.forEach((opt, idx) => {
+      const diff = Math.abs(opt.val - target);
+      if (diff < minDiff) {
+        minDiff = diff;
+        closestIdx = idx;
+      }
+    });
+    return closestIdx;
+  }, [currentValue, config.def, options]);
+
+  const [selectedIdx, setSelectedIdx] = useState<number>(initialIdx);
+  const lastVibratedIdxRef = React.useRef<number>(initialIdx);
+
+  useEffect(() => {
+    if (scrollBoxRef.current) {
+      scrollBoxRef.current.scrollTop = initialIdx * 42;
+    }
+  }, [initialIdx]);
+
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') {
+        onClose();
+      }
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [onClose]);
+
+  const handleScroll = () => {
+    if (!scrollBoxRef.current) return;
+    const idx = Math.round(scrollBoxRef.current.scrollTop / 42);
+    const clamped = Math.max(0, Math.min(options.length - 1, idx));
+    if (clamped !== selectedIdx) {
+      setSelectedIdx(clamped);
+      if (clamped !== lastVibratedIdxRef.current) {
+        lastVibratedIdxRef.current = clamped;
+        if (typeof navigator !== 'undefined' && typeof navigator.vibrate === 'function') {
+          const prefersReduced = window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+          if (!prefersReduced) {
+            try { navigator.vibrate(5); } catch (e) {}
+          }
+        }
+      }
+    }
+  };
+
+  return (
+    <div
+      role="dialog"
+      aria-modal="true"
+      aria-label="Seletor de medida"
+      onClick={onClose}
+      className="fixed inset-0 z-[1000000] bg-black/75 backdrop-blur-xs flex flex-col justify-end p-0 touch-none font-sans"
+    >
+      <div
+        onClick={(e) => e.stopPropagation()}
+        className="w-full bg-[#171717] border-t border-white/15 rounded-t-2xl p-5 space-y-4 shadow-2xl touch-auto max-w-md mx-auto"
+        style={{ paddingBottom: 'max(24px, env(safe-area-inset-bottom, 24px))' }}
+      >
+        <div className="flex items-center justify-between border-b border-white/10 pb-3">
+          <div>
+            <h3 className="text-base font-semibold text-white m-0">{label}</h3>
+            <p className="text-xs text-neutral-400 m-0 mt-0.5">Unidade em centímetros (cm)</p>
+          </div>
+          <button
+            type="button"
+            aria-label="Cancelar"
+            onClick={onClose}
+            className="text-neutral-400 text-lg hover:text-white p-1 cursor-pointer"
+          >
+            <X className="w-5 h-5" />
+          </button>
+        </div>
+
+        {/* Column Wheel Container */}
+        <div className="relative h-[210px] overflow-hidden select-none">
+          <div className="absolute top-[84px] left-0 right-0 h-[42px] border-y border-white/25 bg-white/5 pointer-events-none rounded-lg" />
+          <div
+            ref={scrollBoxRef}
+            onScroll={handleScroll}
+            className="h-full overflow-y-auto snap-y snap-mandatory py-[84px] scrollbar-none"
+          >
+            {options.map((opt, idx) => {
+              const isSel = idx === selectedIdx;
+              return (
+                <div
+                  key={idx}
+                  onClick={() => {
+                    if (scrollBoxRef.current) {
+                      scrollBoxRef.current.scrollTo({ top: idx * 42, behavior: 'smooth' });
+                    }
+                  }}
+                  className={`h-[42px] flex items-center justify-center transition-all cursor-pointer snap-center ${
+                    isSel ? 'text-xl font-bold text-white opacity-100' : 'text-sm font-normal text-neutral-500 opacity-45'
+                  }`}
+                >
+                  {opt.display} cm
+                </div>
+              );
+            })}
+          </div>
+        </div>
+
+        <div className="flex gap-3 pt-1">
+          <button
+            type="button"
+            onClick={onClose}
+            className="flex-1 bg-transparent border border-white/20 text-white h-12 rounded-lg text-xs font-semibold cursor-pointer hover:bg-white/5 transition-colors"
+          >
+            Cancelar
+          </button>
+          <button
+            type="button"
+            onClick={() => {
+              if (options[selectedIdx]) {
+                onConfirm(options[selectedIdx].display);
+              }
+            }}
+            className="flex-1 bg-white text-black h-12 rounded-lg text-xs font-semibold cursor-pointer hover:bg-neutral-200 transition-colors"
+          >
+            Confirmar
+          </button>
+        </div>
       </div>
     </div>
   );

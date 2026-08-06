@@ -8,12 +8,24 @@ export type MeasurementKey =
   | 'footLength'
   | 'footWidth';
 
+export interface MeasurementObservation {
+  id: string;
+  text: string;
+  active: boolean;
+  order: number;
+  condition: {
+    type: 'always' | 'measurement_active';
+    measurementKey?: MeasurementKey;
+  };
+}
+
 export interface MeasurementHelp {
   key: MeasurementKey;
   label: string;
   title: string;
   description: string;
   imageUrl?: string;
+  observations?: MeasurementObservation[];
 }
 
 export interface SizeRange {
@@ -30,9 +42,14 @@ export interface SizeRow {
   notes?: string;
 }
 
+export type ProductCategory = 'upper_body' | 'lower_body' | 'full_body' | 'footwear' | 'generic';
+export type ProductFitType = 'structured' | 'regular' | 'stretch' | 'footwear';
+
 export interface ProductType {
   id: string;
   name: string;
+  category?: ProductCategory;
+  fitType?: ProductFitType;
   imageUrl?: string;
   iconUrl?: string;
   useIconInSelector?: boolean;
@@ -80,6 +97,7 @@ export interface PopupAppearance {
   buttonFontSize?: number;
   titleFontWeight?: number | string;
   bodyFontWeight?: number | string;
+  textFontWeight?: number | string;
   buttonFontWeight?: number | string;
   resultFontWeight?: number | string;
   storeButtonFontWeight?: string;
@@ -201,5 +219,94 @@ export interface AppConfig {
   testMode: boolean;
   allowedDomains?: string[];
   version?: number;
+}
+
+export type AnalyticsEventName =
+  | 'launcher_viewed'
+  | 'launcher_clicked'
+  | 'widget_opened'
+  | 'flow_started'
+  | 'product_type_selected'
+  | 'measurements_started'
+  | 'recommendation_generated'
+  | 'recommendation_not_found'
+  | 'measurement_help_opened'
+  | 'widget_closed';
+
+export type PeriodType = 'today' | '7days' | '30days' | '90days' | 'custom';
+
+export interface SystemActivityStatus {
+  id: string;
+  lastRunAt: string | null;
+  lastSuccessAt: string | null;
+  lastStatus: 'success' | 'pending' | 'warning' | 'error' | 'not_configured';
+  lastError: string | null;
+  updatedAt: string;
+}
+
+export interface AnalyticsEventInput {
+  eventId: string;
+  eventName: AnalyticsEventName;
+  visitorId?: string;
+  sessionId: string;
+  productTypeId?: string;
+  productTypeName?: string;
+  productCategory?: string;
+  recommendationStatus?: 'recommended' | 'between_sizes' | 'not_found';
+  sourceDomain?: string;
+  pagePath?: string;
+  deviceType?: 'desktop' | 'mobile';
+  configVersion?: number;
+  metadata?: Record<string, any>;
+  occurredAt?: string;
+}
+
+export interface AnalyticsSummary {
+  period: PeriodType;
+  startDate: string;
+  endDate: string;
+  totalViewed: number;
+  totalClicked: number;
+  totalOpened: number;
+  totalStarted: number;
+  totalTypeSelected: number;
+  totalMeasurementsStarted: number;
+  totalRecommended: number;
+  totalNotFound: number;
+  totalHelpOpened: number;
+  totalClosed: number;
+  uniqueVisitors: number;
+  uniqueSessions: number;
+  openRate: number;
+  startRate: number;
+  completionRate: number;
+  notFoundRate: number;
+  abandonmentRate: number;
+  dailyEvolution: Array<{
+    date: string;
+    viewed: number;
+    opened: number;
+    started: number;
+    completed: number;
+    abandoned: number;
+  }>;
+  funnel: Array<{
+    step: string;
+    label?: string;
+    count: number;
+    rate: number;
+  }>;
+  topTypes: Array<{
+    typeId?: string;
+    typeName: string;
+    category?: string;
+    started: number;
+    completed: number;
+  }>;
+  recommendationTypes: {
+    recommended: number;
+    between_sizes: number;
+    not_found: number;
+  };
 }
 
