@@ -127,20 +127,30 @@ export function generateWidgetScript(baseUrl: string): string {
         }
       };
 
-      var url = API_BASE + '/api/public/analytics';
-      var blob = new Blob([JSON.stringify(eventData)], { type: 'application/json' });
-      if (navigator.sendBeacon) {
-        navigator.sendBeacon(url, blob);
-      } else {
-        fetch(url, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify(eventData),
-          keepalive: true
-        }).catch(function() {});
-      }
-    } catch (e) {}
+var url = API_BASE + '/api/public/analytics';
+
+fetch(url, {
+  method: 'POST',
+  headers: {
+    'Content-Type': 'application/json'
+  },
+  body: JSON.stringify(eventData),
+  keepalive: true,
+  credentials: 'omit',
+  mode: 'cors'
+}).catch(function(error) {
+  var isDevelopment =
+    window.location.hostname === 'localhost' ||
+    window.location.hostname === '127.0.0.1' ||
+    window.location.search.indexOf('debug=1') !== -1;
+
+  if (isDevelopment) {
+    console.warn(
+      '[Zhaya Match] Falha ao enviar evento de Analytics:',
+      error
+    );
   }
+});
 
   function escapeHtml(str) {
     if (!str && str !== 0) return '';
