@@ -399,7 +399,7 @@ export function calculateRecommendation(
       return {
         size: null,
         status: 'not_found',
-        message: 'Suas medidas de comprimento e largura apontam para proporções bem diferentes. Nesta tabela, não encontramos uma numeração equilibrada para as duas.',
+        message: 'O comprimento e a largura do seu pé indicam numerações bem diferentes. Confira se as duas medidas foram preenchidas corretamente. Se estiverem certas, este modelo pode não ter o ajuste ideal para você.',
       };
     }
 
