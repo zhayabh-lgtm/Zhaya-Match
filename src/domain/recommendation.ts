@@ -255,7 +255,7 @@ export function calculateRecommendation(
       return {
         size: null,
         status: 'not_found',
-        message: 'Ainda não há dados suficientes nesta tabela para calcular uma recomendação.',
+        message: 'Ainda não há dados suficientes para calcular uma recomendação para este modelo.',
       };
     }
 
@@ -263,11 +263,11 @@ export function calculateRecommendation(
       if (category === 'footwear') {
         const isLength = key === 'footLength';
         const isWidth = key === 'footWidth';
-        let msg = `Sua medida de ${label} fica acima do que esta tabela atende no momento.`;
+        let msg = `Sua medida de ${label} fica acima das opções disponíveis para este modelo.`;
         if (isLength) {
-          msg = `O comprimento do seu pé fica acima da maior numeração disponível nesta tabela.`;
+          msg = `O comprimento do seu pé fica acima da maior numeração disponível para este modelo.`;
         } else if (isWidth) {
-          msg = `A largura do seu pé fica acima da maior numeração disponível nesta tabela.`;
+          msg = `A largura do seu pé fica acima da maior numeração disponível para este modelo.`;
         }
         return {
           size: null,
@@ -278,7 +278,7 @@ export function calculateRecommendation(
       return {
         size: null,
         status: 'not_found',
-        message: `Sua medida de ${label} fica acima do que esta tabela atende no momento.`,
+        message: `Sua medida de ${label} fica acima das opções disponíveis para este modelo.`,
       };
     }
 
@@ -286,11 +286,11 @@ export function calculateRecommendation(
     if (category === 'footwear' && underflow > 1.5) {
       const isLength = key === 'footLength';
       const isWidth = key === 'footWidth';
-      let msg = `Sua medida de ${label} está abaixo da menor numeração disponível nesta tabela.`;
+      let msg = `Sua medida de ${label} fica abaixo da menor numeração disponível para este modelo.`;
       if (isLength) {
-        msg = `O comprimento do seu pé fica abaixo da menor numeração disponível nesta tabela.`;
+        msg = `Pelo comprimento informado, a menor numeração disponível para este modelo ainda pode ficar grande para você.`;
       } else if (isWidth) {
-        msg = `A largura do seu pé fica abaixo da menor numeração disponível nesta tabela.`;
+        msg = `Pela largura informada, a menor numeração disponível para este modelo ainda pode ficar mais larga do que o ideal.`;
       }
       return {
         size: null,
@@ -301,7 +301,7 @@ export function calculateRecommendation(
       return {
         size: null,
         status: 'not_found',
-        message: `Sua medida de ${label} fica abaixo do que esta tabela atende no momento.`,
+        message: `Sua medida de ${label} fica abaixo das opções disponíveis para este modelo.`,
       };
     }
   }
@@ -372,7 +372,7 @@ export function calculateRecommendation(
       return {
         size: null,
         status: 'not_found',
-        message: 'Suas medidas mostram uma diferença maior entre comprimento e largura. Nesta tabela, não há uma numeração que equilibre bem os dois.',
+        message: 'O comprimento e a largura do seu pé indicam numerações bem diferentes. Confira se as duas medidas foram preenchidas corretamente. Se estiverem certas, este modelo pode não ter o ajuste ideal para você.',
       };
     }
 
@@ -466,7 +466,7 @@ export function calculateRecommendation(
     return {
       size: null,
       status: 'not_found',
-      message: `As medidas de ${decisiveNames} e ${minKeys} apontam para tamanhos diferentes nesta tabela. Por isso, não encontramos uma opção única que fique equilibrada.`,
+      message: `As medidas de ${decisiveNames} e ${minKeys} apontam para tamanhos diferentes. Por isso, este modelo pode não ter uma opção única que fique equilibrada para você.`,
     };
   }
 
