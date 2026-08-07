@@ -213,6 +213,92 @@ function runAnalyticsNormalizerAndUITests() {
   console.log('[Analytics UI & Normalizer Test Success] Todos os testes da UI e normalizador passaram.');
 }
 
+async function runAdminAnalyticsServerSideTest() {
+  console.log('[Admin Analytics Server-Side Test] Checking api/admin/analytics.ts server-side architecture and error responses...');
+
+  const adminAnalyticsPath = path.resolve(process.cwd(), 'api/admin/analytics.ts');
+  if (!fs.existsSync(adminAnalyticsPath)) {
+    throw new Error('[Test Failure] api/admin/analytics.ts does not exist!');
+  }
+
+  const code = fs.readFileSync(adminAnalyticsPath, 'utf-8');
+
+  // 1. Must use SUPABASE_SERVICE_ROLE_KEY
+  if (!code.includes('SUPABASE_SERVICE_ROLE_KEY')) {
+    throw new Error('[Test Failure] api/admin/analytics.ts must reference SUPABASE_SERVICE_ROLE_KEY!');
+  }
+
+  // 2. Must NOT import Repository for analytics queries
+  if (code.includes('Repository.')) {
+    throw new Error('[Test Failure] api/admin/analytics.ts MUST NOT depend on Repository.getAnalyticsSummary!');
+  }
+
+  // 3. Must NOT import src/lib/supabase.ts
+  if (code.includes('../src/lib/supabase') || code.includes('../../src/lib/supabase')) {
+    throw new Error('[Test Failure] api/admin/analytics.ts MUST NOT import client-side src/lib/supabase!');
+  }
+
+  // 4. Must reuse computeAnalyticsSummary
+  if (!code.includes('computeAnalyticsSummary')) {
+    throw new Error('[Test Failure] api/admin/analytics.ts MUST reuse computeAnalyticsSummary from analyticsAggregator!');
+  }
+
+  // 5. Functional test of handler response when config is missing
+  const adminHandlerModule = await import('../../api/admin/analytics');
+  const handler = adminHandlerModule.default;
+
+  let statusCode = 0;
+  let jsonResponse: any = null;
+
+  const mockReq = {
+    method: 'GET',
+    headers: {},
+    query: { period: '7days' },
+  };
+
+  const mockRes = {
+    setHeader: () => {},
+    status: (code: number) => {
+      statusCode = code;
+      return mockRes;
+    },
+    json: (data: any) => {
+      jsonResponse = data;
+      return mockRes;
+    },
+    end: () => mockRes,
+  };
+
+  // Ensure environment variables are clear for config missing test
+  const savedUrl = process.env.SUPABASE_URL;
+  const savedKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
+  delete process.env.SUPABASE_URL;
+  delete process.env.VITE_SUPABASE_URL;
+  delete process.env.SUPABASE_SERVICE_ROLE_KEY;
+
+  try {
+    await handler(mockReq, mockRes);
+
+    if (statusCode !== 503) {
+      throw new Error(`[Test Failure] Expected status 503 for missing configuration, got ${statusCode}`);
+    }
+
+    if (jsonResponse?.error !== 'CONFIG_ERROR') {
+      throw new Error(`[Test Failure] Expected error "CONFIG_ERROR", got ${JSON.stringify(jsonResponse)}`);
+    }
+
+    console.log('✓ Missing config explicitly returns HTTP 503 CONFIG_ERROR as required.');
+  } finally {
+    // Restore env
+    if (savedUrl) process.env.SUPABASE_URL = savedUrl;
+    if (savedKey) process.env.SUPABASE_SERVICE_ROLE_KEY = savedKey;
+  }
+
+  console.log('[Admin Analytics Server-Side Test Success] Endpoint server-side behavior verified cleanly.');
+}
+
 runAnalyticsArchitectureTest();
 runAnalyticsAggregationsTest();
 runAnalyticsNormalizerAndUITests();
+await runAdminAnalyticsServerSideTest();
+

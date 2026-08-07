@@ -1,5 +1,6 @@
 import { AnalyticsSummary, PeriodType } from '../types/zhaya';
 import { normalizeAnalyticsSummary } from './analyticsNormalizer';
+import { supabase } from './supabase';
 
 export type AnalyticsErrorState = 'API_ERROR' | 'AUTH_ERROR' | 'CONFIG_ERROR' | null;
 
@@ -26,16 +27,35 @@ export async function fetchAdminAnalyticsApi(
 
     if (typeof window !== 'undefined') {
       try {
-        const authData = localStorage.getItem('sb-sb.zhaya.fit-auth-token') || localStorage.getItem('supabase.auth.token');
-        if (authData) {
-          const parsed = JSON.parse(authData);
-          const token = parsed?.access_token || parsed?.currentSession?.access_token;
-          if (token) {
-            headers['Authorization'] = `Bearer ${token}`;
+        if (supabase) {
+          const { data } = await supabase.auth.getSession();
+          if (data?.session?.access_token) {
+            headers['Authorization'] = `Bearer ${data.session.access_token}`;
           }
         }
       } catch {
-        // Continue sem token de cabeçalho local se a desserialização falhar
+        // Continue sem token do cliente supabase se falhar
+      }
+
+      if (!headers['Authorization']) {
+        try {
+          for (let i = 0; i < localStorage.length; i++) {
+            const key = localStorage.key(i);
+            if (key && (key.includes('auth-token') || key.startsWith('sb-'))) {
+              const val = localStorage.getItem(key);
+              if (val) {
+                const parsed = JSON.parse(val);
+                const token = parsed?.access_token || parsed?.currentSession?.access_token;
+                if (token) {
+                  headers['Authorization'] = `Bearer ${token}`;
+                  break;
+                }
+              }
+            }
+          }
+        } catch {
+          // Continue sem token de cabeçalho local se a leitura do localStorage falhar
+        }
       }
     }
 

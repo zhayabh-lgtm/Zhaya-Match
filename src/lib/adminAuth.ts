@@ -17,10 +17,11 @@ export async function verifyAdminAuth(req: any): Promise<VerifyAdminResult> {
 
   const keyToUse = serviceKey || anonKey;
 
-  // If Supabase credentials are not configured in the environment,
-  // allow fallback in local development/mock mode.
   if (!url || !keyToUse) {
-    return { authorized: true };
+    return {
+      authorized: false,
+      error: 'CONFIG_ERROR',
+    };
   }
 
   const authHeader = req.headers?.authorization;

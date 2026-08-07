@@ -6,6 +6,7 @@ import { Repository } from './src/lib/repository';
 import { calculateRecommendation } from './src/domain/recommendation';
 import { generateWidgetScript } from './src/widget/standaloneWidget';
 import { verifyAdminAuth } from './src/lib/adminAuth';
+import adminAnalyticsHandler from './api/admin/analytics';
 
 async function startServer() {
   const app = express();
@@ -320,24 +321,7 @@ async function startServer() {
   });
 
   // 6. Admin API - Analytics Summary
-  app.get('/api/admin/analytics', async (req, res) => {
-    try {
-      const auth = await verifyAdminAuth(req);
-      if (!auth.authorized) {
-        return res.status(401).json({ error: 'UNAUTHORIZED', message: auth.error });
-      }
-
-      const period = (req.query.period as any) || '7days';
-      const customStart = req.query.start as string;
-      const customEnd = req.query.end as string;
-
-      const summary = await Repository.getAnalyticsSummary(period, customStart, customEnd);
-      return res.json(summary);
-    } catch (err: any) {
-      console.error('Admin Analytics Error:', err);
-      return res.status(500).json({ error: 'FAILED_TO_LOAD_ANALYTICS' });
-    }
-  });
+  app.get('/api/admin/analytics', adminAnalyticsHandler);
 
   // 7. Admin API - System Activity Monitor
   app.get('/api/admin/activity-status', async (req, res) => {
