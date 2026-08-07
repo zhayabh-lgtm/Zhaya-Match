@@ -239,7 +239,7 @@ export interface SystemActivityStatus {
   id: string;
   lastRunAt: string | null;
   lastSuccessAt: string | null;
-  lastStatus: 'success' | 'pending' | 'warning' | 'error' | 'not_configured';
+  lastStatus: 'success' | 'healthy' | 'pending' | 'warning' | 'stale' | 'error' | 'database_error' | 'not_configured' | 'configuration_error';
   lastError: string | null;
   updatedAt: string;
 }
@@ -284,6 +284,10 @@ export interface AnalyticsSummary {
   abandonmentRate: number;
   dailyEvolution: Array<{
     date: string;
+    displayDate?: string;
+    fullDate?: string;
+    visitors?: number;
+    sessions?: number;
     viewed: number;
     opened: number;
     started: number;
@@ -292,9 +296,12 @@ export interface AnalyticsSummary {
   }>;
   funnel: Array<{
     step: string;
+    stage?: string;
+    event?: string;
     label?: string;
     count: number;
     rate: number;
+    conversionRate?: number;
   }>;
   topTypes: Array<{
     typeId?: string;
@@ -302,11 +309,15 @@ export interface AnalyticsSummary {
     category?: string;
     started: number;
     completed: number;
+    recommended?: number;
+    betweenSizes?: number;
+    notFound?: number;
   }>;
   recommendationTypes: {
     recommended: number;
     between_sizes: number;
     not_found: number;
+    [key: string]: number;
   };
 }
 

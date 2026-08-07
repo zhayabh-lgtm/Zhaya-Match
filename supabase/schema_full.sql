@@ -239,11 +239,10 @@ BEGIN
   IF NOT EXISTS (SELECT 1 FROM pg_policies WHERE policyname = 'Admins can view analytics events') THEN
     CREATE POLICY "Admins can view analytics events" ON public.widget_analytics_events FOR SELECT TO authenticated USING (true);
   END IF;
-
-  IF NOT EXISTS (SELECT 1 FROM pg_policies WHERE policyname = 'Allow insert for analytics') THEN
-    CREATE POLICY "Allow insert for analytics" ON public.widget_analytics_events FOR INSERT TO anon, authenticated WITH CHECK (true);
-  END IF;
 END $$;
+
+-- Inserções em widget_analytics_events devem ser feitas via backend privilegiado (service_role)
+REVOKE INSERT ON public.widget_analytics_events FROM anon, authenticated;
 
 -- Políticas de Storage para o Bucket 'zhaya-match-media'
 DO $$

@@ -1,3 +1,4 @@
+import { createClient } from '@supabase/supabase-js';
 import {
   ProductType,
   PopupAppearance,
@@ -11,6 +12,7 @@ import {
 } from '../types/zhaya';
 import { supabase, isSupabaseConfigured } from './supabase';
 import { normalizeMeasurementObservation } from './normalize';
+import { computeAnalyticsSummary } from './analyticsAggregator';
 
 // Default initial values used for database seed or initial state
 export const defaultProductTypes: ProductType[] = [
@@ -1157,22 +1159,36 @@ export const Repository = {
       inMemoryAnalyticsEvents.push(record);
     }
 
-    if (!isSupabaseConfigured || !supabase) {
-      return;
-    }
+    const serverUrl = process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL || '';
+    const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY || '';
 
-    try {
-      const client = ensureSupabase();
-      const { error } = await client
-        .from('widget_analytics_events')
-        .upsert(record, { onConflict: 'event_id', ignoreDuplicates: true });
+    if (serverUrl && serviceRoleKey) {
+      try {
+        const privilegedClient = createClient(serverUrl, serviceRoleKey, {
+          auth: { persistSession: false, autoRefreshToken: false },
+        });
+        const { error } = await privilegedClient
+          .from('widget_analytics_events')
+          .upsert(record, { onConflict: 'event_id', ignoreDuplicates: true });
 
-      if (error) {
-        console.warn('Aviso ao registrar evento de analytics no Supabase:', error.message || error);
+        if (error) {
+          console.error('[Analytics Repository] Erro ao registrar evento no Supabase:', {
+            code: error.code,
+            message: error.message,
+            details: error.details,
+            hint: error.hint,
+          });
+        }
+        return;
+      } catch (e: any) {
+        console.error('[Analytics Repository] Exceção ao salvar evento com service_role:', e?.message || e);
+        return;
       }
-    } catch (e: any) {
-      console.warn('Exceção ao salvar evento de analytics no Supabase:', e?.message || e);
     }
+
+    // Se serviceRoleKey não estiver disponível (ex.: ambiente sem chaves server-side),
+    // o evento permanece salvo no inMemoryAnalyticsEvents para não falhar a execução.
+    return;
   },
 
   async getAnalyticsSummary(
@@ -1195,9 +1211,20 @@ export const Repository = {
     } else if (period === '90days') {
       startDate.setDate(now.getDate() - 89);
       startDate.setHours(0, 0, 0, 0);
-    } else if (period === 'custom' && customStart && customEnd) {
+    } else if ((period === 'custom' || customStart) && customStart) {
       startDate = new Date(customStart);
-      endDate = new Date(customEnd);
+      if (isNaN(startDate.getTime())) {
+        startDate = new Date();
+        startDate.setDate(now.getDate() - 6);
+      }
+      startDate.setHours(0, 0, 0, 0);
+
+      if (customEnd) {
+        endDate = new Date(customEnd);
+        if (isNaN(endDate.getTime())) {
+          endDate = new Date();
+        }
+      }
       endDate.setHours(23, 59, 59, 999);
     }
 
@@ -1206,7 +1233,38 @@ export const Repository = {
 
     let records: any[] = [];
 
-    if (isSupabaseConfigured && supabase) {
+    const serverUrl = process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL || '';
+    const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY || '';
+
+    if (serverUrl && serviceRoleKey) {
+      try {
+        const privilegedClient = createClient(serverUrl, serviceRoleKey, {
+          auth: { persistSession: false, autoRefreshToken: false },
+        });
+        const { data, error } = await privilegedClient
+          .from('widget_analytics_events')
+          .select('*')
+          .gte('occurred_at', startIso)
+          .lte('occurred_at', endIso)
+          .order('occurred_at', { ascending: true });
+
+        if (!error && data) {
+          records = data;
+        } else {
+          console.warn('[Analytics Repository] Warning ao consultar Supabase com service_role:', error?.message);
+          records = inMemoryAnalyticsEvents.filter((e) => {
+            const occ = new Date(e.occurred_at || e.created_at || '').getTime();
+            return occ >= startDate.getTime() && occ <= endDate.getTime();
+          });
+        }
+      } catch (e: any) {
+        console.warn('[Analytics Repository] Exceção ao consultar Supabase com service_role:', e?.message || e);
+        records = inMemoryAnalyticsEvents.filter((e) => {
+          const occ = new Date(e.occurred_at || e.created_at || '').getTime();
+          return occ >= startDate.getTime() && occ <= endDate.getTime();
+        });
+      }
+    } else if (isSupabaseConfigured && supabase) {
       try {
         const client = ensureSupabase();
         const { data, error } = await executeWithRetry<any[]>(async () =>
@@ -1221,7 +1279,6 @@ export const Repository = {
         if (!error && data) {
           records = data;
         } else {
-          console.warn('Usando dados em memória para Analytics devido a aviso no Supabase:', error?.message);
           records = inMemoryAnalyticsEvents.filter((e) => {
             const occ = new Date(e.occurred_at || e.created_at || '').getTime();
             return occ >= startDate.getTime() && occ <= endDate.getTime();
@@ -1240,353 +1297,154 @@ export const Repository = {
       });
     }
 
-    // Exclui eventos de pré-visualização (modo admin preview)
-    records = records.filter(
-      (r) => !r.metadata || (r.metadata.preview !== true && r.metadata.is_preview !== true)
-    );
-
-    // Métricas principais
-    const totalLauncherClicked = records.filter((r) => r.event_name === 'launcher_clicked').length;
-    const totalWidgetOpened = records.filter((r) => r.event_name === 'widget_opened').length;
-    const totalFlowStarted = records.filter((r) => r.event_name === 'flow_started').length;
-    const totalProductTypeSelected = records.filter((r) => r.event_name === 'product_type_selected').length;
-    const totalMeasurementsStarted = records.filter((r) => r.event_name === 'measurements_started').length;
-
-    const recommendedList = records.filter((r) => r.event_name === 'recommendation_generated');
-    const notFoundList = records.filter((r) => r.event_name === 'recommendation_not_found');
-
-    const totalRecommendedFound = recommendedList.length;
-    const totalNotFound = notFoundList.length;
-    const totalCalculations = totalRecommendedFound + totalNotFound;
-
-    // Visitantes e Sessões Únicos
-    const visitorIdSet = new Set<string>();
-    const sessionIdSet = new Set<string>();
-    records.forEach((r) => {
-      if (r.visitor_id) visitorIdSet.add(r.visitor_id);
-      if (r.session_id) sessionIdSet.add(r.session_id);
-    });
-
-    const uniqueVisitors = visitorIdSet.size > 0 ? visitorIdSet.size : sessionIdSet.size;
-    const uniqueSessions = sessionIdSet.size;
-
-    // Taxas de conversão (com proteção contra divisão por zero)
-    const openRate = totalLauncherClicked > 0 ? totalWidgetOpened / totalLauncherClicked : 0;
-    const startRate = totalWidgetOpened > 0 ? totalFlowStarted / totalWidgetOpened : 0;
-    const completionRate = totalFlowStarted > 0 ? totalCalculations / totalFlowStarted : 0;
-    const notFoundRate = totalCalculations > 0 ? totalNotFound / totalCalculations : 0;
-
-    // Cálculo de abandono por sessão (sessões onde ocorreu flow_started mas NENHUM cálculo foi concluído)
-    const sessionsWithFlowStarted = new Set<string>();
-    const sessionsWithCalculation = new Set<string>();
-
-    records.forEach((r) => {
-      if (r.event_name === 'flow_started' && r.session_id) {
-        sessionsWithFlowStarted.add(r.session_id);
-      }
-      if (
-        (r.event_name === 'recommendation_generated' || r.event_name === 'recommendation_not_found') &&
-        r.session_id
-      ) {
-        sessionsWithCalculation.add(r.session_id);
-      }
-    });
-
-    let abandonmentCount = 0;
-    sessionsWithFlowStarted.forEach((sid) => {
-      if (!sessionsWithCalculation.has(sid)) {
-        abandonmentCount++;
-      }
-    });
-
-    const abandonmentRate =
-      sessionsWithFlowStarted.size > 0 ? abandonmentCount / sessionsWithFlowStarted.size : 0;
-
-    // Agregação diária por fuso horário brasileiro America/Sao_Paulo
-    const dailyMap: Record<string, { aberturas: number; inicios: number; calculos: number }> = {};
-
-    // Inicializa todos os dias do período no mapa para garantir continuidade visual no gráfico
-    const curr = new Date(startDate);
-    while (curr <= endDate) {
-      const dayKey = curr.toLocaleDateString('pt-BR', { timeZone: 'America/Sao_Paulo' });
-      dailyMap[dayKey] = { aberturas: 0, inicios: 0, calculos: 0 };
-      curr.setDate(curr.getDate() + 1);
-    }
-
-    records.forEach((r) => {
-      const dt = new Date(r.occurred_at || r.created_at || Date.now());
-      const dayKey = dt.toLocaleDateString('pt-BR', { timeZone: 'America/Sao_Paulo' });
-      if (!dailyMap[dayKey]) {
-        dailyMap[dayKey] = { aberturas: 0, inicios: 0, calculos: 0 };
-      }
-      if (r.event_name === 'widget_opened') {
-        dailyMap[dayKey].aberturas++;
-      } else if (r.event_name === 'flow_started') {
-        dailyMap[dayKey].inicios++;
-      } else if (
-        r.event_name === 'recommendation_generated' ||
-        r.event_name === 'recommendation_not_found'
-      ) {
-        dailyMap[dayKey].calculos++;
-      }
-    });
-
-    const dailyMetrics = Object.entries(dailyMap).map(([dateStr, counts]) => ({
-      date: dateStr.slice(0, 5), // DD/MM
-      fullDate: dateStr,
-      aberturas: counts.aberturas,
-      inicios: counts.inicios,
-      calculos: counts.calculos,
-    }));
-
-    // Funil de conversão
-    const baseCount = Math.max(totalLauncherClicked, totalWidgetOpened, 1);
-    const funnelStages = [
-      {
-        stage: 'launcher_clicked',
-        label: 'Botão clicado',
-        count: totalLauncherClicked,
-        percentage: totalLauncherClicked > 0 ? 100 : 0,
-      },
-      {
-        stage: 'widget_opened',
-        label: 'Widget aberto',
-        count: totalWidgetOpened,
-        percentage: totalLauncherClicked > 0 ? Math.round((totalWidgetOpened / totalLauncherClicked) * 100) : (totalWidgetOpened > 0 ? 100 : 0),
-      },
-      {
-        stage: 'flow_started',
-        label: 'Fluxo iniciado',
-        count: totalFlowStarted,
-        percentage: totalWidgetOpened > 0 ? Math.round((totalFlowStarted / totalWidgetOpened) * 100) : 0,
-      },
-      {
-        stage: 'product_type_selected',
-        label: 'Tipo selecionado',
-        count: totalProductTypeSelected,
-        percentage: totalFlowStarted > 0 ? Math.round((totalProductTypeSelected / totalFlowStarted) * 100) : 0,
-      },
-      {
-        stage: 'measurements_started',
-        label: 'Medidas iniciadas',
-        count: totalMeasurementsStarted,
-        percentage: totalProductTypeSelected > 0 ? Math.round((totalMeasurementsStarted / totalProductTypeSelected) * 100) : 0,
-      },
-      {
-        stage: 'recommendation_completed',
-        label: 'Cálculo concluído',
-        count: totalCalculations,
-        percentage: totalFlowStarted > 0 ? Math.round((totalCalculations / totalFlowStarted) * 100) : 0,
-      },
-    ];
-
-    // Categorias/Tipos mais escolhidos
-    const categoryCounts: Record<string, { name: string; category?: string; count: number }> = {};
-    records
-      .filter((r) => r.event_name === 'product_type_selected' && r.product_type_name)
-      .forEach((r) => {
-        const name = r.product_type_name!;
-        if (!categoryCounts[name]) {
-          categoryCounts[name] = {
-            name,
-            category: r.product_category || undefined,
-            count: 0,
-          };
-        }
-        categoryCounts[name].count++;
-      });
-
-    const totalCategorySelections = Object.values(categoryCounts).reduce((acc, c) => acc + c.count, 0);
-    const topCategories = Object.values(categoryCounts)
-      .sort((a, b) => b.count - a.count)
-      .map((cat) => ({
-        name: cat.name,
-        category: cat.category,
-        count: cat.count,
-        percentage: totalCategorySelections > 0 ? Math.round((cat.count / totalCategorySelections) * 100) : 0,
-      }));
-
-    // Distribuição dos Resultados
-    let exactCount = 0;
-    let betweenSizesCount = 0;
-    recommendedList.forEach((r) => {
-      if (r.recommendation_status === 'between_sizes') {
-        betweenSizesCount++;
-      } else {
-        exactCount++;
-      }
-    });
-
-    const recommendationBreakdown = {
-      recommended: exactCount,
-      betweenSizes: betweenSizesCount,
-      notFound: totalNotFound,
-    };
-
-    const recommendationTypes = {
-      recommended: exactCount,
-      between_sizes: betweenSizesCount,
-      not_found: totalNotFound,
-    };
-
-    const dailyEvolution = Object.entries(dailyMap).map(([dateStr, counts]) => ({
-      date: dateStr.slice(0, 5),
-      fullDate: dateStr,
-      viewed: totalLauncherClicked,
-      opened: counts.aberturas,
-      started: counts.inicios,
-      completed: counts.calculos,
-      abandoned: 0,
-      aberturas: counts.aberturas,
-      inicios: counts.inicios,
-      calculos: counts.calculos,
-    }));
-
-    const funnel = funnelStages.map((st) => ({
-      step: st.stage,
-      label: st.label,
-      count: st.count,
-      rate: st.percentage,
-    }));
-
-    const topTypes = topCategories.map((cat) => ({
-      typeName: cat.name,
-      category: cat.category,
-      started: cat.count,
-      completed: Math.round((cat.count * (completionRate || 0))),
-    }));
-
-    return {
-      period,
-      startDate: startDate.toLocaleDateString('pt-BR'),
-      endDate: endDate.toLocaleDateString('pt-BR'),
-      startDateStr: startDate.toLocaleDateString('pt-BR'),
-      endDateStr: endDate.toLocaleDateString('pt-BR'),
-      totalViewed: totalLauncherClicked,
-      totalClicked: totalLauncherClicked,
-      totalLauncherClicked,
-      totalWidgetOpened,
-      totalOpened: totalWidgetOpened,
-      totalFlowStarted,
-      totalStarted: totalFlowStarted,
-      totalProductTypeSelected,
-      totalTypeSelected: totalProductTypeSelected,
-      totalMeasurementsStarted,
-      totalCalculations,
-      totalRecommendedFound,
-      totalRecommended: totalRecommendedFound,
-      totalNotFound,
-      totalHelpOpened: 0,
-      totalClosed: 0,
-      uniqueVisitors,
-      uniqueSessions,
-      openRate,
-      startRate,
-      completionRate,
-      notFoundRate,
-      abandonmentCount,
-      abandonmentRate,
-      dailyMetrics,
-      dailyEvolution,
-      funnelStages,
-      funnel,
-      topCategories,
-      topTypes,
-      recommendationBreakdown,
-      recommendationTypes,
-      totalRecords: records.length,
-    };
+    return computeAnalyticsSummary(records, period as PeriodType, startDate, endDate);
   },
 
   async getActivityStatus(): Promise<any> {
-    if (isSupabaseConfigured && supabase) {
-      try {
-        const client = ensureSupabase();
-        const { data, error } = await client
-          .from('system_activity_status')
-          .select('*')
-          .eq('id', 'supabase-activity-monitor')
-          .maybeSingle();
+    if (!isSupabaseConfigured || !supabase) {
+      return {
+        id: 'supabase-activity-monitor',
+        lastRunAt: inMemoryActivityStatus?.lastRunAt || null,
+        lastSuccessAt: inMemoryActivityStatus?.lastSuccessAt || null,
+        lastStatus: 'configuration_error',
+        lastError: 'Configuração do Supabase ausente no ambiente.',
+        updatedAt: inMemoryActivityStatus?.updatedAt || new Date().toISOString(),
+      };
+    }
 
-        if (!error && data) {
-          let lastStatus = data.last_status || 'success';
-          if (data.last_run_at) {
-            const lastRunTime = new Date(data.last_run_at).getTime();
-            const now = Date.now();
-            if (now - lastRunTime > 48 * 60 * 60 * 1000 && lastStatus === 'success') {
-              lastStatus = 'warning';
+    try {
+      const client = ensureSupabase();
+      const { data, error } = await client
+        .from('system_activity_status')
+        .select('*')
+        .eq('id', 'supabase-activity-monitor')
+        .maybeSingle();
+
+      if (!error && data) {
+        let lastStatus = data.last_status || 'healthy';
+        
+        // Regra de Status Desatualizado (Stale): > 24 horas sem execução/sucesso
+        const refTime = data.last_run_at || data.last_success_at || data.updated_at;
+        if (refTime) {
+          const runTimeMs = new Date(refTime).getTime();
+          const nowMs = Date.now();
+          if (!isNaN(runTimeMs) && (nowMs - runTimeMs > 24 * 60 * 60 * 1000)) {
+            if (lastStatus === 'healthy' || lastStatus === 'success') {
+              lastStatus = 'stale';
             }
           }
-          return {
-            id: data.id,
-            lastRunAt: data.last_run_at,
-            lastSuccessAt: data.last_success_at,
-            lastStatus,
-            lastError: data.last_error,
-            updatedAt: data.updated_at,
-          };
         }
-      } catch (e) {
-        console.warn('Erro ao consultar status de atividade no Supabase:', e);
+
+        return {
+          id: data.id || 'supabase-activity-monitor',
+          lastRunAt: data.last_run_at || null,
+          lastSuccessAt: data.last_success_at || null,
+          lastStatus,
+          lastError: data.last_error || null,
+          updatedAt: data.updated_at || new Date().toISOString(),
+        };
+      }
+    } catch (e: any) {
+      console.warn('Erro ao consultar status de atividade no Supabase:', e?.message || e);
+    }
+
+    // Avalia inMemoryActivityStatus com regra Stale caso necessário
+    let inMemStatus = inMemoryActivityStatus.lastStatus || 'healthy';
+    const refTimeInMem = inMemoryActivityStatus.lastRunAt || inMemoryActivityStatus.lastSuccessAt;
+    if (refTimeInMem) {
+      const runTimeMs = new Date(refTimeInMem).getTime();
+      const nowMs = Date.now();
+      if (!isNaN(runTimeMs) && (nowMs - runTimeMs > 24 * 60 * 60 * 1000)) {
+        if (inMemStatus === 'healthy' || inMemStatus === 'success') {
+          inMemStatus = 'stale';
+        }
       }
     }
-    return inMemoryActivityStatus;
+
+    return {
+      ...inMemoryActivityStatus,
+      lastStatus: inMemStatus,
+    };
   },
 
   async runActivityCheck(): Promise<any> {
     const nowIso = new Date().toISOString();
-    if (isSupabaseConfigured && supabase) {
-      try {
-        const client = ensureSupabase();
-        const { data: rpcRes, error: rpcErr } = await client.rpc('execute_system_activity_check');
-        if (!rpcErr && rpcRes) {
-          const status = await this.getActivityStatus();
-          return { ok: true, status };
-        }
 
-        const { error: countErr } = await client
-          .from('app_settings')
-          .select('*', { count: 'exact', head: true });
+    if (!isSupabaseConfigured || !supabase) {
+      inMemoryActivityStatus = {
+        id: 'supabase-activity-monitor',
+        lastRunAt: nowIso,
+        lastSuccessAt: inMemoryActivityStatus.lastSuccessAt || null,
+        lastStatus: 'configuration_error',
+        lastError: 'Configuração do Supabase ausente no ambiente.',
+        updatedAt: nowIso,
+      };
+      return { ok: false, status: inMemoryActivityStatus, error: 'CONFIGURATION_ERROR' };
+    }
 
-        const record = {
-          id: 'supabase-activity-monitor',
-          last_run_at: nowIso,
-          last_success_at: !countErr ? nowIso : undefined,
-          last_status: !countErr ? 'success' : 'error',
-          last_error: countErr ? countErr.message : null,
-          updated_at: nowIso,
-        };
-
-        await client
-          .from('system_activity_status')
-          .upsert(record, { onConflict: 'id' });
-
+    try {
+      const client = ensureSupabase();
+      
+      // Tenta RPC primeiro
+      const { data: rpcRes, error: rpcErr } = await client.rpc('execute_system_activity_check');
+      if (!rpcErr && rpcRes && rpcRes.ok !== false) {
         inMemoryActivityStatus = {
           id: 'supabase-activity-monitor',
           lastRunAt: nowIso,
-          lastSuccessAt: !countErr ? nowIso : inMemoryActivityStatus.lastSuccessAt,
-          lastStatus: !countErr ? 'success' : 'error',
-          lastError: countErr ? countErr.message : null,
+          lastSuccessAt: nowIso,
+          lastStatus: 'healthy',
+          lastError: null,
           updatedAt: nowIso,
         };
-
         const status = await this.getActivityStatus();
         return { ok: true, status };
-      } catch (e: any) {
-        console.warn('Exceção ao executar verificação de atividade:', e);
       }
+
+      // Query fallback leve no banco
+      const { error: countErr } = await client
+        .from('app_settings')
+        .select('*', { count: 'exact', head: true });
+
+      const isHealthy = !countErr;
+      const statusLabel = isHealthy ? 'healthy' : 'database_error';
+      const cleanErrorMessage = countErr ? `Erro ao acessar o banco de dados: ${countErr.message}` : null;
+
+      const record = {
+        id: 'supabase-activity-monitor',
+        last_run_at: nowIso,
+        last_success_at: isHealthy ? nowIso : inMemoryActivityStatus.lastSuccessAt,
+        last_status: statusLabel,
+        last_error: cleanErrorMessage,
+        updated_at: nowIso,
+      };
+
+      await client
+        .from('system_activity_status')
+        .upsert(record, { onConflict: 'id' });
+
+      inMemoryActivityStatus = {
+        id: 'supabase-activity-monitor',
+        lastRunAt: nowIso,
+        lastSuccessAt: isHealthy ? nowIso : inMemoryActivityStatus.lastSuccessAt,
+        lastStatus: statusLabel,
+        lastError: cleanErrorMessage,
+        updatedAt: nowIso,
+      };
+
+      const status = await this.getActivityStatus();
+      return { ok: isHealthy, status, error: isHealthy ? undefined : 'DATABASE_ERROR' };
+    } catch (e: any) {
+      const cleanErrMsg = e?.message || 'Falha de conexão com o banco de dados Supabase.';
+      inMemoryActivityStatus = {
+        id: 'supabase-activity-monitor',
+        lastRunAt: nowIso,
+        lastSuccessAt: inMemoryActivityStatus.lastSuccessAt || null,
+        lastStatus: 'database_error',
+        lastError: cleanErrMsg,
+        updatedAt: nowIso,
+      };
+      return { ok: false, status: inMemoryActivityStatus, error: 'DATABASE_ERROR' };
     }
-
-    inMemoryActivityStatus = {
-      id: 'supabase-activity-monitor',
-      lastRunAt: nowIso,
-      lastSuccessAt: nowIso,
-      lastStatus: 'success',
-      lastError: null,
-      updatedAt: nowIso,
-    };
-
-    return { ok: true, status: inMemoryActivityStatus };
   },
 };
 

@@ -1,4 +1,4 @@
-/* Zhaya Match Standalone Widget v3.0 (hash: d83b7b15) */
+/* Zhaya Match Standalone Widget v3.0 (hash: 01f97ec2) */
 (function() {
   if (window.__zhayaMatchLoaded || window.__ZHAYA_MATCH_LOADED__) return;
   window.__zhayaMatchLoaded = true;
@@ -111,19 +111,43 @@
         }
       };
 
-      var url = API_BASE + '/api/public/analytics';
-      var blob = new Blob([JSON.stringify(eventData)], { type: 'application/json' });
-      if (navigator.sendBeacon) {
-        navigator.sendBeacon(url, blob);
-      } else {
-        fetch(url, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify(eventData),
-          keepalive: true
-        }).catch(function() {});
+var url = API_BASE + '/api/public/analytics';
+
+fetch(url, {
+  method: 'POST',
+  headers: {
+    'Content-Type': 'application/json'
+  },
+  body: JSON.stringify(eventData),
+  keepalive: true,
+  credentials: 'omit',
+  mode: 'cors'
+}).catch(function(error) {
+  var isDevelopment =
+    window.location.hostname === 'localhost' ||
+    window.location.hostname === '127.0.0.1' ||
+    window.location.search.indexOf('debug=1') !== -1;
+
+  if (isDevelopment) {
+    console.warn(
+      '[Zhaya Match] Falha ao enviar evento de Analytics:',
+      error
+    );
+  }
+});
+    } catch (e) {
+      var isDevelopment =
+        window.location.hostname === 'localhost' ||
+        window.location.hostname === '127.0.0.1' ||
+        window.location.search.indexOf('debug=1') !== -1;
+
+      if (isDevelopment && window.console && console.warn) {
+        console.warn(
+          '[Zhaya Match] Falha ao preparar evento de Analytics:',
+          e
+        );
       }
-    } catch (e) {}
+    }
   }
 
   function escapeHtml(str) {
@@ -541,10 +565,15 @@ function fetchConfigFromNetwork(isBackground) {
     var bgOverlayStr = hexToRgba(app.overlayColor || '#000000', opacityOverlay);
     var isDesktop = window.innerWidth >= 640;
 
+    try {
+      document.body.style.overflow = 'hidden';
+      document.documentElement.style.overflow = 'hidden';
+    } catch (e) {}
+
     if (isDesktop) {
-      overlay.style.cssText = 'position: fixed; top: 0; left: 0; width: 100vw; height: 100vh; background: ' + bgOverlayStr + '; z-index: 999999; display: flex; align-items: center; justify-content: center; padding: 16px; box-sizing: border-box; backdrop-filter: blur(' + blurVal + '); -webkit-backdrop-filter: blur(' + blurVal + '); font-family: "Neue Einstellung", "Helvetica Neue", Helvetica, Arial, sans-serif;';
+      overlay.style.cssText = 'position: fixed; inset: 0; width: 100vw; height: 100vh; background: ' + bgOverlayStr + '; z-index: 999999; display: flex; align-items: center; justify-content: center; padding: 16px; box-sizing: border-box; backdrop-filter: blur(' + blurVal + '); -webkit-backdrop-filter: blur(' + blurVal + '); font-family: "Neue Einstellung", "Helvetica Neue", Helvetica, Arial, sans-serif;';
     } else {
-      overlay.style.cssText = 'position: fixed; top: 0; left: 0; width: 100vw; height: 100vh; overflow-y: auto; -webkit-overflow-scrolling: touch; background: ' + bgOverlayStr + '; z-index: 999999; display: flex; align-items: flex-start; justify-content: center; padding: 12px 12px max(24px, env(safe-area-inset-bottom, 24px)) 12px; box-sizing: border-box; backdrop-filter: blur(' + blurVal + '); -webkit-backdrop-filter: blur(' + blurVal + '); font-family: "Neue Einstellung", "Helvetica Neue", Helvetica, Arial, sans-serif;';
+      overlay.style.cssText = 'position: fixed; inset: 0; width: 100%; height: 100dvh; max-height: 100dvh; overflow-y: auto; -webkit-overflow-scrolling: touch; background: ' + bgOverlayStr + '; z-index: 999999; display: flex; align-items: flex-start; justify-content: center; padding: max(12px, env(safe-area-inset-top, 12px)) max(12px, env(safe-area-inset-right, 12px)) max(24px, env(safe-area-inset-bottom, 24px)) max(12px, env(safe-area-inset-left, 12px)); box-sizing: border-box; backdrop-filter: blur(' + blurVal + '); -webkit-backdrop-filter: blur(' + blurVal + '); font-family: "Neue Einstellung", "Helvetica Neue", Helvetica, Arial, sans-serif;';
     }
 
     if (app.closeOnClickOutside !== false) {
@@ -559,6 +588,10 @@ function fetchConfigFromNetwork(isBackground) {
 
   function closeModal() {
     sendWidgetAnalyticsEvent('widget_closed');
+    try {
+      document.body.style.overflow = '';
+      document.documentElement.style.overflow = '';
+    } catch (e) {}
     var overlay = document.getElementById('zhaya-match-modal-overlay');
     if (overlay) {
       overlay.style.display = 'none';
@@ -864,36 +897,27 @@ if (measurementGroup === 'footwear') {
 
    var imageDisplayHeight = isDesktop
   ? 320
-  : Math.max(
-      240,
-      Number(
-        app.mobileImageHeight !== undefined
-          ? app.mobileImageHeight
-          : 260
-      )
-    );
+  : Math.min(200, Math.max(150, Number(app.mobileImageHeight !== undefined ? app.mobileImageHeight : 180)));
 
-var imageBlockMinHeight = isDesktop
-  ? 400
-  : imageDisplayHeight + 90;
+var imageBlockMinHeight = isDesktop ? 360 : 'auto';
 
 var imgBlockHtml =
   '<div style="' +
     'background: ' + escapeHtml(app.imageAreaBgColor || 'rgba(255,255,255,0.03)') + ';' +
     'border-radius: ' + (app.imageBorderRadius !== undefined ? app.imageBorderRadius : 12) + 'px;' +
-    'padding: 8px;' +
+    'padding: 10px 8px;' +
     'display: flex;' +
     'flex-direction: column;' +
     'align-items: center;' +
-    'justify-content: space-between;' +
+    'justify-content: center;' +
     'width: 100%;' +
-    'min-height: ' + imageBlockMinHeight + 'px;' +
+    (imageBlockMinHeight !== 'auto' ? 'min-height: ' + imageBlockMinHeight + 'px;' : '') +
     'box-sizing: border-box;' +
   '">' +
 
     '<div style="' +
       'width: 100%;' +
-      'height: ' + imageDisplayHeight + 'px;' +
+      'max-height: ' + imageDisplayHeight + 'px;' +
       'display: flex;' +
       'align-items: center;' +
       'justify-content: center;' +
@@ -908,9 +932,9 @@ var imgBlockHtml =
               'style="' +
                 'display: block;' +
                 'width: 100%;' +
-                'height: 100%;' +
+                'height: auto;' +
                 'max-width: 100%;' +
-                'max-height: none;' +
+                'max-height: ' + imageDisplayHeight + 'px;' +
                 'object-fit: contain;' +
                 'object-position: center;' +
                 'border-radius: 8px;' +
@@ -926,11 +950,11 @@ var imgBlockHtml =
     '<div style="' +
       'width: 100%;' +
       'text-align: center;' +
-      'padding-top: 10px;' +
+      'padding-top: 8px;' +
       'display: flex;' +
       'flex-direction: column;' +
       'align-items: center;' +
-      'gap: 8px;' +
+      'gap: 4px;' +
     '">' +
 
       (
@@ -952,7 +976,7 @@ var imgBlockHtml =
           'background: transparent;' +
           'color: ' + escapeHtml(textColor) + ';' +
           'border: none;' +
-          'padding: 6px 12px;' +
+          'padding: 4px 8px;' +
           'font-size: 12px;' +
           'font-weight: 500;' +
           'cursor: pointer;' +
@@ -969,6 +993,8 @@ var imgBlockHtml =
 
   '</div>';
 
+      var inputFontSize = isDesktop ? '13px' : '16px'; // 16px on mobile prevents iOS Safari auto-zoom on focus
+
       var formBlockHtml = '<div style="display: flex; flex-direction: column; justify-content: space-between; gap: 16px; height: 100%;">' +
         '<div>' +
           '<h2 style="font-size: 18px; font-weight: 600; color: ' + escapeHtml(textColor) + '; margin-bottom: 4px; letter-spacing: -0.01em;">Informe suas medidas</h2>' +
@@ -983,7 +1009,7 @@ var imgBlockHtml =
         formBlockHtml += '<div style="display: flex; flex-direction: column; gap: 6px;">' +
           '<label style="font-size: 12px; font-weight: 500; color: ' + escapeHtml(textColor) + ';">' + escapeHtml(h.label) + ' <span style="color: ' + escapeHtml(secTextColor) + '; font-size: 11px; font-weight: 400;">(cm)</span></label>' +
           '<div style="position: relative; display: flex; align-items: center; gap: 8px;">' +
-            '<input type="text" inputmode="decimal" class="zhaya-input" data-key="' + escapeHtml(k) + '" value="' + escapeHtml(val) + '" placeholder="Digite a medida em cm" style="flex: 1; min-width: 0; background: #0F0F0F; border: 1px solid rgba(255,255,255,0.12); color: #ffffff; padding: 12px 14px; border-radius: 8px; font-size: 13px; outline: none; transition: border-color 0.2s; font-family: inherit; box-sizing: border-box;" />' +
+            '<input type="text" inputmode="decimal" class="zhaya-input" data-key="' + escapeHtml(k) + '" value="' + escapeHtml(val) + '" placeholder="Digite a medida em cm" style="flex: 1; min-width: 0; background: #0F0F0F; border: 1px solid rgba(255,255,255,0.12); color: #ffffff; padding: 12px 14px; border-radius: 8px; font-size: ' + inputFontSize + '; outline: none; transition: border-color 0.2s; font-family: inherit; box-sizing: border-box; max-width: 100%;" />' +
             (!isDesktop
               ? '<button type="button" class="zhaya-wheel-btn" data-key="' + escapeHtml(k) + '" aria-label="Selecionar medida" title="Selecionar medida" style="display: flex; align-items: center; justify-content: center; width: 44px; height: 44px; background: rgba(255,255,255,0.06); border: 1px solid rgba(255,255,255,0.12); border-radius: 8px; color: #ffffff; cursor: pointer; flex-shrink: 0; transition: background 0.2s; outline: none;"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="4" y1="21" x2="4" y2="14"/><line x1="4" y1="10" x2="4" y2="3"/><line x1="12" y1="21" x2="12" y2="12"/><line x1="12" y1="8" x2="12" y2="3"/><line x1="20" y1="21" x2="20" y2="16"/><line x1="20" y1="12" x2="20" y2="3"/><line x1="1" y1="14" x2="7" y2="14"/><line x1="9" y1="8" x2="15" y2="8"/><line x1="17" y1="16" x2="23" y2="16"/></svg></button>'
               : '') +
@@ -1032,19 +1058,19 @@ var imgBlockHtml =
         }
       }
 
-      innerHtml += '<div style="display: flex; gap: 12px; border-top: 1px solid rgba(255,255,255,0.08); padding-top: 20px;">';
-      innerHtml += '<button id="zhaya-recalc-btn" style="flex: 1; background: transparent; color: #ffffff; border: 1px solid rgba(255,255,255,0.2); height: 48px; border-radius: 8px; font-size: 12px; font-weight: 600; cursor: pointer; transition: background 0.2s; font-family: inherit;">' + escapeHtml(txt.recalculateButtonText || 'Calcular novamente') + '</button>';
-      innerHtml += '<button id="zhaya-close-btn" style="flex: 1; background: ' + escapeHtml(btnColor) + '; color: ' + escapeHtml(btnTextColor) + '; border: none; height: 48px; border-radius: 8px; font-size: 12px; font-weight: 600; cursor: pointer; transition: opacity 0.2s; font-family: inherit;">' + escapeHtml(txt.closeButtonText || 'Fechar') + '</button>';
+      innerHtml += '<div style="display: flex; gap: 10px; flex-wrap: wrap; border-top: 1px solid rgba(255,255,255,0.08); padding-top: 18px;">';
+      innerHtml += '<button id="zhaya-recalc-btn" style="flex: 1 1 120px; min-height: 48px; background: transparent; color: #ffffff; border: 1px solid rgba(255,255,255,0.2); border-radius: 8px; font-size: 12px; font-weight: 600; cursor: pointer; transition: background 0.2s; font-family: inherit;">' + escapeHtml(txt.recalculateButtonText || 'Calcular novamente') + '</button>';
+      innerHtml += '<button id="zhaya-close-btn" style="flex: 1 1 120px; min-height: 48px; background: ' + escapeHtml(btnColor) + '; color: ' + escapeHtml(btnTextColor) + '; border: none; border-radius: 8px; font-size: 12px; font-weight: 600; cursor: pointer; transition: opacity 0.2s; font-family: inherit;">' + escapeHtml(txt.closeButtonText || 'Fechar') + '</button>';
       innerHtml += '</div>';
 
       innerHtml += '</div>';
     }
 
     // Modal Outer Box Wrapper
-    var maxW = isDesktop ? desktopWidth : 'calc(100vw - 24px)';
+    var maxW = isDesktop ? desktopWidth : '100%';
     var cardStyle = isDesktop
       ? 'position: relative; width: 100%; max-width: ' + maxW + '; max-height: 90vh; overflow-y: auto; background: ' + escapeHtml(finalCardBg) + '; border: 1px solid rgba(255,255,255,0.08); border-radius: ' + (app.borderRadius || 24) + 'px; padding: ' + (app.paddingInternal || 32) + 'px; box-shadow: 0 24px 60px rgba(0,0,0,0.85); box-sizing: border-box; font-family: &quot;Neue Einstellung&quot;, &quot;Helvetica Neue&quot;, Helvetica, Arial, sans-serif;'
-      : 'position: relative; width: 100%; max-width: ' + maxW + '; max-height: none; overflow: visible; height: auto; margin: auto 0; background: ' + escapeHtml(finalCardBg) + '; border: 1px solid rgba(255,255,255,0.08); border-radius: 20px; padding: 20px 18px max(24px, env(safe-area-inset-bottom, 24px)) 18px; box-shadow: 0 24px 60px rgba(0,0,0,0.85); box-sizing: border-box; font-family: &quot;Neue Einstellung&quot;, &quot;Helvetica Neue&quot;, Helvetica, Arial, sans-serif;';
+      : 'position: relative; width: 100%; max-width: 100%; max-height: none; overflow: visible; height: auto; margin: 0 auto; background: ' + escapeHtml(finalCardBg) + '; border: 1px solid rgba(255,255,255,0.08); border-radius: 20px; padding: 18px 16px max(20px, env(safe-area-inset-bottom, 20px)) 16px; box-shadow: 0 24px 60px rgba(0,0,0,0.85); box-sizing: border-box; font-family: &quot;Neue Einstellung&quot;, &quot;Helvetica Neue&quot;, Helvetica, Arial, sans-serif;';
 
     var cardHtml = '<div style="' + cardStyle + '">' + innerHtml + '</div>';
 
@@ -1229,8 +1255,6 @@ var imgBlockHtml =
     function closeSheet() {
       backdrop.remove();
       document.removeEventListener('keydown', handleSheetKeyDown);
-      var targetInput = document.querySelector('.zhaya-input[data-key="' + key + '"]');
-      if (targetInput) targetInput.focus();
     }
 
     function handleSheetKeyDown(e) {

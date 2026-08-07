@@ -5,6 +5,7 @@ import { createServer as createViteServer } from 'vite';
 import { Repository } from './src/lib/repository';
 import { calculateRecommendation } from './src/domain/recommendation';
 import { generateWidgetScript } from './src/widget/standaloneWidget';
+import { verifyAdminAuth } from './src/lib/adminAuth';
 
 async function startServer() {
   const app = express();
@@ -321,6 +322,11 @@ async function startServer() {
   // 6. Admin API - Analytics Summary
   app.get('/api/admin/analytics', async (req, res) => {
     try {
+      const auth = await verifyAdminAuth(req);
+      if (!auth.authorized) {
+        return res.status(401).json({ error: 'UNAUTHORIZED', message: auth.error });
+      }
+
       const period = (req.query.period as any) || '7days';
       const customStart = req.query.start as string;
       const customEnd = req.query.end as string;
@@ -336,6 +342,11 @@ async function startServer() {
   // 7. Admin API - System Activity Monitor
   app.get('/api/admin/activity-status', async (req, res) => {
     try {
+      const auth = await verifyAdminAuth(req);
+      if (!auth.authorized) {
+        return res.status(401).json({ error: 'UNAUTHORIZED', message: auth.error });
+      }
+
       const status = await Repository.getActivityStatus();
       return res.json(status);
     } catch (err: any) {
@@ -344,13 +355,81 @@ async function startServer() {
     }
   });
 
-  app.post('/api/admin/activity-check', async (req, res) => {
+  // 8. Public Health Check Endpoint
+  app.get('/api/health', async (req, res) => {
     try {
-      const result = await Repository.runActivityCheck();
-      return res.json(result);
+      const isConfigured = Boolean(
+        process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL
+      ) && Boolean(
+        process.env.SUPABASE_ANON_KEY || process.env.VITE_SUPABASE_ANON_KEY || process.env.SUPABASE_SERVICE_ROLE_KEY
+      );
+
+      if (!isConfigured) {
+        return res.status(200).json({
+          success: false,
+          status: 'configuration_error',
+          services: {
+            api: 'healthy',
+            database: 'not_configured',
+          },
+          message: 'Configuração do Supabase ausente.',
+          timestamp: new Date().toISOString(),
+        });
+      }
+
+      const activity = await Repository.getActivityStatus();
+      const isDbHealthy = activity.lastStatus === 'healthy' || activity.lastStatus === 'success';
+
+      return res.status(200).json({
+        success: isDbHealthy,
+        status: isDbHealthy ? 'healthy' : activity.lastStatus,
+        services: {
+          api: 'healthy',
+          database: isDbHealthy ? 'healthy' : 'unhealthy',
+        },
+        activity,
+        timestamp: new Date().toISOString(),
+      });
     } catch (err: any) {
-      console.error('Activity Check Error:', err);
-      return res.status(500).json({ error: 'FAILED_TO_RUN_ACTIVITY_CHECK' });
+      return res.status(500).json({
+        success: false,
+        status: 'database_error',
+        services: {
+          api: 'healthy',
+          database: 'unhealthy',
+        },
+        message: 'Falha ao realizar health check.',
+        timestamp: new Date().toISOString(),
+      });
+    }
+  });
+
+  // 9. Automated Cron Trigger Endpoint
+  app.all('/api/cron/health', async (req, res) => {
+    try {
+      const cronSecret = process.env.CRON_SECRET;
+      const authHeader = req.headers.authorization;
+      const isVercelCron = req.headers['x-vercel-cron'] === '1';
+
+      if (cronSecret) {
+        const token = authHeader?.startsWith('Bearer ') ? authHeader.split(' ')[1] : null;
+        if (token !== cronSecret && !isVercelCron) {
+          return res.status(401).json({ error: 'UNAUTHORIZED_CRON_REQUEST' });
+        }
+      }
+
+      const result = await Repository.runActivityCheck();
+      return res.json({
+        success: result.ok,
+        executedAt: new Date().toISOString(),
+        status: result.status,
+      });
+    } catch (err: any) {
+      return res.status(500).json({
+        success: false,
+        error: 'CRON_EXECUTION_FAILED',
+        message: err?.message || 'Erro durante a execução do cron de saúde.',
+      });
     }
   });
 

@@ -75,15 +75,30 @@ export default async function handler(req: any, res: any) {
     process.env.VITE_SUPABASE_URL ||
     '';
 
-const supabaseKey =
-  process.env.SUPABASE_SERVICE_ROLE_KEY ||
-  '';
+  const supabaseKey = process.env.SUPABASE_SERVICE_ROLE_KEY || '';
 
   if (!supabaseUrl || !supabaseKey) {
     return res.status(500).json({
       success: false,
       error: 'SUPABASE_NOT_CONFIGURED',
     });
+  }
+
+  // Validação de segurança: Impede uso acidental de chave anon pública no SUPABASE_SERVICE_ROLE_KEY
+  const parts = supabaseKey.split('.');
+  if (parts.length === 3) {
+    try {
+      const payload = JSON.parse(Buffer.from(parts[1], 'base64').toString('utf-8'));
+      if (payload.role === 'anon') {
+        console.error('[Analytics API] SUPABASE_SERVICE_ROLE_KEY está configurada com uma chave anon pública em vez da service role!');
+        return res.status(500).json({
+          success: false,
+          error: 'SUPABASE_NOT_CONFIGURED',
+        });
+      }
+    } catch {
+      // Caso a string não seja um JWT padrão, prossegue com a execução do cliente
+    }
   }
 
   let body = req.body;
@@ -179,7 +194,12 @@ const supabaseKey =
     });
 
   if (error) {
-    console.error('[Analytics API] Erro ao salvar evento:', error.message);
+    console.error('[Analytics API] Erro ao salvar evento no Supabase:', {
+      code: error.code,
+      message: error.message,
+      details: error.details,
+      hint: error.hint,
+    });
 
     return res.status(500).json({
       success: false,

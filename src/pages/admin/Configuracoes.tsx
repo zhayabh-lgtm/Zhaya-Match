@@ -335,16 +335,16 @@ export const Configuracoes: React.FC = () => {
                   </h2>
                 </div>
                 <div className="flex items-center gap-2">
-                  {activityStatus?.lastStatus === 'success' && (
+                  {(activityStatus?.lastStatus === 'healthy' || activityStatus?.lastStatus === 'success') && (
                     <span className="inline-flex items-center gap-1.5 text-[11px] font-semibold text-emerald-800 bg-emerald-50 px-2.5 py-1 rounded-full border border-emerald-200">
                       <CheckCircle className="w-3.5 h-3.5 text-emerald-600" />
-                      <span>Funcionando</span>
+                      <span>Operacional</span>
                     </span>
                   )}
-                  {activityStatus?.lastStatus === 'warning' && (
+                  {(activityStatus?.lastStatus === 'stale' || activityStatus?.lastStatus === 'warning') && (
                     <span className="inline-flex items-center gap-1.5 text-[11px] font-semibold text-amber-800 bg-amber-50 px-2.5 py-1 rounded-full border border-amber-200">
                       <AlertTriangle className="w-3.5 h-3.5 text-amber-600" />
-                      <span>Atenção (&gt; 48h sem execução)</span>
+                      <span>Atividade Desatualizada (&gt; 24h)</span>
                     </span>
                   )}
                   {activityStatus?.lastStatus === 'pending' && (
@@ -353,15 +353,15 @@ export const Configuracoes: React.FC = () => {
                       <span>Aguardando primeira execução</span>
                     </span>
                   )}
-                  {activityStatus?.lastStatus === 'error' && (
+                  {(activityStatus?.lastStatus === 'error' || activityStatus?.lastStatus === 'database_error') && (
                     <span className="inline-flex items-center gap-1.5 text-[11px] font-semibold text-red-800 bg-red-50 px-2.5 py-1 rounded-full border border-red-200">
                       <AlertCircle className="w-3.5 h-3.5 text-red-600" />
-                      <span>Erro</span>
+                      <span>Erro de Banco</span>
                     </span>
                   )}
-                  {(!activityStatus || activityStatus.lastStatus === 'not_configured') && (
+                  {(!activityStatus || activityStatus.lastStatus === 'not_configured' || activityStatus.lastStatus === 'configuration_error') && (
                     <span className="inline-flex items-center gap-1.5 text-[11px] font-semibold text-neutral-700 bg-neutral-100 px-2.5 py-1 rounded-full border border-neutral-200">
-                      <span>Não configurado</span>
+                      <span>Não Configurado</span>
                     </span>
                   )}
                 </div>

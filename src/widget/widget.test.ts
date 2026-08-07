@@ -32,6 +32,10 @@ async function runWidgetTest() {
   const { window } = dom;
   const { document } = window;
 
+  // Set mobile viewport width
+  Object.defineProperty(window, 'innerWidth', { writable: true, configurable: true, value: 375 });
+  Object.defineProperty(window, 'innerHeight', { writable: true, configurable: true, value: 667 });
+
   // Mock localStorage
   const storageMap = new Map<string, string>();
   window.localStorage.setItem = (key: string, value: string) => storageMap.set(key, value);
@@ -142,6 +146,11 @@ async function runWidgetTest() {
   }
   console.log('[Widget Test] Modal opened successfully.');
 
+  // Validate body scroll lock
+  if (document.body.style.overflow !== 'hidden') {
+    throw new Error('[Widget Test Failure] Body scroll lock (overflow: hidden) was not applied when modal opened.');
+  }
+
   const startBtn = document.getElementById('zhaya-start-btn');
   if (!startBtn) {
     throw new Error('[Widget Test Failure] Start button (#zhaya-start-btn) not found in Step 0.');
@@ -156,13 +165,19 @@ async function runWidgetTest() {
   }
   typeCard.click();
 
-  // 7. Verify step 2 (inputs rendered)
+  // 7. Verify step 2 (inputs rendered & mobile font-size safety)
   const bustInput = document.querySelector('input.zhaya-input[data-key="bust"]') as HTMLInputElement;
   const waistInput = document.querySelector('input.zhaya-input[data-key="waist"]') as HTMLInputElement;
   const calcBtn = document.getElementById('zhaya-calc-btn') as HTMLElement;
 
   if (!bustInput || !waistInput || !calcBtn) {
     throw new Error('[Widget Test Failure] Inputs or calculate button not rendered in step 2.');
+  }
+
+  // Validate mobile input font-size (min 16px to prevent iOS Safari auto-zoom)
+  const bustStyle = bustInput.getAttribute('style') || '';
+  if (!bustStyle.includes('font-size: 16px')) {
+    throw new Error(`[Widget Test Failure] Mobile input missing 16px font-size protection: "${bustStyle}"`);
   }
 
   // Fill input values
