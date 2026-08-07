@@ -1,7 +1,7 @@
 import { createClient } from '@supabase/supabase-js';
-import { verifyAdminAuth } from '../../src/lib/adminAuth';
-import { computeAnalyticsSummary } from '../../src/lib/analyticsAggregator';
-import { PeriodType } from '../../src/types/zhaya';
+import { verifyAdminAuth } from '../../src/lib/adminAuth.js';
+import { computeAnalyticsSummary } from '../../src/lib/analyticsAggregator.js';
+import type { PeriodType } from '../../src/types/zhaya.js';
 
 function parsePeriodDates(period: string, customStart?: string, customEnd?: string) {
   const now = new Date();

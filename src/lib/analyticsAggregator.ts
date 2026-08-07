@@ -1,4 +1,4 @@
-import { AnalyticsSummary, PeriodType } from '../types/zhaya';
+import type { AnalyticsSummary, PeriodType } from '../types/zhaya.js';
 
 export interface RawAnalyticsRecord {
   event_id?: string;

@@ -6,7 +6,7 @@ import { Repository } from './src/lib/repository';
 import { calculateRecommendation } from './src/domain/recommendation';
 import { generateWidgetScript } from './src/widget/standaloneWidget';
 import { verifyAdminAuth } from './src/lib/adminAuth';
-import adminAnalyticsHandler from './api/admin/analytics';
+import adminAnalyticsHandler from './api/admin/analytics.js';
 
 async function startServer() {
   const app = express();

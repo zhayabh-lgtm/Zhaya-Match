@@ -1,4 +1,4 @@
-import { Repository } from '../../src/lib/repository';
+import { createClient } from '@supabase/supabase-js';
 
 export default async function handler(req: any, res: any) {
   res.setHeader('Cache-Control', 'no-store');
@@ -19,14 +19,85 @@ export default async function handler(req: any, res: any) {
     }
   }
 
+  const url = process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL || '';
+  const key =
+    process.env.SUPABASE_SERVICE_ROLE_KEY ||
+    process.env.SUPABASE_ANON_KEY ||
+    process.env.VITE_SUPABASE_ANON_KEY ||
+    '';
+
+  if (!url || !key) {
+    return res.status(500).json({
+      success: false,
+      error: 'SUPABASE_NOT_CONFIGURED',
+      message: 'Configuração do Supabase ausente.',
+    });
+  }
+
   try {
-    const result = await Repository.runActivityCheck();
-    return res.status(200).json({
-      success: result.ok,
-      executedAt: new Date().toISOString(),
-      status: result.status,
+    const supabase = createClient(url, key, {
+      auth: {
+        persistSession: false,
+        autoRefreshToken: false,
+      },
+    });
+
+    const nowIso = new Date().toISOString();
+
+    // Tenta RPC primeiro
+    const { data: rpcRes, error: rpcErr } = await supabase.rpc('execute_system_activity_check');
+
+    if (!rpcErr && rpcRes && rpcRes.ok !== false) {
+      return res.status(200).json({
+        success: true,
+        executedAt: nowIso,
+        status: {
+          id: 'supabase-activity-monitor',
+          lastRunAt: nowIso,
+          lastSuccessAt: nowIso,
+          lastStatus: 'healthy',
+          lastError: null,
+          updatedAt: nowIso,
+        },
+      });
+    }
+
+    // Fallback: Query em app_settings para atestar a saúde do banco e atualizar system_activity_status
+    const { error: countErr } = await supabase
+      .from('app_settings')
+      .select('*', { count: 'exact', head: true });
+
+    const isHealthy = !countErr;
+    const statusLabel = isHealthy ? 'healthy' : 'database_error';
+    const cleanErrorMessage = countErr ? `Erro ao acessar o banco de dados: ${countErr.message}` : null;
+
+    const record = {
+      id: 'supabase-activity-monitor',
+      last_run_at: nowIso,
+      last_success_at: isHealthy ? nowIso : null,
+      last_status: statusLabel,
+      last_error: cleanErrorMessage,
+      updated_at: nowIso,
+    };
+
+    await supabase
+      .from('system_activity_status')
+      .upsert(record, { onConflict: 'id' });
+
+    return res.status(isHealthy ? 200 : 500).json({
+      success: isHealthy,
+      executedAt: nowIso,
+      status: {
+        id: 'supabase-activity-monitor',
+        lastRunAt: nowIso,
+        lastSuccessAt: isHealthy ? nowIso : null,
+        lastStatus: statusLabel,
+        lastError: cleanErrorMessage,
+        updatedAt: nowIso,
+      },
     });
   } catch (err: any) {
+    console.error('[Cron Health API Exception]:', err?.message || err);
     return res.status(500).json({
       success: false,
       error: 'CRON_EXECUTION_FAILED',

@@ -108,6 +108,61 @@ function runSecurityTests() {
     'Mecanismo server-side de validação de token JWT de administrador configurado'
   );
 
+  // Teste F: Integridade de Módulos Serverless para Vercel ESM
+  console.log('\n--- Teste F: Integridade e Isolamento ESM das Funções Serverless (Vercel) ---');
+  const apiDir = path.join(projectRoot, 'api');
+  let serverlessErrorCount = 0;
+
+  function auditServerlessFile(filePath: string) {
+    const relPath = path.relative(projectRoot, filePath);
+    const content = fs.readFileSync(filePath, 'utf8');
+
+    if (content.includes("from '../../src/lib/repository'") || content.includes('from "../src/lib/repository"') || content.includes('Repository')) {
+      console.error(`  [ERRO SERVERLESS] ${relPath} importa Repository!`);
+      serverlessErrorCount++;
+    }
+
+    if (content.includes('src/lib/supabase')) {
+      console.error(`  [ERRO SERVERLESS] ${relPath} importa cliente browser src/lib/supabase!`);
+      serverlessErrorCount++;
+    }
+
+    if (content.includes('import.meta.env')) {
+      console.error(`  [ERRO SERVERLESS] ${relPath} utiliza import.meta.env em contexto serverless!`);
+      serverlessErrorCount++;
+    }
+
+    // Verifica se todos os imports relativos possuem extensão .js
+    const importLines = content.split('\n').filter(line => line.trim().startsWith('import '));
+    for (const line of importLines) {
+      if (line.includes('type ') || line.includes('type{')) continue; // Ignore import type
+      const fromMatch = line.match(/from\s+['"](\..*?)['"]/);
+      if (fromMatch) {
+        const specifier = fromMatch[1];
+        if (!specifier.endsWith('.js')) {
+          console.error(`  [ERRO SERVERLESS] ${relPath} contém import relativo sem extensão .js: "${specifier}"`);
+          serverlessErrorCount++;
+        }
+      }
+    }
+  }
+
+  function walkApiDir(dir: string) {
+    const entries = fs.readdirSync(dir);
+    for (const entry of entries) {
+      const fullPath = path.join(dir, entry);
+      const stat = fs.statSync(fullPath);
+      if (stat.isDirectory()) {
+        walkApiDir(fullPath);
+      } else if (stat.isFile() && entry.endsWith('.ts')) {
+        auditServerlessFile(fullPath);
+      }
+    }
+  }
+
+  walkApiDir(apiDir);
+  assert(serverlessErrorCount === 0, 'Todas as funções serverless em /api são puras, sem Repository, sem import.meta.env e com imports ESM-safe (.js)');
+
   console.log(`\n=== RESUMO DOS TESTES DE SEGURANÇA: ${passed} PASSOU, ${failed} FALHOU ===`);
   if (failed > 0) {
     process.exit(1);

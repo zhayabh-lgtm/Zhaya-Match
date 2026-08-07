@@ -1,4 +1,4 @@
-import { Repository } from '../../src/lib/repository';
+import { createClient } from '@supabase/supabase-js';
 
 export default async function handler(req: any, res: any) {
   res.setHeader('Access-Control-Allow-Origin', '*');
@@ -15,13 +15,14 @@ export default async function handler(req: any, res: any) {
   }
 
   try {
-    const isConfigured = Boolean(
-      process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL
-    ) && Boolean(
-      process.env.SUPABASE_ANON_KEY || process.env.VITE_SUPABASE_ANON_KEY || process.env.SUPABASE_SERVICE_ROLE_KEY
-    );
+    const url = process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL || '';
+    const key =
+      process.env.SUPABASE_SERVICE_ROLE_KEY ||
+      process.env.SUPABASE_ANON_KEY ||
+      process.env.VITE_SUPABASE_ANON_KEY ||
+      '';
 
-    if (!isConfigured) {
+    if (!url || !key) {
       return res.status(200).json({
         success: false,
         status: 'configuration_error',
@@ -34,7 +35,54 @@ export default async function handler(req: any, res: any) {
       });
     }
 
-    const activity = await Repository.getActivityStatus();
+    const supabase = createClient(url, key, {
+      auth: {
+        persistSession: false,
+        autoRefreshToken: false,
+      },
+    });
+
+    const { data, error } = await supabase
+      .from('system_activity_status')
+      .select('*')
+      .eq('id', 'supabase-activity-monitor')
+      .maybeSingle();
+
+    if (error) {
+      console.error('[Health API Error]:', error.message);
+      return res.status(200).json({
+        success: false,
+        status: 'database_error',
+        services: {
+          api: 'healthy',
+          database: 'unhealthy',
+        },
+        message: 'Falha ao realizar health check.',
+        timestamp: new Date().toISOString(),
+      });
+    }
+
+    let lastStatus = data?.last_status || 'healthy';
+    const refTime = data?.last_run_at || data?.last_success_at;
+    if (refTime) {
+      const runTimeMs = new Date(refTime).getTime();
+      const nowMs = Date.now();
+      if (!isNaN(runTimeMs) && nowMs - runTimeMs > 24 * 60 * 60 * 1000) {
+        if (lastStatus === 'healthy' || lastStatus === 'success') {
+          lastStatus = 'stale';
+        }
+      }
+    }
+
+    const activity = {
+      id: data?.id || 'supabase-activity-monitor',
+      lastRunAt: data?.last_run_at || null,
+      lastSuccessAt: data?.last_success_at || null,
+      lastStatus,
+      lastError: data?.last_error || null,
+      updatedAt: data?.updated_at || new Date().toISOString(),
+    };
+
     const isDbHealthy = activity.lastStatus === 'healthy' || activity.lastStatus === 'success';
 
     return res.status(200).json({
@@ -48,6 +96,7 @@ export default async function handler(req: any, res: any) {
       timestamp: new Date().toISOString(),
     });
   } catch (err: any) {
+    console.error('[Health API Exception]:', err?.message || err);
     return res.status(500).json({
       success: false,
       status: 'database_error',
