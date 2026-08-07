@@ -193,7 +193,7 @@ export function calculateRecommendation(
     return {
       size: null,
       status: 'not_found',
-      message: 'Não encontramos um tamanho adequado nesta tabela. Confira suas medidas ou consulte a equipe da Zhaya.',
+      message: 'Não conseguimos indicar um tamanho a partir destas medidas. Confira os valores e tente novamente.',
     };
   }
 
@@ -208,7 +208,7 @@ export function calculateRecommendation(
     return {
       size: null,
       status: 'not_found',
-      message: 'Não encontramos um tamanho adequado nesta tabela. Confira suas medidas ou consulte a equipe da Zhaya.',
+      message: 'Não conseguimos indicar um tamanho a partir destas medidas. Confira os valores e tente novamente.',
     };
   }
 
@@ -230,7 +230,7 @@ export function calculateRecommendation(
     return {
       size: null,
       status: 'not_found',
-      message: 'Não encontramos um tamanho adequado nesta tabela. Confira suas medidas ou consulte a equipe da Zhaya.',
+      message: 'Não conseguimos indicar um tamanho a partir destas medidas. Confira os valores e tente novamente.',
     };
   }
 
@@ -255,7 +255,7 @@ export function calculateRecommendation(
       return {
         size: null,
         status: 'not_found',
-        message: 'Tabela de tamanhos sem intervalos válidos cadastrados para recomendação.',
+        message: 'Ainda não há dados suficientes nesta tabela para calcular uma recomendação.',
       };
     }
 
@@ -263,11 +263,11 @@ export function calculateRecommendation(
       if (category === 'footwear') {
         const isLength = key === 'footLength';
         const isWidth = key === 'footWidth';
-        let msg = `Não encontramos um tamanho padrão que acomode sua medida de ${label} com segurança.`;
+        let msg = `Sua medida de ${label} fica acima do que esta tabela atende no momento.`;
         if (isLength) {
-          msg = `Sua medida de comprimento do pé está acima da maior numeração disponível nesta tabela.`;
+          msg = `O comprimento do seu pé fica acima da maior numeração disponível nesta tabela.`;
         } else if (isWidth) {
-          msg = `Sua medida de largura do pé está acima da maior numeração disponível nesta tabela.`;
+          msg = `A largura do seu pé fica acima da maior numeração disponível nesta tabela.`;
         }
         return {
           size: null,
@@ -278,7 +278,7 @@ export function calculateRecommendation(
       return {
         size: null,
         status: 'not_found',
-        message: `Não encontramos um tamanho padrão que acomode sua medida de ${label} com segurança.`,
+        message: `Sua medida de ${label} fica acima do que esta tabela atende no momento.`,
       };
     }
 
@@ -288,9 +288,9 @@ export function calculateRecommendation(
       const isWidth = key === 'footWidth';
       let msg = `Sua medida de ${label} está abaixo da menor numeração disponível nesta tabela.`;
       if (isLength) {
-        msg = `Sua medida de comprimento do pé está abaixo da menor numeração disponível nesta tabela.`;
+        msg = `O comprimento do seu pé fica abaixo da menor numeração disponível nesta tabela.`;
       } else if (isWidth) {
-        msg = `Sua medida de largura do pé está abaixo da menor numeração disponível nesta tabela.`;
+        msg = `A largura do seu pé fica abaixo da menor numeração disponível nesta tabela.`;
       }
       return {
         size: null,
@@ -301,7 +301,7 @@ export function calculateRecommendation(
       return {
         size: null,
         status: 'not_found',
-        message: `Sua medida de ${label} está significativamente abaixo da menor numeração disponível nesta tabela.`,
+        message: `Sua medida de ${label} fica abaixo do que esta tabela atende no momento.`,
       };
     }
   }
@@ -335,7 +335,7 @@ export function calculateRecommendation(
     return {
       size: null,
       status: 'not_found',
-      message: 'Não encontramos um tamanho adequado nesta tabela.',
+      message: 'Não conseguimos indicar um tamanho com estas medidas.',
     };
   }
 
@@ -357,7 +357,7 @@ export function calculateRecommendation(
         size: mainSizeLabel,
         alternateSize: altSizeLabel,
         status: 'between_sizes',
-        message: `Recomendamos o tamanho ${mainSizeLabel} porque a largura do seu pé ultrapassa o limite seguro do ${altSizeLabel}.`,
+        message: `Pelas suas medidas, o ${mainSizeLabel} tende a vestir melhor. O ${altSizeLabel} pode ficar mais justo nas laterais.`,
       };
     } else if (difference === 2) {
       const mainSizeLabel = sortedSizes[widthSizeIndex].label;
@@ -366,13 +366,13 @@ export function calculateRecommendation(
         size: mainSizeLabel,
         alternateSize: altSizeLabel,
         status: 'between_sizes',
-        message: `Recomendamos o tamanho ${mainSizeLabel} para acomodar a largura do seu pé. Como seu pé é mais largo em relação ao comprimento, o tamanho ${altSizeLabel} ou menor ficaria apertado nas laterais.`,
+        message: `Para dar espaço à largura do seu pé, a melhor escolha é o ${mainSizeLabel}. O ${altSizeLabel} tende a ficar apertado nas laterais.`,
       };
     } else if (difference >= 3) {
       return {
         size: null,
         status: 'not_found',
-        message: 'Não encontramos um tamanho padrão que acomode o comprimento e a largura do seu pé simultaneamente com segurança. Recomendamos buscar modelos com forma especial para pés largos.',
+        message: 'Suas medidas mostram uma diferença maior entre comprimento e largura. Nesta tabela, não há uma numeração que equilibre bem os dois.',
       };
     }
 
@@ -384,7 +384,7 @@ export function calculateRecommendation(
         size: mainSizeLabel,
         alternateSize: altSizeLabel,
         status: 'between_sizes',
-        message: `Recomendamos o tamanho ${mainSizeLabel} para garantir o comprimento correto do pé. Como seu pé é mais fino, o tamanho ${altSizeLabel} pode oferecer um caimento justo, mas corre o risco de apertar no comprimento.`,
+        message: `O ${mainSizeLabel} é a melhor escolha para preservar o comprimento. O ${altSizeLabel} fica mais ajustado, mas pode apertar na frente.`,
       };
     } else if (difference === -2) {
       const mainSizeLabel = sortedSizes[lengthSizeIndex].label;
@@ -393,13 +393,13 @@ export function calculateRecommendation(
         size: mainSizeLabel,
         alternateSize: altSizeLabel,
         status: 'between_sizes',
-        message: `Recomendamos o tamanho ${mainSizeLabel} para acomodar o comprimento do pé. Como seu pé é fino em relação ao comprimento, o calçado pode apresentar folga nas laterais.`,
+        message: `O ${mainSizeLabel} é a melhor escolha pelo comprimento. Como seu pé é mais fino, pode haver um pouco mais de folga nas laterais.`,
       };
     } else if (difference <= -3) {
       return {
         size: null,
         status: 'not_found',
-        message: 'Não encontramos um tamanho padrão que acomode o comprimento e a largura do seu pé simultaneamente com segurança.',
+        message: 'Suas medidas de comprimento e largura apontam para proporções bem diferentes. Nesta tabela, não encontramos uma numeração equilibrada para as duas.',
       };
     }
 
@@ -421,15 +421,15 @@ export function calculateRecommendation(
         size: mainSizeLabel,
         alternateSize: altSizeLabel,
         status: 'between_sizes',
-        message: `Recomendamos o tamanho ${mainSizeLabel}. Suas medidas de pé estão próximas do limite; se preferir mais folga, escolha o ${altSizeLabel}.`,
+        message: `O ${mainSizeLabel} funciona bem pelas suas medidas. Se você gosta de um pouco mais de folga, o ${altSizeLabel} também pode ser uma boa opção.`,
       };
     }
 
     let message = '';
     if (hasLength && hasWidth) {
-      message = `Recomendamos o tamanho ${mainSizeLabel} porque comprimento e largura do pé ficam dentro do intervalo seguro.`;
+      message = `Pelas suas medidas, o ${mainSizeLabel} é a opção mais equilibrada.`;
     } else {
-      message = `Recomendamos o tamanho ${mainSizeLabel} para acomodar seus pés com conforto e segurança.`;
+      message = `Pelas suas medidas, o ${mainSizeLabel} é a opção que melhor se encaixa.`;
     }
 
     return {
@@ -466,7 +466,7 @@ export function calculateRecommendation(
     return {
       size: null,
       status: 'not_found',
-      message: `Não encontramos um tamanho padrão que acomode suas medidas de ${decisiveNames} e ${minKeys} simultaneamente com segurança.`,
+      message: `As medidas de ${decisiveNames} e ${minKeys} apontam para tamanhos diferentes nesta tabela. Por isso, não encontramos uma opção única que fique equilibrada.`,
     };
   }
 
@@ -475,7 +475,7 @@ export function calculateRecommendation(
     const mainSizeLabel = sortedSizes[candidateIdx].label;
     const altSizeLabel = sortedSizes[minCritIdx].label;
 
-    const message = `Recomendamos o tamanho ${mainSizeLabel}. Ele acomoda suas medidas de ${decisiveNames} com conforto e segurança. O tamanho ${altSizeLabel} pode oferecer um caimento mais justo, mas pode ficar apertado no ${decisiveNames}.`;
+    const message = `O ${mainSizeLabel} é a opção mais equilibrada para suas medidas. O ${altSizeLabel} fica mais ajustado e pode apertar em ${decisiveNames}.`;
 
     return {
       size: mainSizeLabel,
@@ -502,7 +502,7 @@ export function calculateRecommendation(
 
   if (isAtUpperEdge && candidateIdx + 1 < sortedSizes.length) {
     const altSizeLabel = sortedSizes[candidateIdx + 1].label;
-    const message = `Recomendamos o tamanho ${mainSizeLabel}. Suas medidas estão no limite superior deste tamanho; para um caimento mais solto, opte pelo ${altSizeLabel}.`;
+    const message = `O ${mainSizeLabel} funciona pelas suas medidas. Se preferir um caimento mais solto, o ${altSizeLabel} pode ser uma escolha melhor.`;
 
     return {
       size: mainSizeLabel,
@@ -515,9 +515,9 @@ export function calculateRecommendation(
   // 7. Recomendação Direta e Confortável
   let message = '';
   if (decisiveNames) {
-    message = `Recomendamos o tamanho ${mainSizeLabel} porque apresenta a melhor correspondência com suas medidas de ${decisiveNames}.`;
+    message = `Pelas suas medidas de ${decisiveNames}, o ${mainSizeLabel} é a opção mais equilibrada.`;
   } else {
-    message = `Recomendamos o tamanho ${mainSizeLabel} que apresenta a melhor correspondência com suas medidas.`;
+    message = `Pelas suas medidas, o ${mainSizeLabel} é a opção que melhor se encaixa.`;
   }
 
   return {
