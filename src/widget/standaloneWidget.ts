@@ -390,9 +390,9 @@ function initZhayaMatch() {
 }
 
 function fetchConfigFromNetwork(isBackground) {
-  if (isPreviewSessionActive) return Promise.resolve() // Never overwrite active administrative preview snapshot with public API response
+  if (isPreviewSessionActive) return Promise.resolve(); // Never overwrite active administrative preview snapshot with public API response
 
-  fetch(API_BASE + '/api/public/config', {
+  return fetch(API_BASE + '/api/public/config', {
     cache: 'no-store'
   })
     .then(function(res) {
