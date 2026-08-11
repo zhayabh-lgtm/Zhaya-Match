@@ -372,7 +372,6 @@ function initZhayaMatch() {
 
   try {
     var cached = getCachedConfig();
-    var now = Date.now();
 
     if (cached && cached.data) {
       configData = cached.data;
@@ -383,16 +382,8 @@ function initZhayaMatch() {
       ) {
         startInjection();
       }
-
-      if (
-        now - cached.timestamp >
-        CACHE_TTL_MS
-      ) {
-        fetchConfigFromNetwork(true);
-      }
-    } else {
-      fetchConfigFromNetwork(false);
     }
+    fetchConfigFromNetwork(Boolean(cached && cached.data));
   } catch (err) {
     fetchConfigFromNetwork(false);
   }

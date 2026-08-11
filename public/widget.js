@@ -1,4 +1,4 @@
-/* Zhaya Match Standalone Widget v3.0 (hash: 6e46f87b) */
+/* Zhaya Match Standalone Widget v3.0 (hash: 94ab5f52) */
 (function() {
   if (window.__zhayaMatchLoaded || window.__ZHAYA_MATCH_LOADED__) return;
   window.__zhayaMatchLoaded = true;
@@ -356,7 +356,6 @@ function initZhayaMatch() {
 
   try {
     var cached = getCachedConfig();
-    var now = Date.now();
 
     if (cached && cached.data) {
       configData = cached.data;
@@ -367,16 +366,8 @@ function initZhayaMatch() {
       ) {
         startInjection();
       }
-
-      if (
-        now - cached.timestamp >
-        CACHE_TTL_MS
-      ) {
-        fetchConfigFromNetwork(true);
-      }
-    } else {
-      fetchConfigFromNetwork(false);
     }
+    fetchConfigFromNetwork(Boolean(cached && cached.data));
   } catch (err) {
     fetchConfigFromNetwork(false);
   }
@@ -1147,12 +1138,22 @@ var imgBlockHtml =
 
     // STEP 2.5: Loading do resultado
     else if (currentStep === 2.5) {
+      var loadingLogoSrc = app.logoVariant === 'white'
+        ? (app.logoWhiteUrl || app.logoBlackUrl)
+        : app.logoVariant === 'black'
+        ? (app.logoBlackUrl || app.logoWhiteUrl)
+        : (app.logoWhiteUrl || app.logoBlackUrl);
+
+      var loadingLogoHtml = '';
+      if (loadingLogoSrc) {
+        loadingLogoHtml = '<img src="' + escapeHtml(loadingLogoSrc) + '" alt="Zhaya" style="height: ' + Math.max(app.logoSize || 28, 36) + 'px; max-width: 200px; object-fit: contain; animation: zhayaPulse 1.8s ease-in-out infinite;" decoding="async" />';
+      } else {
+        loadingLogoHtml = '<span style="font-size: 22px; font-weight: 700; letter-spacing: 0.15em; text-transform: uppercase; color: ' + escapeHtml(textColor) + '; animation: zhayaPulse 1.8s ease-in-out infinite;">ZHAYA</span>';
+      }
+
       innerHtml += '<div style="text-align: center; padding: 48px 16px 36px; max-width: 360px; margin: 0 auto; display: flex; flex-direction: column; align-items: center; justify-content: center; min-height: 240px; box-sizing: border-box;">' +
-        '<div style="position: relative; width: 64px; height: 64px; display: flex; align-items: center; justify-content: center; margin-bottom: 24px;">' +
-          '<div style="position: absolute; inset: 0; border-radius: 50%; border: 2px solid rgba(255,255,255,0.2); animation: zhayaPulse 1.8s cubic-bezier(0, 0, 0.2, 1) infinite;"></div>' +
-          '<div style="width: 48px; height: 48px; border-radius: 50%; border: 2px solid rgba(255,255,255,0.2); border-top-color: #ffffff; animation: zhayaSpin 1s linear infinite; display: flex; align-items: center; justify-content: center;">' +
-            '<svg style="width: 20px; height: 20px; color: #ffffff;" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 3v4M3 5h4M6 17v4m-2-2h4m11-16v4m-2-2h4m-2 10v4m-2-2h4M12 3v18"></path></svg>' +
-          '</div>' +
+        '<div style="min-height: 56px; display: flex; align-items: center; justify-content: center; margin-bottom: 20px;">' +
+          loadingLogoHtml +
         '</div>' +
         '<h3 style="font-size: 15px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.1em; color: ' + escapeHtml(textColor) + '; margin: 0 0 8px 0;">Analisando suas medidas</h3>' +
         '<p style="font-size: 12px; color: ' + escapeHtml(secTextColor) + '; margin: 0; letter-spacing: 0.02em;">Preparando sua recomendação</p>' +

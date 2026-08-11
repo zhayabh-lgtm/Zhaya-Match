@@ -56,15 +56,15 @@ export interface MeasurementGuideTip {
 export interface ProductType {
   id: string;
   name: string;
-  category?: ProductCategory;
-  fitType?: ProductFitType;
-  imageUrl?: string;
-  iconUrl?: string;
+  category?: ProductCategory | null;
+  fitType?: ProductFitType | null;
+  imageUrl?: string | null;
+  iconUrl?: string | null;
   useIconInSelector?: boolean;
-  measurementImageUrl?: string;
-  measurementImageCaption?: string;
+  measurementImageUrl?: string | null;
+  measurementImageCaption?: string | null;
   measurementGuideTips?: MeasurementGuideTip[];
-  measurementGuideObservation?: string;
+  measurementGuideObservation?: string | null;
   storeTags?: string[];
   active: boolean;
   order: number;
