@@ -189,6 +189,15 @@ async function runWidgetTest() {
   // 8. Click calculate button
   calcBtn.click();
 
+  // Verify loading state rendered ("Analisando suas medidas")
+  const loadingHeader = overlay.textContent || '';
+  if (!loadingHeader.includes('Analisando suas medidas')) {
+    throw new Error(`[Widget Test Failure] Loading screen "Analisando suas medidas" not displayed immediately after clicking calculate: "${loadingHeader}"`);
+  }
+
+  // Wait 2100ms for loading state transition to result screen
+  await new Promise((resolve) => setTimeout(resolve, 2150));
+
   // 9. Confirm step 3 (Result) rendered with real motor output
   const recalcBtn = document.getElementById('zhaya-recalc-btn');
   const closeBtn = document.getElementById('zhaya-close-btn');
@@ -202,7 +211,32 @@ async function runWidgetTest() {
     throw new Error(`[Widget Test Failure] Expected size 'M' recommendation not found in result text: "${resultText}"`);
   }
 
-  console.log('[Widget Test Success] Widget executed calculation, rendered real motor result "M", and completed without errors.');
+  // 10. Test Feedback Survey transition on close button click
+  closeBtn.click();
+  const feedbackText = overlay.textContent || '';
+  if (!feedbackText.includes('Sua opinião é importante')) {
+    throw new Error(`[Widget Test Failure] Feedback survey screen not displayed after clicking close button: "${feedbackText}"`);
+  }
+
+  // Select adequacy "Sim" and ease "5"
+  const simBtn = overlay.querySelector('.zhaya-fb-adequacy-btn[data-val="Sim"]') as HTMLElement;
+  const ease5Btn = overlay.querySelector('.zhaya-fb-ease-btn[data-val="5"]') as HTMLElement;
+  if (!simBtn || !ease5Btn) {
+    throw new Error('[Widget Test Failure] Feedback survey option buttons not found.');
+  }
+  simBtn.click();
+  ease5Btn.click();
+
+  const submitFbBtn = document.getElementById('zhaya-fb-submit-btn') as HTMLElement;
+  if (!submitFbBtn) {
+    throw new Error('[Widget Test Failure] Feedback submit button not found.');
+  }
+  submitFbBtn.click();
+
+  // Wait 1100ms for submission thank-you timer and modal close
+  await new Promise((resolve) => setTimeout(resolve, 1150));
+
+  console.log('[Widget Test Success] Widget executed calculation with 2000ms loading state, rendered result "M", submitted feedback survey, and completed without errors.');
 }
 
 runWidgetTest().catch((err) => {

@@ -147,12 +147,9 @@ export const ConfigDraftProvider: React.FC<{ children: ReactNode }> = ({ childre
   };
 
   const updateTexts = (updater: (prev: TextSettings) => TextSettings) => {
-    setTexts((prev) => {
-      const updated = normalizeTexts(updater(prev));
-      // Keep appearance.buttonText synced with texts.buttonText
-      setAppearance((appPrev) => ({ ...appPrev, buttonText: updated.buttonText }));
-      return updated;
-    });
+    const updated = normalizeTexts(updater(texts));
+    setTexts(updated);
+    setAppearance((appPrev) => ({ ...appPrev, buttonText: updated.buttonText }));
     incrementRevision();
   };
 

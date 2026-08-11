@@ -4,6 +4,7 @@ import { ShoppingBag, Search, ChevronRight, RefreshCw, Terminal, Shield, Truck, 
 declare global {
   interface Window {
     dataLayer?: any[];
+    ZHAYA_PRODUCT_TAGS?: string[];
     openZhayaMatchModal?: () => void;
     __ZHAYA_MATCH_ADMIN_PREVIEW__?: {
       config: any;
@@ -62,11 +63,14 @@ export const Preview: React.FC = () => {
 
     setSessionExpired(false);
 
-    // Initialize dataLayer
+    // Initialize product tags & dataLayer
+    window.ZHAYA_PRODUCT_TAGS = ['jaqueta', 'biker', 'couro', 'casaco'];
     window.dataLayer = window.dataLayer || [];
     const viewItemEvent = {
       event: 'view_item',
+      zhaya_product_tags: ['jaqueta', 'biker', 'couro', 'casaco'],
       ecommerce: {
+        zhaya_product_tags: ['jaqueta', 'biker', 'couro', 'casaco'],
         items: [
           {
             item_name: 'Jaqueta Biker Couro Signature',
@@ -91,7 +95,7 @@ export const Preview: React.FC = () => {
 
     const script = document.createElement('script');
     script.id = 'zhaya-widget-script-preview';
-    script.src = '/widget.js';
+    script.src = `/widget.js?v=${Date.now()}`;
     script.async = true;
     script.defer = true;
     script.onload = () => {

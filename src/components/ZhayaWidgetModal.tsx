@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo, useRef } from 'react';
 import {
   PopupAppearance,
   TextSettings,
@@ -44,6 +44,7 @@ interface ZhayaWidgetModalProps {
   selectedType?: ProductType | null;
   onSelectType?: (type: ProductType) => void;
   resultMode?: 'recommended' | 'between' | 'none';
+  enableFeedbackSurvey?: boolean;
   onClose?: () => void;
   isOpen?: boolean;
 }
@@ -71,6 +72,7 @@ export const ZhayaWidgetModal: React.FC<ZhayaWidgetModalProps> = ({
   selectedType: externalSelectedType,
   onSelectType,
   resultMode = 'recommended',
+  enableFeedbackSurvey = true,
   onClose,
   isOpen = true,
 }) => {
@@ -91,25 +93,53 @@ export const ZhayaWidgetModal: React.FC<ZhayaWidgetModalProps> = ({
   const [hasTrackedOpen, setHasTrackedOpen] = useState<boolean>(false);
   const [hasTrackedFlowStarted, setHasTrackedFlowStarted] = useState<boolean>(false);
   const [hasTrackedMeasurements, setHasTrackedMeasurements] = useState<boolean>(false);
+  const [hasTrackedProcessing, setHasTrackedProcessing] = useState<boolean>(false);
+  const [hasTrackedResultViewed, setHasTrackedResultViewed] = useState<boolean>(false);
+  const [hasTrackedFeedbackStarted, setHasTrackedFeedbackStarted] = useState<boolean>(false);
+  const [hasTrackedClosed, setHasTrackedClosed] = useState<boolean>(false);
+  const calcTimerRef = useRef<NodeJS.Timeout | null>(null);
   const [failedIcons, setFailedIcons] = useState<Record<string, boolean>>({});
 
+  // Loading state & Feedback Survey states
+  const [isCalculatingResult, setIsCalculatingResult] = useState<boolean>(false);
+  const [showFeedbackStep, setShowFeedbackStep] = useState<boolean>(false);
+
+  const [adequacyResponse, setAdequacyResponse] = useState<'Sim' | 'Não' | 'Ainda não sei' | null>(null);
+  const [easeRating, setEaseRating] = useState<number | null>(null);
+  const [feedbackComment, setFeedbackComment] = useState<string>('');
+  const [isSubmittingFeedback, setIsSubmittingFeedback] = useState<boolean>(false);
+  const [feedbackSuccessMessage, setFeedbackSuccessMessage] = useState<string | null>(null);
+
   const activeStep = externalStep !== undefined ? externalStep : internalStep;
+
+  // Centralized close handler
+  const handleCloseModal = () => {
+    if (calcTimerRef.current) {
+      clearTimeout(calcTimerRef.current);
+      calcTimerRef.current = null;
+    }
+    if (!hasTrackedClosed) {
+      setHasTrackedClosed(true);
+      trackAnalyticsEvent('widget_closed', { isPreview: true });
+    }
+    if (onClose) onClose();
+  };
 
   // Track widget_opened when modal opens
   useEffect(() => {
     if (isOpen && !hasTrackedOpen) {
       setHasTrackedOpen(true);
+      setHasTrackedFlowStarted(false);
+      setHasTrackedMeasurements(false);
+      setHasTrackedProcessing(false);
+      setHasTrackedResultViewed(false);
+      setHasTrackedFeedbackStarted(false);
+      setHasTrackedClosed(false);
       trackAnalyticsEvent('widget_opened', { isPreview: true });
     } else if (!isOpen && hasTrackedOpen) {
       setHasTrackedOpen(false);
     }
   }, [isOpen, hasTrackedOpen]);
-
-  useEffect(() => {
-    if (externalStep !== undefined) {
-      setInternalStep(externalStep);
-    }
-  }, [externalStep]);
 
   const activeType = useMemo(() => {
     if (externalSelectedType !== undefined) return externalSelectedType;
@@ -121,6 +151,20 @@ export const ZhayaWidgetModal: React.FC<ZhayaWidgetModalProps> = ({
     if (!activeType) return null;
     return calculateRecommendation(activeType, userMeasurements);
   }, [activeType, userMeasurements]);
+
+  // Track feedback_started when survey opens
+  useEffect(() => {
+    if (showFeedbackStep && !hasTrackedFeedbackStarted) {
+      setHasTrackedFeedbackStarted(true);
+      trackAnalyticsEvent('feedback_started', {
+        productTypeId: activeType?.id,
+        productTypeName: activeType?.name,
+        productCategory: activeType?.category,
+        recommendationStatus: calculatedResult?.status,
+        isPreview: true,
+      });
+    }
+  }, [showFeedbackStep, hasTrackedFeedbackStarted, activeType, calculatedResult]);
 
   const handleSetStep = (nextStep: 0 | 1 | 2 | 3) => {
     if (nextStep === 1 && !hasTrackedFlowStarted) {
@@ -290,10 +334,7 @@ export const ZhayaWidgetModal: React.FC<ZhayaWidgetModalProps> = ({
 
           {/* Close Button */}
           <button
-            onClick={() => {
-              trackAnalyticsEvent('widget_closed', { isPreview: true });
-              if (onClose) onClose();
-            }}
+            onClick={handleCloseModal}
             className="w-7 h-7 rounded-full border flex items-center justify-center hover:opacity-80 transition-opacity cursor-pointer z-10"
             style={{ borderColor: borderColor, color: secondaryTextColor }}
           >
@@ -508,7 +549,7 @@ export const ZhayaWidgetModal: React.FC<ZhayaWidgetModalProps> = ({
                     {activeType.name}
                   </h3>
                   <p style={{ color: secondaryTextColor, fontSize: `${appearance.bodyFontSize ?? 11}px`, fontWeight: textWeight }}>
-                    {texts.measurementsTitle || 'Insira suas medidas corporais em centímetros'}
+                    {texts.measurementsTitle || 'Insira suas medidas em centímetros'}
                   </p>
                 </div>
               </div>
@@ -562,7 +603,7 @@ export const ZhayaWidgetModal: React.FC<ZhayaWidgetModalProps> = ({
                             color: inputTextColor,
                             borderColor: inputBorderColor,
                             borderRadius: `${inputRadius}px`,
-                            fontSize: `${appearance.fieldFontSize ?? 13}px`,
+                            fontSize: device === 'mobile' ? '16px' : `${appearance.fieldFontSize ?? 13}px`,
                             fontWeight: textWeight,
                           }}
                           className="flex-1 border px-3 py-2 font-mono focus:outline-none focus:border-white transition-colors"
@@ -588,7 +629,58 @@ export const ZhayaWidgetModal: React.FC<ZhayaWidgetModalProps> = ({
               <div className="pt-2">
                 <button
                   type="button"
-                  onClick={() => handleSetStep(3)}
+                  disabled={isCalculatingResult}
+                  onClick={() => {
+                    if (isCalculatingResult) return;
+                    setIsCalculatingResult(true);
+
+                    if (!hasTrackedProcessing) {
+                      setHasTrackedProcessing(true);
+                      trackAnalyticsEvent('recommendation_processing_started', {
+                        productTypeId: activeType?.id,
+                        productTypeName: activeType?.name,
+                        productCategory: activeType?.category,
+                        isPreview: true,
+                      });
+                    }
+
+                    const status = calculatedResult?.status || 'not_found';
+                    if (status === 'not_found') {
+                      trackAnalyticsEvent('recommendation_not_found', {
+                        productTypeId: activeType?.id,
+                        productTypeName: activeType?.name,
+                        productCategory: activeType?.category,
+                        recommendationStatus: 'not_found',
+                        isPreview: true,
+                      });
+                    } else {
+                      trackAnalyticsEvent('recommendation_generated', {
+                        productTypeId: activeType?.id,
+                        productTypeName: activeType?.name,
+                        productCategory: activeType?.category,
+                        recommendationStatus: status,
+                        isPreview: true,
+                      });
+                    }
+
+                    if (calcTimerRef.current) clearTimeout(calcTimerRef.current);
+
+                    calcTimerRef.current = setTimeout(() => {
+                      calcTimerRef.current = null;
+                      setIsCalculatingResult(false);
+                      handleSetStep(3);
+                      if (!hasTrackedResultViewed) {
+                        setHasTrackedResultViewed(true);
+                        trackAnalyticsEvent('recommendation_result_viewed', {
+                          productTypeId: activeType?.id,
+                          productTypeName: activeType?.name,
+                          productCategory: activeType?.category,
+                          recommendationStatus: status,
+                          isPreview: true,
+                        });
+                      }
+                    }, 2000);
+                  }}
                   style={{
                     backgroundColor: buttonColor,
                     color: buttonTextColor,
@@ -597,6 +689,7 @@ export const ZhayaWidgetModal: React.FC<ZhayaWidgetModalProps> = ({
                     fontSize: `${appearance.buttonFontSize ?? 12}px`,
                     fontWeight: buttonWeight,
                     textTransform: buttonTransform as any,
+                    opacity: isCalculatingResult ? 0.7 : 1,
                   }}
                   className="w-full tracking-widest transition-all hover:brightness-110 cursor-pointer shadow-md flex items-center justify-center gap-2"
                 >
@@ -612,8 +705,45 @@ export const ZhayaWidgetModal: React.FC<ZhayaWidgetModalProps> = ({
           </div>
         )}
 
+        {/* STEP 2.5: LOADING SCREEN */}
+        {isCalculatingResult && (
+          <div className="py-12 text-center space-y-6 max-w-sm mx-auto flex flex-col items-center justify-center min-h-[260px]">
+            <div className="relative flex items-center justify-center min-h-[56px] py-2">
+              {logoUrl ? (
+                <img
+                  src={logoUrl}
+                  alt="Zhaya"
+                  style={{ height: `${Math.max(logoSize, 36)}px` }}
+                  className="max-w-[200px] object-contain animate-pulse"
+                />
+              ) : (
+                <span
+                  style={{ color: textColor, fontWeight: titleWeight }}
+                  className="text-2xl tracking-widest uppercase font-bold animate-pulse"
+                >
+                  ZHAYA
+                </span>
+              )}
+            </div>
+            <div className="space-y-1.5">
+              <h3
+                style={{ color: textColor, fontWeight: titleWeight }}
+                className="text-base uppercase tracking-wider font-semibold"
+              >
+                Analisando suas medidas
+              </h3>
+              <p
+                style={{ color: secondaryTextColor, fontWeight: textWeight }}
+                className="text-xs tracking-wide"
+              >
+                Preparando sua recomendação
+              </p>
+            </div>
+          </div>
+        )}
+
         {/* STEP 3: RESULT SCREEN */}
-        {activeStep === 3 && (
+        {activeStep === 3 && !isCalculatingResult && !showFeedbackStep && (
           <div className="py-6 text-center space-y-6 max-w-md mx-auto">
             {calculatedResult ? (
               <>
@@ -773,7 +903,11 @@ export const ZhayaWidgetModal: React.FC<ZhayaWidgetModalProps> = ({
               <button
                 type="button"
                 onClick={() => {
-                  if (onClose) onClose();
+                  if (enableFeedbackSurvey !== false) {
+                    setShowFeedbackStep(true);
+                  } else {
+                    handleCloseModal();
+                  }
                 }}
                 className="w-full py-2.5 text-xs hover:underline cursor-pointer"
                 style={{ color: secondaryTextColor, fontWeight: textWeight }}
@@ -781,6 +915,194 @@ export const ZhayaWidgetModal: React.FC<ZhayaWidgetModalProps> = ({
                 {texts.closeButtonText || 'Concluir'}
               </button>
             </div>
+          </div>
+        )}
+
+        {/* STEP 4: FEEDBACK SURVEY SCREEN */}
+        {showFeedbackStep && (
+          <div className="py-2 space-y-4 max-w-md mx-auto text-left">
+            <div className="text-center border-b pb-2.5" style={{ borderColor: borderColor }}>
+              <h3
+                style={{ color: textColor, fontWeight: titleWeight }}
+                className="text-xs uppercase tracking-wider font-bold"
+              >
+                Sua opinião é importante
+              </h3>
+              <p style={{ color: secondaryTextColor, fontWeight: textWeight }} className="text-[11px] mt-0.5">
+                Responda 2 perguntas rápidas para melhorar nossas recomendações
+              </p>
+            </div>
+
+            {feedbackSuccessMessage ? (
+              <div className="py-8 text-center space-y-3">
+                <div className="inline-flex items-center justify-center w-10 h-10 rounded-full bg-emerald-500/20 text-emerald-400 border border-emerald-500/40">
+                  <Check className="w-5 h-5" />
+                </div>
+                <p style={{ color: textColor, fontWeight: titleWeight }} className="text-xs font-semibold">
+                  {feedbackSuccessMessage}
+                </p>
+              </div>
+            ) : (
+              <div className="space-y-3 text-xs">
+                {/* Q1: Adequação */}
+                <div className="space-y-1.5">
+                  <label style={{ color: textColor, fontWeight: titleWeight }} className="block text-[11px]">
+                    1. A recomendação pareceu adequada para você? <span className="text-red-400">*</span>
+                  </label>
+                  <div className="grid grid-cols-3 gap-1.5">
+                    {(['Sim', 'Não', 'Ainda não sei'] as const).map((opt) => {
+                      const isSelected = adequacyResponse === opt;
+                      return (
+                        <button
+                          key={opt}
+                          type="button"
+                          onClick={() => setAdequacyResponse(opt)}
+                          style={{
+                            backgroundColor: isSelected ? buttonColor : inputBgColor,
+                            color: isSelected ? buttonTextColor : textColor,
+                            borderColor: isSelected ? buttonColor : inputBorderColor,
+                            borderRadius: `${buttonBorderRadius}px`,
+                          }}
+                          className="py-1.5 px-1 text-[11px] text-center font-medium border transition-all cursor-pointer hover:opacity-90"
+                        >
+                          {opt}
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
+
+                {/* Q2: Facilidade */}
+                <div className="space-y-1.5">
+                  <label style={{ color: textColor, fontWeight: titleWeight }} className="block text-[11px]">
+                    2. Foi fácil informar suas medidas? (1 a 5) <span className="text-red-400">*</span>
+                  </label>
+                  <div className="flex items-center justify-between gap-1.5">
+                    {[1, 2, 3, 4, 5].map((num) => {
+                      const isSelected = easeRating === num;
+                      return (
+                        <button
+                          key={num}
+                          type="button"
+                          onClick={() => setEaseRating(num)}
+                          style={{
+                            backgroundColor: isSelected ? buttonColor : inputBgColor,
+                            color: isSelected ? buttonTextColor : textColor,
+                            borderColor: isSelected ? buttonColor : inputBorderColor,
+                            borderRadius: `${buttonBorderRadius}px`,
+                          }}
+                          className="flex-1 py-1.5 text-center font-bold text-xs border transition-all cursor-pointer hover:opacity-90"
+                        >
+                          {num}
+                        </button>
+                      );
+                    })}
+                  </div>
+                  <div className="flex justify-between text-[9px]" style={{ color: secondaryTextColor }}>
+                    <span>Muito difícil</span>
+                    <span>Muito fácil</span>
+                  </div>
+                </div>
+
+                {/* Q3: Comentário Opcional */}
+                <div className="space-y-1">
+                  <label style={{ color: secondaryTextColor, fontWeight: textWeight }} className="block text-[11px]">
+                    3. Quer contar algo para a gente? <span className="opacity-60">(Opcional)</span>
+                  </label>
+                  <textarea
+                    rows={2}
+                    value={feedbackComment}
+                    onChange={(e) => setFeedbackComment(e.target.value)}
+                    placeholder="Sua sugestão ou comentário..."
+                    style={{
+                      backgroundColor: inputBgColor,
+                      color: inputTextColor,
+                      borderColor: inputBorderColor,
+                      borderRadius: `${inputRadius}px`,
+                      fontSize: device === 'mobile' ? '16px' : '11px',
+                    }}
+                    className="w-full p-2 border focus:outline-none focus:border-white transition-colors resize-none"
+                  />
+                </div>
+
+                {/* Actions: Enviar & Pular */}
+                <div className="pt-1.5 space-y-1.5">
+                  <button
+                    type="button"
+                    disabled={!adequacyResponse || !easeRating || isSubmittingFeedback}
+                    onClick={async () => {
+                      if (!adequacyResponse || !easeRating) return;
+                      setIsSubmittingFeedback(true);
+
+                      trackAnalyticsEvent('feedback_submitted', {
+                        productTypeId: activeType?.id,
+                        productTypeName: activeType?.name,
+                        productCategory: activeType?.category,
+                        recommendationStatus: calculatedResult?.status,
+                        isPreview: true,
+                      });
+
+                      try {
+                        await fetch('/api/public/feedback', {
+                          method: 'POST',
+                          headers: { 'Content-Type': 'application/json' },
+                          body: JSON.stringify({
+                            visitorId: 'preview_visitor',
+                            sessionId: 'preview_session',
+                            productTypeId: activeType?.id,
+                            recommendationStatus: calculatedResult?.status,
+                            recommendedSize: calculatedResult?.size || undefined,
+                            alternateSize: calculatedResult?.alternateSize || undefined,
+                            adequacyResponse,
+                            easeRating,
+                            comment: feedbackComment,
+                          }),
+                        }).catch(() => {});
+                      } catch (e) {}
+
+                      setFeedbackSuccessMessage('Obrigado pelo seu feedback!');
+                      setTimeout(() => {
+                        setIsSubmittingFeedback(false);
+                        setShowFeedbackStep(false);
+                        handleCloseModal();
+                      }, 1000);
+                    }}
+                    style={{
+                      backgroundColor: buttonColor,
+                      color: buttonTextColor,
+                      borderRadius: `${buttonBorderRadius}px`,
+                      height: `${buttonHeight}px`,
+                      fontSize: `${appearance.buttonFontSize ?? 12}px`,
+                      fontWeight: buttonWeight,
+                      textTransform: buttonTransform as any,
+                      opacity: (!adequacyResponse || !easeRating || isSubmittingFeedback) ? 0.5 : 1,
+                    }}
+                    className="w-full tracking-widest transition-all cursor-pointer shadow-md flex items-center justify-center gap-2"
+                  >
+                    <span>{isSubmittingFeedback ? 'Enviando...' : 'Enviar'}</span>
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => {
+                      trackAnalyticsEvent('feedback_skipped', {
+                        productTypeId: activeType?.id,
+                        productTypeName: activeType?.name,
+                        productCategory: activeType?.category,
+                        recommendationStatus: calculatedResult?.status,
+                        isPreview: true,
+                      });
+                      setShowFeedbackStep(false);
+                      handleCloseModal();
+                    }}
+                    className="w-full py-1 text-xs hover:underline cursor-pointer text-center"
+                    style={{ color: secondaryTextColor, fontWeight: textWeight }}
+                  >
+                    Pular
+                  </button>
+                </div>
+              </div>
+            )}
           </div>
         )}
 
@@ -823,34 +1145,65 @@ export const ZhayaWidgetModal: React.FC<ZhayaWidgetModalProps> = ({
                 </div>
               )}
 
-              <p style={{ color: secondaryTextColor, fontWeight: textWeight }} className="text-xs leading-relaxed">
-                {helps[activeGuideKey]?.description ||
-                  'Passe a fita métrica suavemente ao redor do corpo sem apertar.'}
-              </p>
+              {activeType?.measurementGuideTips && activeType.measurementGuideTips.length > 0 ? (
+                <div className="space-y-2">
+                  {activeType.measurementGuideTips.map((tip) => (
+                    <div key={tip.id} className="p-2.5 rounded bg-white/5 border border-white/10 space-y-1">
+                      {tip.title && (
+                        <h5 style={{ color: textColor }} className="text-xs font-bold uppercase tracking-wider">
+                          {tip.title}
+                        </h5>
+                      )}
+                      <p style={{ color: secondaryTextColor, fontWeight: textWeight }} className="text-xs leading-relaxed">
+                        {tip.text}
+                      </p>
+                    </div>
+                  ))}
+                </div>
+              ) : (
+                <p style={{ color: secondaryTextColor, fontWeight: textWeight }} className="text-xs leading-relaxed">
+                  {helps[activeGuideKey]?.description ||
+                    'Passe a fita métrica suavemente sem apertar.'}
+                </p>
+              )}
 
-              {(() => {
-                const guideObs = activeGuideKey && helps[activeGuideKey]
-                  ? getVisibleObservations(helps[activeGuideKey].observations, activeType?.measurements || [])
-                  : [];
-                if (guideObs.length === 0) return null;
+              {activeType?.measurementGuideObservation ? (
+                <div
+                  style={{ borderColor: borderColor }}
+                  className="p-3 bg-white/5 border rounded-lg text-center space-y-1 my-1"
+                >
+                  <span style={{ color: secondaryTextColor }} className="text-[10px] font-bold uppercase tracking-wider block">
+                    Dica
+                  </span>
+                  <p style={{ color: textColor, fontWeight: textWeight }} className="text-xs leading-relaxed font-medium">
+                    {activeType.measurementGuideObservation}
+                  </p>
+                </div>
+              ) : (
+                (() => {
+                  const guideObs = activeGuideKey && helps[activeGuideKey]
+                    ? getVisibleObservations(helps[activeGuideKey].observations, activeType?.measurements || [])
+                    : [];
+                  if (guideObs.length === 0) return null;
 
-                return (
-                  <div className="space-y-2 pt-1 border-t border-neutral-100/20">
-                    {guideObs.map((obs) => (
-                      <div
-                        key={obs.id}
-                        style={{ borderColor: borderColor }}
-                        className="text-[11px] p-2.5 rounded bg-white/5 border leading-snug"
-                      >
-                        <span style={{ color: textColor }} className="font-bold mr-1.5">
-                          Obs:
-                        </span>
-                        <span style={{ color: secondaryTextColor }}>{obs.text}</span>
-                      </div>
-                    ))}
-                  </div>
-                );
-              })()}
+                  return (
+                    <div className="space-y-2 pt-1 border-t border-neutral-100/20">
+                      {guideObs.map((obs) => (
+                        <div
+                          key={obs.id}
+                          style={{ borderColor: borderColor }}
+                          className="text-[11px] p-2.5 rounded bg-white/5 border leading-snug"
+                        >
+                          <span style={{ color: textColor }} className="font-bold mr-1.5">
+                            Obs:
+                          </span>
+                          <span style={{ color: secondaryTextColor }}>{obs.text}</span>
+                        </div>
+                      ))}
+                    </div>
+                  );
+                })()
+              )}
 
               <button
                 type="button"
@@ -876,7 +1229,7 @@ export const ZhayaWidgetModal: React.FC<ZhayaWidgetModalProps> = ({
             currentValue={userMeasurements[activeWheelKey] || ''}
             productType={activeType}
             onConfirm={(val) => {
-              setUserMeasurements({ ...userMeasurements, [activeWheelKey]: val });
+              handleMeasurementChange(activeWheelKey, val);
               setActiveWheelKey(null);
             }}
             onClose={() => setActiveWheelKey(null)}

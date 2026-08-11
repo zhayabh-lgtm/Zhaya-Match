@@ -18,6 +18,23 @@ export interface RawAnalyticsRecord {
   created_at?: string | null;
 }
 
+export interface RawFeedbackRecord {
+  id?: string;
+  visitor_id?: string | null;
+  session_id?: string | null;
+  product_type_id?: string | null;
+  product_type_name?: string | null;
+  recommendation_status?: string | null;
+  recommended_size?: string | null;
+  alternate_size?: string | null;
+  adequacy_response?: string | null;
+  ease_rating?: number | null;
+  comment?: string | null;
+  config_version?: number | null;
+  submitted_at?: string | null;
+  created_at?: string | null;
+}
+
 export function safeDivRate(num: number, denom: number): number {
   if (!denom || denom <= 0 || !Number.isFinite(denom)) return 0;
   if (!num || num <= 0 || !Number.isFinite(num)) return 0;
@@ -30,7 +47,8 @@ export function computeAnalyticsSummary(
   rawRecords: RawAnalyticsRecord[],
   period: PeriodType = '7days',
   startDate: Date,
-  endDate: Date
+  endDate: Date,
+  rawFeedbackRecords: RawFeedbackRecord[] = []
 ): AnalyticsSummary & Record<string, any> {
   const records = (Array.isArray(rawRecords) ? rawRecords : []).filter(
     (r) => !r.metadata || (r.metadata.preview !== true && r.metadata.is_preview !== true)
@@ -43,12 +61,19 @@ export function computeAnalyticsSummary(
   const totalFlowStarted = records.filter((r) => r.event_name === 'flow_started').length;
   const totalProductTypeSelected = records.filter((r) => r.event_name === 'product_type_selected').length;
   const totalMeasurementsStarted = records.filter((r) => r.event_name === 'measurements_started').length;
+  const totalRecommendationProcessingStarted = records.filter((r) => r.event_name === 'recommendation_processing_started').length;
   const totalRecommendationGenerated = records.filter((r) => r.event_name === 'recommendation_generated').length;
+  const totalRecommendationResultViewed = records.filter((r) => r.event_name === 'recommendation_result_viewed').length;
   const totalRecommendationNotFound = records.filter((r) => r.event_name === 'recommendation_not_found').length;
   const totalMeasurementHelpOpened = records.filter((r) => r.event_name === 'measurement_help_opened').length;
+  const totalFeedbackStarted = records.filter((r) => r.event_name === 'feedback_started').length;
+  const totalFeedbackSubmitted = records.filter((r) => r.event_name === 'feedback_submitted').length;
+  const totalFeedbackSkipped = records.filter((r) => r.event_name === 'feedback_skipped').length;
   const totalWidgetClosed = records.filter((r) => r.event_name === 'widget_closed').length;
 
   const totalCalculations = totalRecommendationGenerated + totalRecommendationNotFound;
+  const effectiveProcessing = totalRecommendationProcessingStarted || totalCalculations;
+  const effectiveResultViewed = totalRecommendationResultViewed || totalRecommendationGenerated;
 
   // Visitantes e Sessões
   const visitorIdSet = new Set<string>();
@@ -323,8 +348,8 @@ export function computeAnalyticsSummary(
     };
   });
 
-  // Funil de Conversão (6 etapas em sequência relativa)
-  // 1. launcher_viewed -> 2. launcher_clicked -> 3. widget_opened -> 4. flow_started -> 5. measurements_started -> 6. recommendation_generated
+  // Funil de Conversão (7 etapas em sequência relativa)
+  // 1. launcher_viewed -> 2. launcher_clicked -> 3. widget_opened -> 4. flow_started -> 5. measurements_started -> 6. recommendation_processing_started -> 7. recommendation_result_viewed
   const funnel = [
     {
       event: 'launcher_viewed',
@@ -372,18 +397,88 @@ export function computeAnalyticsSummary(
       rate: safeDivRate(totalMeasurementsStarted, totalFlowStarted),
     },
     {
-      event: 'recommendation_generated',
-      stage: 'recommendation_generated',
-      step: 'recommendation_generated',
-      label: 'Recomendação Gerada',
-      count: totalRecommendationGenerated,
-      conversionRate: safeDivRate(totalRecommendationGenerated, totalMeasurementsStarted),
-      rate: safeDivRate(totalRecommendationGenerated, totalMeasurementsStarted),
+      event: 'recommendation_processing_started',
+      stage: 'recommendation_processing_started',
+      step: 'recommendation_processing_started',
+      label: 'Processamento Solicitado',
+      count: effectiveProcessing,
+      conversionRate: safeDivRate(effectiveProcessing, totalMeasurementsStarted),
+      rate: safeDivRate(effectiveProcessing, totalMeasurementsStarted),
+    },
+    {
+      event: 'recommendation_result_viewed',
+      stage: 'recommendation_result_viewed',
+      step: 'recommendation_result_viewed',
+      label: 'Resultado Visualizado',
+      count: effectiveResultViewed,
+      conversionRate: safeDivRate(effectiveResultViewed, effectiveProcessing),
+      rate: safeDivRate(effectiveResultViewed, effectiveProcessing),
     },
   ];
 
   const startDateFormatted = startDate.toLocaleDateString('pt-BR');
   const endDateFormatted = endDate.toLocaleDateString('pt-BR');
+
+  // Compute Feedback Details
+  const productTypeNameMap = new Map<string, string>();
+  records.forEach((r) => {
+    if (r.product_type_id && r.product_type_name) {
+      productTypeNameMap.set(r.product_type_id, r.product_type_name);
+    }
+  });
+
+  const feedbackList = Array.isArray(rawFeedbackRecords) ? rawFeedbackRecords : [];
+  const totalResponses = feedbackList.length;
+  let yesCount = 0;
+  let noCount = 0;
+  let notSureCount = 0;
+  let easeRatingSum = 0;
+  let easeRatingCount = 0;
+
+  feedbackList.forEach((fb) => {
+    if (fb.adequacy_response === 'Sim') yesCount++;
+    else if (fb.adequacy_response === 'Não') noCount++;
+    else if (fb.adequacy_response === 'Ainda não sei') notSureCount++;
+
+    const rating = Number(fb.ease_rating);
+    if (!isNaN(rating) && rating >= 1 && rating <= 5) {
+      easeRatingSum += rating;
+      easeRatingCount++;
+    }
+  });
+
+  const yesPercent = safeDivRate(yesCount, totalResponses);
+  const noPercent = safeDivRate(noCount, totalResponses);
+  const notSurePercent = safeDivRate(notSureCount, totalResponses);
+  const averageEaseRating = easeRatingCount > 0 ? Math.round((easeRatingSum / easeRatingCount) * 10) / 10 : 0;
+
+  const recentComments = feedbackList
+    .filter((fb) => fb.comment && typeof fb.comment === 'string' && fb.comment.trim() !== '')
+    .sort((a, b) => {
+      const dateA = new Date(a.submitted_at || a.created_at || 0).getTime();
+      const dateB = new Date(b.submitted_at || b.created_at || 0).getTime();
+      return dateB - dateA;
+    })
+    .slice(0, 20)
+    .map((fb) => ({
+      id: fb.id,
+      comment: (fb.comment || '').trim(),
+      productTypeId: fb.product_type_id || undefined,
+      productTypeName: fb.product_type_name || (fb.product_type_id ? productTypeNameMap.get(fb.product_type_id) : undefined),
+      recommendedSize: fb.recommended_size || undefined,
+      adequacyResponse: fb.adequacy_response || undefined,
+      easeRating: typeof fb.ease_rating === 'number' ? fb.ease_rating : undefined,
+      submittedAt: fb.submitted_at || fb.created_at || new Date().toISOString(),
+    }));
+
+  const feedbackDetails = {
+    totalResponses,
+    yesPercent,
+    noPercent,
+    notSurePercent,
+    averageEaseRating,
+    recentComments,
+  };
 
   return {
     period,
@@ -405,13 +500,18 @@ export function computeAnalyticsSummary(
     totalProductTypeSelected,
     totalTypeSelected: totalProductTypeSelected,
     totalMeasurementsStarted,
+    totalRecommendationProcessingStarted,
     totalRecommendationGenerated,
+    totalRecommendationResultViewed,
     totalRecommendationNotFound,
     totalCalculations,
     totalRecommendedFound: exactCount,
     totalRecommended: exactCount,
     totalNotFound: notFoundCount,
     totalHelpOpened: totalMeasurementHelpOpened,
+    totalFeedbackStarted,
+    totalFeedbackSubmitted,
+    totalFeedbackSkipped,
     totalClosed: totalWidgetClosed,
     openRate,
     startRate,
@@ -419,6 +519,7 @@ export function computeAnalyticsSummary(
     notFoundRate,
     abandonmentCount,
     abandonmentRate,
+    feedbackDetails,
     recommendationTypes,
     recommendationBreakdown,
     recommendationsByProductType,

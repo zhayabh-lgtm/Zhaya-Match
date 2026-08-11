@@ -2,7 +2,7 @@ import { ProductType, PopupAppearance, MeasurementKey } from '../types/zhaya';
 
 export type MeasurementGroup = 'upper_body' | 'lower_body' | 'footwear' | 'unknown';
 
-const UPPER_BODY_EXCLUSIVE: MeasurementKey[] = ['bust', 'shoulders', 'torsoLength'];
+const UPPER_BODY_EXCLUSIVE: MeasurementKey[] = ['bust', 'shoulders', 'torsoLength', 'sleeveLength'];
 const LOWER_BODY_EXCLUSIVE: MeasurementKey[] = ['hip', 'thigh'];
 const FOOTWEAR_EXCLUSIVE: MeasurementKey[] = ['footLength', 'footWidth'];
 
@@ -89,6 +89,15 @@ export function resolveMeasurementImage(
   appearance: PopupAppearance
 ): ResolvedMeasurementImage {
   const group = detectMeasurementGroup(productType);
+
+  if (productType?.measurementImageUrl && productType.measurementImageUrl.trim()) {
+    return {
+      group,
+      imageUrl: productType.measurementImageUrl.trim(),
+      caption: productType.measurementImageCaption || `Guia de medição para ${productType.name}`,
+      isFallback: false,
+    };
+  }
 
   let imageUrl: string | undefined = undefined;
   let caption: string | undefined = undefined;

@@ -6,7 +6,9 @@ export type MeasurementKey =
   | 'thigh'
   | 'torsoLength'
   | 'footLength'
-  | 'footWidth';
+  | 'footWidth'
+  | 'fingerCircumference'
+  | 'sleeveLength';
 
 export interface MeasurementObservation {
   id: string;
@@ -45,6 +47,12 @@ export interface SizeRow {
 export type ProductCategory = 'upper_body' | 'lower_body' | 'full_body' | 'footwear' | 'generic';
 export type ProductFitType = 'structured' | 'regular' | 'stretch' | 'footwear';
 
+export interface MeasurementGuideTip {
+  id: string;
+  title: string;
+  text: string;
+}
+
 export interface ProductType {
   id: string;
   name: string;
@@ -55,6 +63,9 @@ export interface ProductType {
   useIconInSelector?: boolean;
   measurementImageUrl?: string;
   measurementImageCaption?: string;
+  measurementGuideTips?: MeasurementGuideTip[];
+  measurementGuideObservation?: string;
+  storeTags?: string[];
   active: boolean;
   order: number;
   measurements: MeasurementKey[];
@@ -215,10 +226,24 @@ export interface RecommendationResult {
 
 export interface AppConfig {
   enabled: boolean;
+  enableFeedbackSurvey?: boolean;
   widgetUrl: string;
   testMode: boolean;
   allowedDomains?: string[];
   version?: number;
+}
+
+export interface WidgetFeedbackInput {
+  visitorId?: string;
+  sessionId?: string;
+  productTypeId?: string;
+  recommendationStatus?: string;
+  recommendedSize?: string;
+  alternateSize?: string;
+  adequacyResponse: 'Sim' | 'Não' | 'Ainda não sei';
+  easeRating: number;
+  comment?: string;
+  configVersion?: number;
 }
 
 export type AnalyticsEventName =
@@ -228,9 +253,14 @@ export type AnalyticsEventName =
   | 'flow_started'
   | 'product_type_selected'
   | 'measurements_started'
+  | 'recommendation_processing_started'
   | 'recommendation_generated'
+  | 'recommendation_result_viewed'
   | 'recommendation_not_found'
   | 'measurement_help_opened'
+  | 'feedback_started'
+  | 'feedback_submitted'
+  | 'feedback_skipped'
   | 'widget_closed';
 
 export type PeriodType = 'today' | '7days' | '30days' | '90days' | 'custom';
@@ -261,6 +291,24 @@ export interface AnalyticsEventInput {
   occurredAt?: string;
 }
 
+export interface FeedbackSummaryData {
+  totalResponses: number;
+  yesPercent: number;
+  noPercent: number;
+  notSurePercent: number;
+  averageEaseRating: number;
+  recentComments: Array<{
+    id?: string;
+    comment: string;
+    productTypeId?: string;
+    productTypeName?: string;
+    recommendedSize?: string;
+    adequacyResponse?: string;
+    easeRating?: number;
+    submittedAt: string;
+  }>;
+}
+
 export interface AnalyticsSummary {
   period: PeriodType;
   startDate: string;
@@ -275,6 +323,11 @@ export interface AnalyticsSummary {
   totalNotFound: number;
   totalHelpOpened: number;
   totalClosed: number;
+  totalRecommendationProcessingStarted?: number;
+  totalRecommendationResultViewed?: number;
+  totalFeedbackStarted?: number;
+  totalFeedbackSubmitted?: number;
+  totalFeedbackSkipped?: number;
   uniqueVisitors: number;
   uniqueSessions: number;
   openRate: number;
@@ -282,6 +335,7 @@ export interface AnalyticsSummary {
   completionRate: number;
   notFoundRate: number;
   abandonmentRate: number;
+  feedbackDetails?: FeedbackSummaryData;
   dailyEvolution: Array<{
     date: string;
     displayDate?: string;

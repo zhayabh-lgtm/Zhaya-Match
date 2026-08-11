@@ -207,6 +207,27 @@ export const Configuracoes: React.FC = () => {
               </label>
             </div>
 
+            {/* Toggle Feedback Survey */}
+            <div className="flex items-center justify-between pb-4 border-b border-neutral-100">
+              <div>
+                <div className="text-xs font-semibold text-neutral-900">
+                  Ativar pesquisa de feedback
+                </div>
+                <div className="text-[11px] text-neutral-500 mt-0.5">
+                  Exibe uma breve pesquisa de satisfação após o usuário concluir a recomendação no widget.
+                </div>
+              </div>
+              <label className="relative inline-flex items-center cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={config.enableFeedbackSurvey !== false}
+                  onChange={(e) => updateConfig((prev) => ({ ...prev, enableFeedbackSurvey: e.target.checked }))}
+                  className="sr-only peer"
+                />
+                <div className="w-11 h-6 bg-neutral-200 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-neutral-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-neutral-900"></div>
+              </label>
+            </div>
+
             {/* Toggle Test Mode */}
             <div className="flex items-center justify-between pb-4 border-b border-neutral-100">
               <div>

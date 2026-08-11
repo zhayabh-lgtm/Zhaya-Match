@@ -12,8 +12,10 @@ const ALL_MEASUREMENTS: { key: MeasurementKey; label: string }[] = [
   { key: 'waist', label: 'Cintura' },
   { key: 'hip', label: 'Quadril' },
   { key: 'shoulders', label: 'Ombros' },
+  { key: 'sleeveLength', label: 'Comprimento da manga' },
   { key: 'thigh', label: 'Coxa' },
   { key: 'torsoLength', label: 'Comprimento do tronco' },
+  { key: 'fingerCircumference', label: 'Dedo' },
   { key: 'footLength', label: 'Comprimento do pé' },
   { key: 'footWidth', label: 'Largura do pé' },
 ];
@@ -94,6 +96,7 @@ export const TiposEMedidas: React.FC = () => {
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [loading, setLoading] = useState<boolean>(true);
   const [saving, setSaving] = useState<boolean>(false);
+  const [tagInput, setTagInput] = useState<string>('');
 
   useEffect(() => {
     loadTypes();
@@ -269,11 +272,9 @@ export const TiposEMedidas: React.FC = () => {
 
   const updateActiveType = (updatedType: ProductType) => {
     setActiveType(updatedType);
-    setTypes((prevTypes) => {
-      const updatedTypes = prevTypes.map((t) => (t.id === updatedType.id ? updatedType : t));
-      replaceProductTypes(updatedTypes);
-      return updatedTypes;
-    });
+    const updatedTypes = types.map((t) => (t.id === updatedType.id ? updatedType : t));
+    setTypes(updatedTypes);
+    replaceProductTypes(updatedTypes);
   };
 
   const handleToggleMeasurement = (key: MeasurementKey) => {
@@ -500,41 +501,80 @@ export const TiposEMedidas: React.FC = () => {
                   </div>
                 </div>
 
-                {/* Section 1: Automatic Image Detection Status */}
                 <div className="space-y-4">
-                  {(() => {
-                    const detectedGroup = detectMeasurementGroup(activeType);
-                    if (detectedGroup === 'unknown') {
-                      return (
-                        <div className="p-3.5 bg-amber-50 border border-amber-200 rounded-lg flex items-start gap-2.5 text-amber-900 text-xs">
-                          <AlertCircle className="w-4 h-4 text-amber-600 shrink-0 mt-0.5" />
-                          <div>
-                            <strong className="font-bold block mb-0.5">Imagem Explicativa Indefinida</strong>
-                            <span>
-                              Não foi possível determinar automaticamente a imagem explicativa deste tipo. Adicione uma medida mais específica, como busto, quadril, coxa, ombros ou medidas dos pés.
-                            </span>
-                          </div>
-                        </div>
-                      );
-                    }
-                    const groupLabels = {
-                      upper_body: 'Parte de cima (Busto, Cintura, Ombros, Tronco)',
-                      lower_body: 'Parte de baixo (Cintura, Quadril, Coxa)',
-                      footwear: 'Para os pés (Comprimento/Largura do Pé)',
-                    };
-                    return (
-                      <div className="p-3.5 bg-neutral-50 border border-neutral-200 rounded-lg flex items-center justify-between text-xs">
-                        <div className="flex items-center gap-2 text-neutral-700">
-                          <Image className="w-4 h-4 text-neutral-500 shrink-0" />
-                          <span>
-                            Imagem Explicativa Automática:{' '}
-                            <strong className="font-semibold text-neutral-900">{groupLabels[detectedGroup]}</strong>
-                          </span>
-                        </div>
-                        <span className="text-[11px] text-neutral-500 font-medium">Gerenciada em Textos e Imagens</span>
-                      </div>
-                    );
-                  })()}
+                  {/* Tags dos Produtos na Olist */}
+                  <div className="border border-neutral-200 rounded-lg p-4 bg-neutral-50/50 space-y-3">
+                    <div>
+                      <h4 className="text-xs font-bold text-neutral-800 uppercase tracking-wider">
+                        Tags dos Produtos na Olist
+                      </h4>
+                      <p className="text-[11px] text-neutral-500 mt-0.5">
+                        Quando um produto possuir uma destas tags, este Tipo será selecionado automaticamente no widget.
+                      </p>
+                    </div>
+
+                    <div className="flex flex-wrap gap-1.5 min-h-[36px] p-2 bg-white border border-neutral-200 rounded-md items-center">
+                      {(activeType.storeTags || []).map((tag, tagIdx) => (
+                        <span
+                          key={tag + '-' + tagIdx}
+                          className="inline-flex items-center gap-1 bg-neutral-100 text-neutral-800 text-xs px-2.5 py-1 rounded-full font-semibold border border-neutral-200"
+                        >
+                          <span>{tag}</span>
+                          <button
+                            type="button"
+                            onClick={() => {
+                              const nextTags = (activeType.storeTags || []).filter((_, i) => i !== tagIdx);
+                              updateActiveType({ ...activeType, storeTags: nextTags });
+                            }}
+                            className="text-neutral-400 hover:text-red-600 ml-1 cursor-pointer font-bold text-sm leading-none"
+                            title="Remover tag"
+                          >
+                            ×
+                          </button>
+                        </span>
+                      ))}
+
+                      <input
+                        type="text"
+                        value={tagInput}
+                        onChange={(e) => setTagInput(e.target.value)}
+                        onKeyDown={(e) => {
+                          if (e.key === 'Enter' || e.key === ',') {
+                            e.preventDefault();
+                            const raw = tagInput.trim().replace(/^,|,$/g, '');
+                            if (raw) {
+                              const existing = activeType.storeTags || [];
+                              if (!existing.includes(raw)) {
+                                updateActiveType({
+                                  ...activeType,
+                                  storeTags: [...existing, raw],
+                                });
+                              }
+                              setTagInput('');
+                            }
+                          }
+                        }}
+                        onBlur={() => {
+                          const raw = tagInput.trim().replace(/^,|,$/g, '');
+                          if (raw) {
+                            const existing = activeType.storeTags || [];
+                            if (!existing.includes(raw)) {
+                              updateActiveType({
+                                ...activeType,
+                                storeTags: [...existing, raw],
+                              });
+                            }
+                            setTagInput('');
+                          }
+                        }}
+                        placeholder={(activeType.storeTags || []).length === 0 ? "tenis, bota, sandalia, scarpin" : "Adicionar tag..."}
+                        className="flex-1 min-w-[160px] text-xs bg-transparent focus:outline-none py-1 text-neutral-900"
+                      />
+                    </div>
+                    <p className="text-[10px] text-neutral-400">
+                      Pressione <strong>Enter</strong> ou <strong>vírgula</strong> para adicionar cada tag. Exemplo: <i>tenis</i>, <i>bota</i>, <i>sandalia</i>, <i>scarpin</i>.
+                    </p>
+                  </div>
 
                   {/* Category and Fit Selectors */}
                   <div className="grid grid-cols-2 gap-3 p-3 bg-neutral-50 border border-neutral-200 rounded-lg">
@@ -567,6 +607,133 @@ export const TiposEMedidas: React.FC = () => {
                         <option value="fitted">Ajustado / Slim Fit (Modelagem justa)</option>
                         <option value="oversized">Oversized / Amplo (Modelagem solta)</option>
                       </select>
+                    </div>
+                  </div>
+
+                  {/* Orientação e Guia de Medidas do Tipo */}
+                  <div className="border border-neutral-200 rounded-lg p-4 bg-neutral-50/50 space-y-4">
+                    <div>
+                      <h4 className="text-xs font-bold text-neutral-800 uppercase tracking-wider">
+                        Orientação e Guia de Medidas
+                      </h4>
+                      <p className="text-[11px] text-neutral-500 mt-0.5">
+                        Configure a imagem de instrução, as dicas explicativas e a observação adicional para {activeType.name}.
+                      </p>
+                    </div>
+
+                    {/* Custom Image Upload */}
+                    <div className="space-y-2">
+                      <MediaUploader
+                        category="measurement-guides"
+                        label={`Imagem de Orientação para ${activeType.name}`}
+                        description="Imagem ilustrativa exibida quando a cliente clica em 'Ver como medir' neste tipo."
+                        value={activeType.measurementImageUrl}
+                        onChange={(url) => updateActiveType({ ...activeType, measurementImageUrl: url })}
+                      />
+                      {activeType.measurementImageUrl && (
+                        <div>
+                          <label className="block text-[11px] font-semibold text-neutral-600 mb-1">
+                            Legenda / Título da Imagem
+                          </label>
+                          <input
+                            type="text"
+                            value={activeType.measurementImageCaption || ''}
+                            placeholder="Ex: Referência para medição de anel / colar / jaqueta"
+                            onChange={(e) => updateActiveType({ ...activeType, measurementImageCaption: e.target.value })}
+                            className="w-full bg-white border border-neutral-200 rounded-md px-3 py-1.5 text-xs text-neutral-900 focus:outline-none focus:border-neutral-900"
+                          />
+                        </div>
+                      )}
+                    </div>
+
+                    {/* Step-by-step Tips */}
+                    <div className="space-y-2 pt-2 border-t border-neutral-200">
+                      <div className="flex items-center justify-between">
+                        <label className="text-[11px] font-bold text-neutral-700 uppercase tracking-wider">
+                          Dicas Explicativas Passo a Passo
+                        </label>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            const current = activeType.measurementGuideTips || [];
+                            updateActiveType({
+                              ...activeType,
+                              measurementGuideTips: [
+                                ...current,
+                                { id: 'tip-' + Date.now(), title: `Passo ${current.length + 1}`, text: '' },
+                              ],
+                            });
+                          }}
+                          className="inline-flex items-center gap-1 text-[11px] font-bold text-neutral-900 hover:underline cursor-pointer"
+                        >
+                          <Plus className="w-3.5 h-3.5" />
+                          <span>Adicionar Dica</span>
+                        </button>
+                      </div>
+
+                      {(!activeType.measurementGuideTips || activeType.measurementGuideTips.length === 0) ? (
+                        <p className="text-[11px] text-neutral-400 italic">
+                          Nenhuma dica customizada cadastrada. (O sistema usará os textos globais como fallback)
+                        </p>
+                      ) : (
+                        <div className="space-y-2">
+                          {activeType.measurementGuideTips.map((tip, tIdx) => (
+                            <div key={tip.id || tIdx} className="bg-white border border-neutral-200 rounded-md p-2.5 space-y-2">
+                              <div className="flex items-center justify-between gap-2">
+                                <input
+                                  type="text"
+                                  value={tip.title}
+                                  placeholder="Título da Dica (ex: Como medir com barbante)"
+                                  onChange={(e) => {
+                                    const tipsCopy = [...(activeType.measurementGuideTips || [])];
+                                    tipsCopy[tIdx] = { ...tipsCopy[tIdx], title: e.target.value };
+                                    updateActiveType({ ...activeType, measurementGuideTips: tipsCopy });
+                                  }}
+                                  className="flex-1 bg-neutral-50 border border-neutral-200 rounded px-2 py-1 text-xs font-bold text-neutral-900 focus:outline-none focus:border-neutral-900"
+                                />
+                                <button
+                                  type="button"
+                                  onClick={() => {
+                                    const filtered = (activeType.measurementGuideTips || []).filter((_, i) => i !== tIdx);
+                                    updateActiveType({ ...activeType, measurementGuideTips: filtered });
+                                  }}
+                                  className="text-neutral-400 hover:text-red-600 p-1 rounded"
+                                >
+                                  <Trash2 className="w-3.5 h-3.5" />
+                                </button>
+                              </div>
+                              <textarea
+                                value={tip.text}
+                                placeholder="Texto detalhado da instrução..."
+                                rows={2}
+                                onChange={(e) => {
+                                  const tipsCopy = [...(activeType.measurementGuideTips || [])];
+                                  tipsCopy[tIdx] = { ...tipsCopy[tIdx], text: e.target.value };
+                                  updateActiveType({ ...activeType, measurementGuideTips: tipsCopy });
+                                }}
+                                className="w-full bg-neutral-50 border border-neutral-200 rounded p-2 text-xs text-neutral-800 focus:outline-none focus:border-neutral-900"
+                              />
+                            </div>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+
+                    {/* Observação Geral */}
+                    <div className="pt-2 border-t border-neutral-200 space-y-1">
+                      <label className="block text-[11px] font-bold text-neutral-700 uppercase tracking-wider">
+                        Observação de Orientação Geral
+                      </label>
+                      <textarea
+                        value={activeType.measurementGuideObservation || ''}
+                        placeholder="Ex: Você também pode usar um barbante, marcar o ponto de encontro e depois medir o comprimento com uma régua."
+                        rows={2}
+                        onChange={(e) => updateActiveType({ ...activeType, measurementGuideObservation: e.target.value })}
+                        className="w-full bg-white border border-neutral-200 rounded-md p-2 text-xs text-neutral-900 focus:outline-none focus:border-neutral-900"
+                      />
+                      <p className="text-[10px] text-neutral-500">
+                        Exibida em destaque centralizado na tela 'Ver como medir' com o selo <strong>Dica</strong>.
+                      </p>
                     </div>
                   </div>
 

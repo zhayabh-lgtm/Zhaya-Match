@@ -136,7 +136,20 @@ export default async function handler(req: any, res: any) {
       return res.status(500).json({ error: 'ANALYTICS_QUERY_FAILED' });
     }
 
-    const summary = computeAnalyticsSummary(records || [], periodParam as PeriodType, startDate, endDate);
+    const { data: feedbackRecords } = await supabase
+      .from('widget_feedback_responses')
+      .select('*')
+      .gte('submitted_at', startDate.toISOString())
+      .lte('submitted_at', endDate.toISOString())
+      .order('submitted_at', { ascending: false });
+
+    const summary = computeAnalyticsSummary(
+      records || [],
+      periodParam as PeriodType,
+      startDate,
+      endDate,
+      feedbackRecords || []
+    );
     return res.status(200).json(summary);
   } catch (err: any) {
     console.error('[Admin Analytics Exception]:', err);

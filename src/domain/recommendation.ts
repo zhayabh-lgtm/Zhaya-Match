@@ -17,6 +17,8 @@ export const MEASUREMENT_LABELS: Record<MeasurementKey, string> = {
   torsoLength: 'tronco',
   footLength: 'comprimento do pé',
   footWidth: 'largura do pé',
+  fingerCircumference: 'dedo',
+  sleeveLength: 'comprimento da manga',
 };
 
 /**
@@ -112,6 +114,7 @@ export function getCriticalMeasurements(category: ProductCategory, keys: Measure
       if (keys.includes('bust')) critical.push('bust');
       if (keys.includes('shoulders')) critical.push('shoulders');
       if (keys.includes('waist')) critical.push('waist');
+      if (keys.includes('sleeveLength')) critical.push('sleeveLength');
       if (keys.includes('torsoLength')) critical.push('torsoLength');
       return critical.length > 0 ? critical : keys;
     }

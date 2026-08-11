@@ -65,6 +65,12 @@ export function generateWidgetScript(baseUrl: string): string {
   var MAX_INJECT_ATTEMPTS = 15;
   var hasTrackedLauncher = false;
   var hasTrackedMeasurementsInSession = false;
+  var hasTrackedClosedInSession = false;
+  var hasTrackedFlowStartedInSession = false;
+  var hasTrackedProcessingStartedInSession = false;
+  var hasTrackedResultViewedInSession = false;
+  var hasTrackedFeedbackStartedInSession = false;
+  var loadingTimerId = null;
   var isPreviewSessionActive = false;
   var lastAppliedRevision = 0;
   var lastAppliedSessionId = '';
@@ -285,6 +291,77 @@ fetch(url, {
     return false;
   }
 
+  function normalizeTag(tag) {
+    if (!tag && tag !== 0) return '';
+    return String(tag)
+      .trim()
+      .toLowerCase()
+      .normalize('NFD')
+      .replace(/[\u0300-\u036f]/g, '');
+  }
+
+  function getStoreProductTags() {
+    if (typeof window !== 'undefined' && Array.isArray(window.ZHAYA_PRODUCT_TAGS)) {
+      return window.ZHAYA_PRODUCT_TAGS;
+    }
+    if (typeof window !== 'undefined' && Array.isArray(window.dataLayer)) {
+      for (var i = window.dataLayer.length - 1; i >= 0; i--) {
+        var item = window.dataLayer[i];
+        if (item && Array.isArray(item.zhaya_product_tags)) {
+          return item.zhaya_product_tags;
+        }
+        if (item && item.ecommerce && Array.isArray(item.ecommerce.zhaya_product_tags)) {
+          return item.ecommerce.zhaya_product_tags;
+        }
+      }
+    }
+    return null;
+  }
+
+  function resolveProductTypeByTags() {
+    var storeTags = getStoreProductTags();
+    if (storeTags === null) {
+      return { selectedType: null, hasTagConstraint: false, matchingCount: 0 };
+    }
+
+    var normStoreTags = storeTags.map(normalizeTag).filter(Boolean);
+    var activeTypes = (configData && Array.isArray(configData.productTypes))
+      ? configData.productTypes.filter(function(pt) { return pt.active !== false; })
+      : [];
+
+    var matches = [];
+    for (var i = 0; i < activeTypes.length; i++) {
+      var type = activeTypes[i];
+      var typeTags = (type.storeTags || []).map(normalizeTag).filter(Boolean);
+      var hasMatch = false;
+      for (var j = 0; j < normStoreTags.length; j++) {
+        if (typeTags.indexOf(normStoreTags[j]) !== -1) {
+          hasMatch = true;
+          break;
+        }
+      }
+      if (hasMatch) {
+        matches.push(type);
+      }
+    }
+
+    if (matches.length === 1) {
+      return { selectedType: matches[0], hasTagConstraint: true, matchingCount: 1 };
+    } else if (matches.length > 1) {
+      matches.sort(function(a, b) {
+        var ordA = typeof a.order === 'number' ? a.order : 1;
+        var ordB = typeof b.order === 'number' ? b.order : 1;
+        return ordA - ordB;
+      });
+      if (window.console && console.warn) {
+        console.warn('[Zhaya Match] Múltiplos tipos correspondem às tags do produto:', matches.map(function(t) { return t.name; }).join(', '), '. Selecionado o de menor ordem:', matches[0].name);
+      }
+      return { selectedType: matches[0], hasTagConstraint: true, matchingCount: matches.length };
+    } else {
+      return { selectedType: null, hasTagConstraint: true, matchingCount: 0 };
+    }
+  }
+
 function initZhayaMatch() {
   sendPreviewReady();
 
@@ -397,6 +474,12 @@ function fetchConfigFromNetwork(isBackground) {
   }
 
   function startInjection() {
+    var resolved = resolveProductTypeByTags();
+    if (resolved.hasTagConstraint && resolved.matchingCount === 0 && !isPreviewSessionActive) {
+      removeTriggerButton();
+      return;
+    }
+
     if (tryInjectButton()) return;
 
     if (window.MutationObserver && !observer) {
@@ -553,10 +636,26 @@ function fetchConfigFromNetwork(isBackground) {
   }
 
   function openModal() {
-    currentStep = 0;
-    selectedType = null;
+    var resolved = resolveProductTypeByTags();
+    if (resolved.selectedType) {
+      selectedType = resolved.selectedType;
+      currentStep = 2; // Auto-selected type by tags, jump directly to measurements
+    } else {
+      currentStep = 0;
+      selectedType = null;
+    }
+
     userMeasurements = {};
     hasTrackedMeasurementsInSession = false;
+    hasTrackedClosedInSession = false;
+    hasTrackedFlowStartedInSession = false;
+    hasTrackedProcessingStartedInSession = false;
+    hasTrackedResultViewedInSession = false;
+    hasTrackedFeedbackStartedInSession = false;
+    if (loadingTimerId) {
+      clearTimeout(loadingTimerId);
+      loadingTimerId = null;
+    }
 
     sendWidgetAnalyticsEvent('widget_opened');
 
@@ -603,7 +702,14 @@ function fetchConfigFromNetwork(isBackground) {
   }
 
   function closeModal() {
-    sendWidgetAnalyticsEvent('widget_closed');
+    if (loadingTimerId) {
+      clearTimeout(loadingTimerId);
+      loadingTimerId = null;
+    }
+    if (!hasTrackedClosedInSession) {
+      hasTrackedClosedInSession = true;
+      sendWidgetAnalyticsEvent('widget_closed');
+    }
     try {
       document.body.style.overflow = '';
       document.documentElement.style.overflow = '';
@@ -883,7 +989,10 @@ if (hasFootMeasurements) {
 var activeImgUrl = '';
 var activeCaption = '';
 
-if (measurementGroup === 'footwear') {
+if (selectedType && selectedType.measurementImageUrl && selectedType.measurementImageUrl.trim()) {
+  activeImgUrl = selectedType.measurementImageUrl.trim();
+  activeCaption = selectedType.measurementImageCaption || ('Referência de medidas para ' + (selectedType.name || 'este produto'));
+} else if (measurementGroup === 'footwear') {
   activeImgUrl =
     app.footwearMeasurementImageUrl || '';
 
@@ -1052,6 +1161,30 @@ var imgBlockHtml =
       }
     }
 
+    // STEP 2.5: Loading do resultado
+    else if (currentStep === 2.5) {
+      var loadingLogoSrc = app.logoVariant === 'white'
+        ? (app.logoWhiteUrl || app.logoBlackUrl)
+        : app.logoVariant === 'black'
+        ? (app.logoBlackUrl || app.logoWhiteUrl)
+        : (app.logoWhiteUrl || app.logoBlackUrl);
+
+      var loadingLogoHtml = '';
+      if (loadingLogoSrc) {
+        loadingLogoHtml = '<img src="' + escapeHtml(loadingLogoSrc) + '" alt="Zhaya" style="height: ' + Math.max(app.logoSize || 28, 36) + 'px; max-width: 200px; object-fit: contain; animation: zhayaPulse 1.8s ease-in-out infinite;" decoding="async" />';
+      } else {
+        loadingLogoHtml = '<span style="font-size: 22px; font-weight: 700; letter-spacing: 0.15em; text-transform: uppercase; color: ' + escapeHtml(textColor) + '; animation: zhayaPulse 1.8s ease-in-out infinite;">ZHAYA</span>';
+      }
+
+      innerHtml += '<div style="text-align: center; padding: 48px 16px 36px; max-width: 360px; margin: 0 auto; display: flex; flex-direction: column; align-items: center; justify-content: center; min-height: 240px; box-sizing: border-box;">' +
+        '<div style="min-height: 56px; display: flex; align-items: center; justify-content: center; margin-bottom: 20px;">' +
+          loadingLogoHtml +
+        '</div>' +
+        '<h3 style="font-size: 15px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.1em; color: ' + escapeHtml(textColor) + '; margin: 0 0 8px 0;">Analisando suas medidas</h3>' +
+        '<p style="font-size: 12px; color: ' + escapeHtml(secTextColor) + '; margin: 0; letter-spacing: 0.02em;">Preparando sua recomendação</p>' +
+      '</div>';
+    }
+
     // STEP 3: Resultado
     else if (currentStep === 3) {
       innerHtml += '<div style="text-align: center; padding: 20px 8px 12px; max-width: 440px; margin: 0 auto;">';
@@ -1061,11 +1194,11 @@ var imgBlockHtml =
 
         if (res.status === 'recommended' && res.size) {
           innerHtml += '<div style="font-size: 11px; text-transform: uppercase; letter-spacing: 0.18em; color: ' + escapeHtml(secTextColor) + '; margin-bottom: 12px; font-weight: 500;">SEU TAMANHO SUGERIDO</div>';
-          innerHtml += '<div style="font-size: 64px; font-weight: 700; color: ' + escapeHtml(textColor) + '; line-height: 1; margin-bottom: 16px; letter-spacing: -0.02em;">' + escapeHtml(res.size) + '</div>';
+          innerHtml += '<div style="font-size: clamp(32px, 8vw, 56px); font-weight: 700; color: ' + escapeHtml(textColor) + '; line-height: 1.1; margin-bottom: 16px; letter-spacing: -0.02em; word-break: break-word;">' + escapeHtml(res.size) + '</div>';
           innerHtml += '<div style="font-size: 13px; color: ' + escapeHtml(secTextColor) + '; margin-bottom: 28px; line-height: 1.5;">' + escapeHtml(res.message || 'Este tamanho apresenta a melhor correspondência com as medidas informadas.') + '</div>';
         } else if (res.status === 'between_sizes' && res.size && res.alternateSize) {
           innerHtml += '<div style="font-size: 11px; text-transform: uppercase; letter-spacing: 0.18em; color: ' + escapeHtml(secTextColor) + '; margin-bottom: 12px; font-weight: 500;">VOCÊ ESTÁ ENTRE DOIS TAMANHOS</div>';
-          innerHtml += '<div style="font-size: 48px; font-weight: 700; color: ' + escapeHtml(textColor) + '; line-height: 1; margin-bottom: 16px; letter-spacing: -0.02em;">' + escapeHtml(res.size) + ' e ' + escapeHtml(res.alternateSize) + '</div>';
+          innerHtml += '<div style="font-size: clamp(24px, 6vw, 40px); font-weight: 700; color: ' + escapeHtml(textColor) + '; line-height: 1.1; margin-bottom: 16px; letter-spacing: -0.02em; word-break: break-word;">' + escapeHtml(res.size) + ' e ' + escapeHtml(res.alternateSize) + '</div>';
           innerHtml += '<div style="font-size: 13px; color: ' + escapeHtml(secTextColor) + '; margin-bottom: 28px; line-height: 1.6;">' + escapeHtml(res.message || (escapeHtml(res.size) + ' pode oferecer um caimento mais ajustado.<br/>' + escapeHtml(res.alternateSize) + ' pode oferecer mais conforto.')) + '</div>';
         } else {
           innerHtml += '<div style="font-size: 11px; text-transform: uppercase; letter-spacing: 0.18em; color: ' + escapeHtml(secTextColor) + '; margin-bottom: 12px; font-weight: 500;">NÃO ENCONTRADO</div>';
@@ -1076,8 +1209,76 @@ var imgBlockHtml =
 
       innerHtml += '<div style="display: flex; gap: 10px; flex-wrap: wrap; border-top: 1px solid rgba(255,255,255,0.08); padding-top: 18px;">';
       innerHtml += '<button id="zhaya-recalc-btn" style="flex: 1 1 120px; min-height: 48px; background: transparent; color: #ffffff; border: 1px solid rgba(255,255,255,0.2); border-radius: 8px; font-size: 12px; font-weight: 600; cursor: pointer; transition: background 0.2s; font-family: inherit;">' + escapeHtml(txt.recalculateButtonText || 'Calcular novamente') + '</button>';
-      innerHtml += '<button id="zhaya-close-btn" style="flex: 1 1 120px; min-height: 48px; background: ' + escapeHtml(btnColor) + '; color: ' + escapeHtml(btnTextColor) + '; border: none; border-radius: 8px; font-size: 12px; font-weight: 600; cursor: pointer; transition: opacity 0.2s; font-family: inherit;">' + escapeHtml(txt.closeButtonText || 'Fechar') + '</button>';
+      innerHtml += '<button id="zhaya-close-btn" style="flex: 1 1 120px; min-height: 48px; background: ' + escapeHtml(btnColor) + '; color: ' + escapeHtml(btnTextColor) + '; border: none; border-radius: 8px; font-size: 12px; font-weight: 600; cursor: pointer; transition: opacity 0.2s; font-family: inherit;">' + escapeHtml(txt.closeButtonText || 'Concluir') + '</button>';
       innerHtml += '</div>';
+
+      innerHtml += '</div>';
+    }
+
+    // STEP 4: Pesquisa de Feedback Pós-Recomendação
+    else if (currentStep === 4) {
+      var feedbackFormState = window.__zhayaFeedbackState || { adequacy: null, ease: null, comment: '' };
+      var isSuccess = Boolean(window.__zhayaFeedbackSubmitted);
+
+      innerHtml += '<div style="text-align: left; padding: 12px 8px; max-width: 440px; margin: 0 auto; box-sizing: border-box;">';
+      innerHtml += '<div style="text-align: center; border-bottom: 1px solid rgba(255,255,255,0.1); padding-bottom: 12px; margin-bottom: 16px;">' +
+        '<h3 style="font-size: 13px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.08em; color: ' + escapeHtml(textColor) + '; margin: 0 0 4px 0;">Sua opinião é importante</h3>' +
+        '<p style="font-size: 11px; color: ' + escapeHtml(secTextColor) + '; margin: 0;">Responda 2 perguntas rápidas para melhorar nossas recomendações</p>' +
+      '</div>';
+
+      if (isSuccess) {
+        innerHtml += '<div style="padding: 32px 16px; text-align: center;">' +
+          '<div style="display: inline-flex; align-items: center; justify-content: center; width: 44px; height: 44px; border-radius: 50%; background: rgba(16, 185, 129, 0.15); border: 1px solid rgba(16, 185, 129, 0.3); color: #10b981; margin-bottom: 12px;">✓</div>' +
+          '<p style="font-size: 13px; font-weight: 600; color: ' + escapeHtml(textColor) + '; margin: 0;">Obrigado pelo seu feedback!</p>' +
+        '</div>';
+      } else {
+        // Q1: Adequação
+        innerHtml += '<div style="margin-bottom: 16px;">' +
+          '<label style="display: block; font-size: 11px; font-weight: 600; color: ' + escapeHtml(textColor) + '; margin-bottom: 8px;">1. A recomendação pareceu adequada para você? <span style="color: #ef4444;">*</span></label>' +
+          '<div style="display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px;">';
+
+        var opts = ['Sim', 'Não', 'Ainda não sei'];
+        for (var oIdx = 0; oIdx < opts.length; oIdx++) {
+          var optVal = opts[oIdx];
+          var isSelOpt = feedbackFormState.adequacy === optVal;
+          var optBtnStyle = isSelOpt
+            ? 'background: ' + escapeHtml(btnColor) + '; color: ' + escapeHtml(btnTextColor) + '; border: 1px solid ' + escapeHtml(btnColor) + ';'
+            : 'background: rgba(255,255,255,0.04); color: ' + escapeHtml(textColor) + '; border: 1px solid rgba(255,255,255,0.12);';
+          innerHtml += '<button type="button" class="zhaya-fb-adequacy-btn" data-val="' + escapeHtml(optVal) + '" style="' + optBtnStyle + ' padding: 8px 4px; border-radius: 6px; font-size: 11px; font-weight: 600; cursor: pointer; transition: all 0.2s; font-family: inherit;">' + escapeHtml(optVal) + '</button>';
+        }
+        innerHtml += '</div></div>';
+
+        // Q2: Facilidade
+        innerHtml += '<div style="margin-bottom: 16px;">' +
+          '<label style="display: block; font-size: 11px; font-weight: 600; color: ' + escapeHtml(textColor) + '; margin-bottom: 8px;">2. Foi fácil informar suas medidas? (1 a 5) <span style="color: #ef4444;">*</span></label>' +
+          '<div style="display: flex; gap: 6px; justify-content: space-between;">';
+        for (var rVal = 1; rVal <= 5; rVal++) {
+          var isSelRate = feedbackFormState.ease === rVal;
+          var rateBtnStyle = isSelRate
+            ? 'background: ' + escapeHtml(btnColor) + '; color: ' + escapeHtml(btnTextColor) + '; border: 1px solid ' + escapeHtml(btnColor) + ';'
+            : 'background: rgba(255,255,255,0.04); color: ' + escapeHtml(textColor) + '; border: 1px solid rgba(255,255,255,0.12);';
+          innerHtml += '<button type="button" class="zhaya-fb-ease-btn" data-val="' + rVal + '" style="' + rateBtnStyle + ' flex: 1; padding: 8px 0; border-radius: 6px; font-size: 12px; font-weight: 700; cursor: pointer; transition: all 0.2s; font-family: inherit; text-align: center;">' + rVal + '</button>';
+        }
+        innerHtml += '</div>' +
+        '<div style="display: flex; justify-content: space-between; font-size: 9px; color: ' + escapeHtml(secTextColor) + '; margin-top: 4px;"><span>Muito difícil</span><span>Muito fácil</span></div>' +
+        '</div>';
+
+        // Q3: Comentário
+        innerHtml += '<div style="margin-bottom: 20px;">' +
+          '<label style="display: block; font-size: 11px; font-weight: 500; color: ' + escapeHtml(secTextColor) + '; margin-bottom: 6px;">3. Quer contar algo para a gente? <span style="opacity: 0.6;">(Opcional)</span></label>' +
+          '<textarea id="zhaya-fb-comment" rows="2" placeholder="Sua sugestão ou comentário..." style="width: 100%; background: rgba(255,255,255,0.04); color: ' + escapeHtml(textColor) + '; border: 1px solid rgba(255,255,255,0.12); border-radius: 6px; padding: 8px 10px; font-size: 11px; font-family: inherit; box-sizing: border-box; resize: none; outline: none;">' + escapeHtml(feedbackFormState.comment || '') + '</textarea>' +
+        '</div>';
+
+        // Actions
+        var canSubmit = Boolean(feedbackFormState.adequacy && feedbackFormState.ease);
+        var submitOpacity = canSubmit ? '1' : '0.4';
+        var submitCursor = canSubmit ? 'pointer' : 'not-allowed';
+
+        innerHtml += '<div style="display: flex; flex-direction: column; gap: 8px;">' +
+          '<button id="zhaya-fb-submit-btn" style="width: 100%; min-height: 44px; background: ' + escapeHtml(btnColor) + '; color: ' + escapeHtml(btnTextColor) + '; border: none; border-radius: 8px; font-size: 12px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.05em; opacity: ' + submitOpacity + '; cursor: ' + submitCursor + '; transition: all 0.2s; font-family: inherit;">Enviar</button>' +
+          '<button id="zhaya-fb-skip-btn" style="width: 100%; padding: 8px 0; background: transparent; color: ' + escapeHtml(secTextColor) + '; border: none; font-size: 11px; cursor: pointer; font-family: inherit;">Pular</button>' +
+        '</div>';
+      }
 
       innerHtml += '</div>';
     }
@@ -1293,6 +1494,10 @@ var imgBlockHtml =
     var btnConfirm = document.getElementById('zhaya-wheel-btn-confirm');
     if (btnConfirm) {
       btnConfirm.onclick = function() {
+        if (!hasTrackedMeasurementsInSession) {
+          hasTrackedMeasurementsInSession = true;
+          sendWidgetAnalyticsEvent('measurements_started');
+        }
         var confirmedOpt = options[selectedIdx];
         if (confirmedOpt) {
           var formattedVal = confirmedOpt.display;
@@ -1328,7 +1533,127 @@ var imgBlockHtml =
     if (closeX) closeX.onclick = closeModal;
 
     var closeBtn = document.getElementById('zhaya-close-btn');
-    if (closeBtn) closeBtn.onclick = closeModal;
+    if (closeBtn) {
+      closeBtn.onclick = function() {
+        var enableFeedback = configData && configData.enableFeedbackSurvey !== false;
+        if (enableFeedback) {
+          currentStep = 4;
+          renderModalContent();
+        } else {
+          closeModal();
+        }
+      };
+    }
+
+    if (currentStep === 4) {
+      if (!hasTrackedFeedbackStartedInSession) {
+        hasTrackedFeedbackStartedInSession = true;
+        sendWidgetAnalyticsEvent('feedback_started', {
+          productTypeId: selectedType ? selectedType.id : null,
+          productTypeName: selectedType ? selectedType.name : null,
+          productCategory: selectedType ? selectedType.category : null,
+          recommendationStatus: (userMeasurements.__result || {}).status || null
+        });
+      }
+
+      if (!window.__zhayaFeedbackState) {
+        window.__zhayaFeedbackState = { adequacy: null, ease: null, comment: '' };
+      }
+
+      var adBtns = document.querySelectorAll('.zhaya-fb-adequacy-btn');
+      adBtns.forEach(function(b) {
+        b.onclick = function() {
+          window.__zhayaFeedbackState.adequacy = b.getAttribute('data-val');
+          renderModalContent();
+        };
+      });
+
+      var easeBtns = document.querySelectorAll('.zhaya-fb-ease-btn');
+      easeBtns.forEach(function(b) {
+        b.onclick = function() {
+          window.__zhayaFeedbackState.ease = parseInt(b.getAttribute('data-val'), 10);
+          renderModalContent();
+        };
+      });
+
+      var commentTa = document.getElementById('zhaya-fb-comment');
+      if (commentTa) {
+        commentTa.oninput = function() {
+          window.__zhayaFeedbackState.comment = commentTa.value;
+        };
+      }
+
+      var skipBtn = document.getElementById('zhaya-fb-skip-btn');
+      if (skipBtn) {
+        skipBtn.onclick = function() {
+          sendWidgetAnalyticsEvent('feedback_skipped', {
+            productTypeId: selectedType ? selectedType.id : null,
+            productTypeName: selectedType ? selectedType.name : null,
+            productCategory: selectedType ? selectedType.category : null,
+            recommendationStatus: (userMeasurements.__result || {}).status || null
+          });
+          window.__zhayaFeedbackState = null;
+          window.__zhayaFeedbackSubmitted = false;
+          closeModal();
+        };
+      }
+
+      var submitBtn = document.getElementById('zhaya-fb-submit-btn');
+      if (submitBtn) {
+        submitBtn.onclick = function() {
+          var st = window.__zhayaFeedbackState;
+          if (!st || !st.adequacy || !st.ease) return;
+
+          sendWidgetAnalyticsEvent('feedback_submitted', {
+            productTypeId: selectedType ? selectedType.id : null,
+            productTypeName: selectedType ? selectedType.name : null,
+            productCategory: selectedType ? selectedType.category : null,
+            recommendationStatus: (userMeasurements.__result || {}).status || null
+          });
+
+          submitBtn.disabled = true;
+          submitBtn.textContent = 'Enviando...';
+
+          var isPreview = window.location.search.indexOf('zhaya-match-preview=1') !== -1;
+          var res = userMeasurements.__result || {};
+
+          var payload = {
+            visitorId: getVisitorId(),
+            sessionId: getSessionId(),
+            productTypeId: selectedType ? selectedType.id : null,
+            recommendationStatus: res.status || null,
+            recommendedSize: res.size || null,
+            alternateSize: res.alternateSize || null,
+            adequacyResponse: st.adequacy,
+            easeRating: st.ease,
+            comment: st.comment || null,
+            configVersion: configData && configData.version ? configData.version : 1
+          };
+
+          if (!isPreview && typeof fetch !== 'undefined') {
+            var apiUrl = (configData && configData.apiBaseUrl) ? configData.apiBaseUrl : '';
+            fetch(apiUrl + '/api/public/feedback', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify(payload)
+            }).catch(function(err) {
+              console.warn('[Zhaya Match] Falha ao enviar feedback:', err);
+            });
+          } else {
+            console.log('[Zhaya Match Preview] Feedback simulado:', payload);
+          }
+
+          window.__zhayaFeedbackSubmitted = true;
+          renderModalContent();
+
+          setTimeout(function() {
+            window.__zhayaFeedbackState = null;
+            window.__zhayaFeedbackSubmitted = false;
+            closeModal();
+          }, 1000);
+        };
+      }
+    }
 
     var startBtn = document.getElementById('zhaya-start-btn');
     if (startBtn) {
@@ -1508,6 +1833,15 @@ var imgBlockHtml =
           if (isPreview) console.log('[Zhaya Match] medidas normalizadas');
           if (isPreview) console.log('[Zhaya Match] cálculo iniciado');
 
+          if (!hasTrackedProcessingStartedInSession) {
+            hasTrackedProcessingStartedInSession = true;
+            sendWidgetAnalyticsEvent('recommendation_processing_started', {
+              productTypeId: selectedType ? selectedType.id : null,
+              productTypeName: selectedType ? selectedType.name : null,
+              productCategory: selectedType ? selectedType.category : null
+            });
+          }
+
           var result = calculateRecommendationLocal(selectedType, userMeasurements);
           if (isPreview) console.log('[Zhaya Match] resultado: ' + result.status);
 
@@ -1515,17 +1849,42 @@ var imgBlockHtml =
 
           if (result.status === 'none' || result.status === 'not_found') {
             sendWidgetAnalyticsEvent('recommendation_not_found', {
+              productTypeId: selectedType ? selectedType.id : null,
+              productTypeName: selectedType ? selectedType.name : null,
+              productCategory: selectedType ? selectedType.category : null,
               recommendationStatus: 'not_found'
             });
           } else {
             sendWidgetAnalyticsEvent('recommendation_generated', {
+              productTypeId: selectedType ? selectedType.id : null,
+              productTypeName: selectedType ? selectedType.name : null,
+              productCategory: selectedType ? selectedType.category : null,
               recommendationStatus: result.status
             });
           }
 
-          currentStep = 3;
+          currentStep = 2.5;
           renderModalContent();
-          if (isPreview) console.log('[Zhaya Match] etapa final renderizada');
+
+          if (loadingTimerId) clearTimeout(loadingTimerId);
+
+          loadingTimerId = setTimeout(function() {
+            loadingTimerId = null;
+            currentStep = 3;
+            renderModalContent();
+
+            if (!hasTrackedResultViewedInSession) {
+              hasTrackedResultViewedInSession = true;
+              sendWidgetAnalyticsEvent('recommendation_result_viewed', {
+                productTypeId: selectedType ? selectedType.id : null,
+                productTypeName: selectedType ? selectedType.name : null,
+                productCategory: selectedType ? selectedType.category : null,
+                recommendationStatus: result.status === 'none' ? 'not_found' : result.status
+              });
+            }
+
+            if (isPreview) console.log('[Zhaya Match] etapa final renderizada');
+          }, 2000);
         } catch (err) {
           console.error('[Zhaya Match] Falha no cálculo', err);
         }
@@ -1554,33 +1913,52 @@ var imgBlockHtml =
         '</div>' +
         '<div style="display: flex; flex-direction: column; gap: 10px; flex: 1; overflow-y: auto;">';
 
-        for (var m = 0; m < keys.length; m++) {
-          var mk = keys[m];
-          var h = helps[mk] || {};
-
-          var obsHtml = '';
-          if (h.observations && Array.isArray(h.observations)) {
-            var validObs = h.observations.filter(function(obs) {
-              if (!obs || obs.active === false || !obs.text || !obs.text.trim()) return false;
-              if (obs.condition && obs.condition.type === 'always') return true;
-              if (obs.condition && obs.condition.type === 'measurement_active' && obs.condition.measurementKey) {
-                return keys.indexOf(obs.condition.measurementKey) !== -1;
-              }
-              return false;
-            }).sort(function(a, b) { return (a.order || 0) - (b.order || 0); });
-
-            for (var o = 0; o < validObs.length; o++) {
-              obsHtml += '<div style="font-size: 10px; color: #a3a3a3; margin-top: 6px; padding: 6px 8px; background: rgba(255,255,255,0.03); border: 1px solid rgba(255,255,255,0.06); border-radius: 4px; line-height: 1.3;">' +
-                '<strong style="color: #ffffff;">Obs:</strong> ' + escapeHtml(validObs[o].text) +
+        if (selectedType.measurementGuideTips && Array.isArray(selectedType.measurementGuideTips) && selectedType.measurementGuideTips.length > 0) {
+          for (var tipIdx = 0; tipIdx < selectedType.measurementGuideTips.length; tipIdx++) {
+            var tipItem = selectedType.measurementGuideTips[tipIdx];
+            if (tipItem && (tipItem.title || tipItem.text)) {
+              overlayContent += '<div style="background: rgba(255,255,255,0.04); border: 1px solid rgba(255,255,255,0.08); padding: 10px 12px; border-radius: 6px;">' +
+                (tipItem.title ? '<div style="font-size: 11px; font-weight: 700; color: #ffffff; text-transform: uppercase; margin-bottom: 4px;">' + escapeHtml(tipItem.title) + '</div>' : '') +
+                '<div style="font-size: 11px; color: #a3a3a3; line-height: 1.4;">' + escapeHtml(tipItem.text || '') + '</div>' +
               '</div>';
             }
           }
+        } else {
+          for (var m = 0; m < keys.length; m++) {
+            var mk = keys[m];
+            var h = helps[mk] || {};
 
-          overlayContent += '<div style="background: rgba(255,255,255,0.04); border: 1px solid rgba(255,255,255,0.08); padding: 10px 12px; border-radius: 6px;">' +
-            '<div style="font-size: 11px; font-weight: 700; color: #ffffff; text-transform: uppercase; margin-bottom: 2px;">' + escapeHtml(h.label || mk) + '</div>' +
-            '<div style="font-size: 11px; font-weight: 600; color: #d4d4d4; margin-bottom: 4px;">' + escapeHtml(h.title || ('Como medir ' + (h.label || mk))) + '</div>' +
-            '<div style="font-size: 11px; color: #a3a3a3; line-height: 1.4;">' + escapeHtml(h.description || 'Posicione a fita métrica confortavelmente ao redor da área sem apertar em demasia.') + '</div>' +
-            obsHtml +
+            var obsHtml = '';
+            if (h.observations && Array.isArray(h.observations)) {
+              var validObs = h.observations.filter(function(obs) {
+                if (!obs || obs.active === false || !obs.text || !obs.text.trim()) return false;
+                if (obs.condition && obs.condition.type === 'always') return true;
+                if (obs.condition && obs.condition.type === 'measurement_active' && obs.condition.measurementKey) {
+                  return keys.indexOf(obs.condition.measurementKey) !== -1;
+                }
+                return false;
+              }).sort(function(a, b) { return (a.order || 0) - (b.order || 0); });
+
+              for (var o = 0; o < validObs.length; o++) {
+                obsHtml += '<div style="font-size: 10px; color: #a3a3a3; margin-top: 6px; padding: 6px 8px; background: rgba(255,255,255,0.03); border: 1px solid rgba(255,255,255,0.06); border-radius: 4px; line-height: 1.3;">' +
+                  '<strong style="color: #ffffff;">Obs:</strong> ' + escapeHtml(validObs[o].text) +
+                '</div>';
+              }
+            }
+
+            overlayContent += '<div style="background: rgba(255,255,255,0.04); border: 1px solid rgba(255,255,255,0.08); padding: 10px 12px; border-radius: 6px;">' +
+              '<div style="font-size: 11px; font-weight: 700; color: #ffffff; text-transform: uppercase; margin-bottom: 2px;">' + escapeHtml(h.label || mk) + '</div>' +
+              '<div style="font-size: 11px; font-weight: 600; color: #d4d4d4; margin-bottom: 4px;">' + escapeHtml(h.title || ('Como medir ' + (h.label || mk))) + '</div>' +
+              '<div style="font-size: 11px; color: #a3a3a3; line-height: 1.4;">' + escapeHtml(h.description || 'Posicione a fita métrica confortavelmente ao redor da área sem apertar em demasia.') + '</div>' +
+              obsHtml +
+            '</div>';
+          }
+        }
+
+        if (selectedType.measurementGuideObservation) {
+          overlayContent += '<div style="background: rgba(255,255,255,0.05); border: 1px solid rgba(255,255,255,0.12); padding: 10px 12px; border-radius: 6px; text-align: center; margin-top: 4px;">' +
+            '<div style="font-size: 10px; font-weight: 800; color: #a3a3a3; text-transform: uppercase; tracking-wider; margin-bottom: 2px;">Dica</div>' +
+            '<div style="font-size: 11px; font-weight: 600; color: #ffffff; line-height: 1.4;">' + escapeHtml(selectedType.measurementGuideObservation) + '</div>' +
           '</div>';
         }
 

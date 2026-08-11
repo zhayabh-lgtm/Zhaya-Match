@@ -11,9 +11,14 @@ export type AnalyticsEventName =
   | 'flow_started'
   | 'product_type_selected'
   | 'measurements_started'
+  | 'recommendation_processing_started'
   | 'recommendation_generated'
+  | 'recommendation_result_viewed'
   | 'recommendation_not_found'
   | 'measurement_help_opened'
+  | 'feedback_started'
+  | 'feedback_submitted'
+  | 'feedback_skipped'
   | 'widget_closed';
 
 export interface AnalyticsEventPayload {

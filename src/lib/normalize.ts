@@ -48,9 +48,21 @@ export function normalizeProductType(raw: any): ProductType {
   const activeVal = raw?.active;
   const isExplicitFalse = activeVal === false || activeVal === 0 || activeVal === 'false' || activeVal === '0';
   
+  const rawTips = Array.isArray(raw?.measurementGuideTips || raw?.measurement_guide_tips)
+    ? (raw.measurementGuideTips || raw.measurement_guide_tips)
+    : [];
+
+  const tips = rawTips.map((tip: any, idx: number) => ({
+    id: String(tip?.id || `tip-${idx}-${Math.random().toString(36).substring(2, 7)}`),
+    title: String(tip?.title || ''),
+    text: String(tip?.text || ''),
+  }));
+
   return {
     id: String(raw?.id || ''),
     name: String(raw?.name || 'Tipo de Peça'),
+    category: raw?.category || undefined,
+    fitType: raw?.fitType || raw?.fit_type || undefined,
     active: !isExplicitFalse,
     order: typeof raw?.order === 'number' ? raw.order : (typeof raw?.sort_order === 'number' ? raw.sort_order : 1),
     imageUrl: raw?.imageUrl || raw?.image_url || undefined,
@@ -58,6 +70,11 @@ export function normalizeProductType(raw: any): ProductType {
     useIconInSelector: Boolean(raw?.useIconInSelector ?? raw?.use_icon_in_selector ?? false),
     measurementImageUrl: raw?.measurementImageUrl || raw?.measurement_image_url || undefined,
     measurementImageCaption: raw?.measurementImageCaption || raw?.measurement_image_caption || undefined,
+    measurementGuideTips: tips,
+    measurementGuideObservation: raw?.measurementGuideObservation || raw?.measurement_guide_observation || undefined,
+    storeTags: Array.isArray(raw?.storeTags || raw?.store_tags)
+      ? (raw.storeTags || raw.store_tags).map((t: any) => String(t).trim()).filter(Boolean)
+      : [],
     measurements: Array.isArray(raw?.measurements) ? raw.measurements : [],
     sizes: Array.isArray(raw?.sizes) ? raw.sizes.map(normalizeSizeRow) : [],
   };
@@ -174,14 +191,14 @@ export function normalizeTexts(raw?: Partial<TextSettings> | null): TextSettings
   return {
     buttonText: txt.buttonText || 'Encontrar meu tamanho',
     initialTitle: txt.initialTitle || 'Descubra seu tamanho ideal.',
-    welcomeMessage: txt.welcomeMessage || 'Informe suas medidas e encontre o caimento mais indicado para o seu corpo.',
+    welcomeMessage: txt.welcomeMessage || 'Informe suas medidas e encontre a recomendação ideal para você.',
     welcomeButtonText: txt.welcomeButtonText || 'Encontrar meu tamanho',
     typeChoiceTitle: txt.typeChoiceTitle || 'O que você está escolhendo?',
     measurementsTitle: txt.measurementsTitle || 'Informe suas medidas',
     calculateButtonText: txt.calculateButtonText || 'Encontrar meu tamanho',
     resultTitle: txt.resultTitle || 'SEU TAMANHO SUGERIDO',
     betweenSizesMessage: txt.betweenSizesMessage || 'Você está entre dois tamanhos.',
-    notFoundMessage: txt.notFoundMessage || 'Não encontramos um tamanho adequado nesta tabela.',
+    notFoundMessage: txt.notFoundMessage || 'Não encontramos um tamanho adequado para as medidas informadas.',
     recalculateButtonText: txt.recalculateButtonText || 'Calcular novamente',
     closeButtonText: txt.closeButtonText || 'Fechar',
     backButtonText: txt.backButtonText || 'Voltar',

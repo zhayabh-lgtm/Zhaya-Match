@@ -5,13 +5,14 @@ import {
   TextSettings,
   MeasurementHelp,
   AppConfig,
+  WidgetFeedbackInput,
   MeasurementKey,
   MediaAsset,
   MeasurementObservation,
   PeriodType,
 } from '../types/zhaya';
 import { supabase, isSupabaseConfigured } from './supabase';
-import { normalizeMeasurementObservation } from './normalize';
+import { normalizeMeasurementObservation, normalizeProductType } from './normalize';
 import { computeAnalyticsSummary } from './analyticsAggregator';
 
 // Default initial values used for database seed or initial state
@@ -494,10 +495,10 @@ export const defaultAppearance: PopupAppearance = {
 export const defaultTexts: TextSettings = {
   buttonText: 'Descubra seu tamanho',
   initialTitle: 'Curadoria de Tamanho Zhaya',
-  welcomeMessage: 'Seja bem-vinda à experiência personalizada Zhaya. Em poucos passos, indicamos o tamanho ideal para o seu corpo com máxima precisão e elegância.',
+  welcomeMessage: 'Seja bem-vinda à experiência personalizada Zhaya. Em poucos passos, indicamos a opção ideal para você com máxima precisão e elegância.',
   welcomeButtonText: 'Iniciar Curadoria',
   typeChoiceTitle: 'Qual peça você deseja escolher?',
-  measurementsTitle: 'Insira suas medidas corporais',
+  measurementsTitle: 'Informe suas medidas',
   calculateButtonText: 'Descobrir meu tamanho',
   resultTitle: 'Sugerimos o tamanho',
   betweenSizesMessage: 'Você está entre dois tamanhos.',
@@ -557,10 +558,23 @@ export const defaultMeasurementHelps: Record<MeasurementKey, MeasurementHelp> = 
     title: 'Como medir a largura do pé',
     description: 'Meça na parte mais larga da planta do pé.',
   },
+  fingerCircumference: {
+    key: 'fingerCircumference',
+    label: 'Dedo',
+    title: 'Como medir o dedo',
+    description: 'Passe a fita métrica ou barbante ao redor do dedo em que usará o anel, sem apertar.',
+  },
+  sleeveLength: {
+    key: 'sleeveLength',
+    label: 'Comprimento da manga',
+    title: 'Como medir a manga',
+    description: 'Meça da extremidade do ombro até o pulso com o braço levemente dobrado.',
+  },
 };
 
 export const defaultAppConfig: AppConfig = {
   enabled: true,
+  enableFeedbackSurvey: true,
   widgetUrl: '/widget.js',
   testMode: false,
   allowedDomains: ['zhaya.com.br', 'www.zhaya.com.br'],
@@ -646,19 +660,7 @@ export const Repository = {
       return defaultProductTypes;
     }
 
-    return rows.map((row: any) => ({
-      id: row.id,
-      name: row.name,
-      active: row.active ?? true,
-      order: row.sort_order ?? 0,
-      imageUrl: row.image_url || undefined,
-      iconUrl: row.icon_url || undefined,
-      useIconInSelector: row.use_icon_in_selector ?? false,
-      measurementImageUrl: row.measurement_image_url || undefined,
-      measurementImageCaption: row.measurement_image_caption || undefined,
-      measurements: row.measurements || [],
-      sizes: row.sizes || [],
-    }));
+    return rows.map((row: any) => normalizeProductType(row));
   },
 
   async saveProductType(pt: ProductType): Promise<ProductType> {
@@ -667,6 +669,8 @@ export const Repository = {
       const dbPayload: Record<string, any> = {
         id: pt.id,
         name: pt.name,
+        category: pt.category || null,
+        fit_type: pt.fitType || null,
         active: pt.active,
         sort_order: pt.order,
         image_url: pt.imageUrl || null,
@@ -674,6 +678,9 @@ export const Repository = {
         use_icon_in_selector: pt.useIconInSelector ?? false,
         measurement_image_url: pt.measurementImageUrl || null,
         measurement_image_caption: pt.measurementImageCaption || null,
+        measurement_guide_tips: pt.measurementGuideTips || [],
+        measurement_guide_observation: pt.measurementGuideObservation || null,
+        store_tags: pt.storeTags || [],
         measurements: pt.measurements,
         sizes: pt.sizes,
       };
@@ -682,16 +689,38 @@ export const Repository = {
 
       if (
         error &&
-        (error.message?.includes('icon_url') ||
+        (error.message?.includes('category') ||
+          error.message?.includes('fit_type') ||
+          error.message?.includes('icon_url') ||
           error.message?.includes('use_icon_in_selector') ||
+          error.message?.includes('measurement_guide_tips') ||
+          error.message?.includes('measurement_guide_observation') ||
+          error.message?.includes('store_tags') ||
           error.code === 'PGRST204')
       ) {
         console.warn(
-          'Coluna icon_url ou use_icon_in_selector não encontrada na tabela product_types do Supabase. Salvando sem esses campos...',
+          'Alguma coluna opcional não foi encontrada na tabela product_types do Supabase. Salvando com payload simplificado...',
           error.message
         );
-        delete dbPayload.icon_url;
-        delete dbPayload.use_icon_in_selector;
+        if (error.message?.includes('category')) delete dbPayload.category;
+        if (error.message?.includes('fit_type')) delete dbPayload.fit_type;
+        if (error.message?.includes('measurement_guide_tips')) delete dbPayload.measurement_guide_tips;
+        if (error.message?.includes('measurement_guide_observation')) delete dbPayload.measurement_guide_observation;
+        if (error.message?.includes('store_tags')) delete dbPayload.store_tags;
+        if (error.message?.includes('icon_url')) delete dbPayload.icon_url;
+        if (error.message?.includes('use_icon_in_selector')) delete dbPayload.use_icon_in_selector;
+        
+        // Se error for PGRST204 ou genérico, limpa todos os opcionais
+        if (error.code === 'PGRST204' || !dbPayload.id) {
+          delete dbPayload.category;
+          delete dbPayload.fit_type;
+          delete dbPayload.icon_url;
+          delete dbPayload.use_icon_in_selector;
+          delete dbPayload.measurement_guide_tips;
+          delete dbPayload.measurement_guide_observation;
+          delete dbPayload.store_tags;
+        }
+
         const fallbackRes = await client.from('product_types').upsert(dbPayload);
         error = fallbackRes.error;
       }
@@ -712,6 +741,8 @@ export const Repository = {
       const dbPayloads: Record<string, any>[] = typesList.map((pt) => ({
         id: pt.id,
         name: pt.name,
+        category: pt.category || null,
+        fit_type: pt.fitType || null,
         active: pt.active,
         sort_order: pt.order,
         image_url: pt.imageUrl || null,
@@ -719,6 +750,9 @@ export const Repository = {
         use_icon_in_selector: pt.useIconInSelector ?? false,
         measurement_image_url: pt.measurementImageUrl || null,
         measurement_image_caption: pt.measurementImageCaption || null,
+        measurement_guide_tips: pt.measurementGuideTips || [],
+        measurement_guide_observation: pt.measurementGuideObservation || null,
+        store_tags: pt.storeTags || [],
         measurements: pt.measurements,
         sizes: pt.sizes,
       }));
@@ -727,18 +761,28 @@ export const Repository = {
 
       if (
         error &&
-        (error.message?.includes('icon_url') ||
+        (error.message?.includes('category') ||
+          error.message?.includes('fit_type') ||
+          error.message?.includes('icon_url') ||
           error.message?.includes('use_icon_in_selector') ||
+          error.message?.includes('measurement_guide_tips') ||
+          error.message?.includes('measurement_guide_observation') ||
+          error.message?.includes('store_tags') ||
           error.code === 'PGRST204')
       ) {
         console.warn(
-          'Coluna icon_url ou use_icon_in_selector não encontrada na tabela product_types do Supabase. Salvando sem esses campos...',
+          'Alguma coluna opcional não foi encontrada na tabela product_types do Supabase. Salvando com payload simplificado...',
           error.message
         );
         const fallbackPayloads = dbPayloads.map((payload) => {
           const copy = { ...payload };
+          delete copy.category;
+          delete copy.fit_type;
           delete copy.icon_url;
           delete copy.use_icon_in_selector;
+          delete copy.measurement_guide_tips;
+          delete copy.measurement_guide_observation;
+          delete copy.store_tags;
           return copy;
         });
         const fallbackRes = await client.from('product_types').upsert(fallbackPayloads);
@@ -993,6 +1037,7 @@ export const Repository = {
       const row = rows[0];
       return {
         enabled: row.enabled ?? true,
+        enableFeedbackSurvey: row.enable_feedback_survey ?? true,
         widgetUrl: row.widget_url || '/widget.js',
         testMode: row.test_mode ?? false,
         allowedDomains: Array.isArray(row.allowed_domains) && row.allowed_domains.length > 0
@@ -1011,8 +1056,9 @@ export const Repository = {
       const { data: existing } = await client.from('app_settings').select('id, version').limit(1);
 
       const newVersion = ((existing && existing[0] && existing[0].version) || 1) + 1;
-      const payload = {
+      const payload: any = {
         enabled: cfg.enabled,
+        enable_feedback_survey: cfg.enableFeedbackSurvey !== false,
         widget_url: cfg.widgetUrl,
         test_mode: cfg.testMode,
         allowed_domains: cfg.allowedDomains || ['zhaya.com.br', 'www.zhaya.com.br'],
@@ -1020,17 +1066,32 @@ export const Repository = {
       };
 
       if (existing && existing.length > 0) {
-        const { error } = await client
+        let { error } = await client
           .from('app_settings')
           .update(payload)
           .eq('id', existing[0].id);
+
+        if (error && error.message?.includes('enable_feedback_survey')) {
+          delete payload.enable_feedback_survey;
+          const retry = await client
+            .from('app_settings')
+            .update(payload)
+            .eq('id', existing[0].id);
+          error = retry.error;
+        }
 
         if (error) {
           console.error('Erro ao atualizar configurações:', error);
           throw new Error(`Falha ao atualizar configurações: ${error.message}`);
         }
       } else {
-        const { error } = await client.from('app_settings').insert(payload);
+        let { error } = await client.from('app_settings').insert(payload);
+
+        if (error && error.message?.includes('enable_feedback_survey')) {
+          delete payload.enable_feedback_survey;
+          const retry = await client.from('app_settings').insert(payload);
+          error = retry.error;
+        }
 
         if (error) {
           console.error('Erro ao salvar configurações:', error);
@@ -1042,7 +1103,35 @@ export const Repository = {
     });
   },
 
-  // Media Assets
+  async saveFeedbackResponse(feedback: WidgetFeedbackInput): Promise<boolean> {
+    if (!isSupabaseConfigured || !supabase) {
+      console.log('[Repository] Feedback simulado no ambiente sem Supabase:', feedback);
+      return true;
+    }
+    return runWithRetry(async () => {
+      const client = ensureSupabase();
+      const payload = {
+        visitor_id: feedback.visitorId || null,
+        session_id: feedback.sessionId || null,
+        product_type_id: feedback.productTypeId || null,
+        recommendation_status: feedback.recommendationStatus || null,
+        recommended_size: feedback.recommendedSize || null,
+        alternate_size: feedback.alternateSize || null,
+        adequacy_response: feedback.adequacyResponse,
+        ease_rating: feedback.easeRating,
+        comment: feedback.comment || null,
+        config_version: feedback.configVersion || null,
+        submitted_at: new Date().toISOString(),
+      };
+
+      const { error } = await client.from('widget_feedback_responses').insert(payload);
+      if (error) {
+        console.error('Erro ao salvar resposta de feedback:', error);
+        throw new Error(`Falha ao salvar resposta de feedback: ${error.message}`);
+      }
+      return true;
+    });
+  },
   async saveMediaAsset(asset: Omit<MediaAsset, 'id' | 'created_at'>): Promise<MediaAsset> {
     if (!isSupabaseConfigured || !supabase) {
       return {

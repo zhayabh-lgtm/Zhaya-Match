@@ -18,6 +18,7 @@ import {
   Info,
   Layers,
   Sparkles,
+  MessageSquare,
 } from 'lucide-react';
 import { AnalyticsSummary, PeriodType } from '../../types/zhaya';
 import {
@@ -371,8 +372,8 @@ const AnalyticsContent: React.FC = () => {
             </div>
           </div>
 
-          {/* KPIs Secundários: Abandono, Fora da Grade e Ajuda */}
-          <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+          {/* KPIs Secundários: Abandono, Fora da Grade, Ajuda e Feedback */}
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
             <div className="bg-white p-4 border border-neutral-200 rounded-xl shadow-xs flex items-center justify-between">
               <div>
                 <span className="text-[11px] font-semibold text-neutral-500 uppercase tracking-wider block">
@@ -417,16 +418,33 @@ const AnalyticsContent: React.FC = () => {
                 <HelpCircle className="w-4 h-4" />
               </div>
             </div>
+
+            <div className="bg-white p-4 border border-neutral-200 rounded-xl shadow-xs flex items-center justify-between">
+              <div>
+                <span className="text-[11px] font-semibold text-neutral-500 uppercase tracking-wider block">
+                  Pesquisa de Feedback
+                </span>
+                <span className="text-lg font-bold text-indigo-600 mt-1 block font-mono">
+                  {formatCount(summary.totalFeedbackSubmitted ?? 0)} / {formatCount(summary.totalFeedbackStarted ?? 0)}
+                </span>
+                <span className="text-[10px] text-neutral-400">
+                  Enviados vs Iniciados ({formatCount(summary.totalFeedbackSkipped ?? 0)} pulados)
+                </span>
+              </div>
+              <div className="w-9 h-9 rounded-full bg-indigo-50 text-indigo-600 flex items-center justify-center shrink-0 font-bold text-xs">
+                {safePercent(summary.totalFeedbackSubmitted ?? 0, summary.totalFeedbackStarted ?? 0)}%
+              </div>
+            </div>
           </div>
 
           {/* 2. FUNIL DE CONVERSÃO & DISTRIBUIÇÃO DE RESULTADOS */}
           <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
-            {/* Funil Visual (6 Etapas) */}
+            {/* Funil Visual (7 Etapas) */}
             <div className="lg:col-span-7 bg-white p-5 sm:p-6 border border-neutral-200 rounded-xl shadow-xs space-y-5">
               <div className="flex items-center justify-between border-b border-neutral-100 pb-3">
                 <h3 className="text-xs font-semibold uppercase tracking-wider text-neutral-900 flex items-center gap-2">
                   <TrendingUp className="w-4 h-4 text-neutral-700" />
-                  <span>Funil de Conversão (6 Etapas)</span>
+                  <span>Funil de Conversão (7 Etapas)</span>
                 </h3>
                 <span className="text-[10px] text-neutral-400 font-mono">Retenção relativa</span>
               </div>
@@ -690,6 +708,108 @@ const AnalyticsContent: React.FC = () => {
                   )}
                 </tbody>
               </table>
+            </div>
+          </div>
+
+          {/* 5. FEEDBACK DOS CLIENTES */}
+          <div className="bg-white p-5 sm:p-6 border border-neutral-200 rounded-xl shadow-xs space-y-6">
+            <div className="flex items-center justify-between border-b border-neutral-100 pb-3">
+              <h3 className="text-xs font-semibold uppercase tracking-wider text-neutral-900 flex items-center gap-2">
+                <MessageSquare className="w-4 h-4 text-neutral-700" />
+                <span>Feedback dos Clientes</span>
+              </h3>
+            </div>
+
+            {/* Métrica Resumo */}
+            <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3">
+              <div className="p-3.5 bg-neutral-50 border border-neutral-200 rounded-xl">
+                <span className="text-[11px] font-semibold text-neutral-500 uppercase tracking-wider block">
+                  Total de Respostas
+                </span>
+                <span className="text-xl font-bold text-neutral-900 mt-1 block font-mono">
+                  {formatCount(summary.feedbackDetails?.totalResponses ?? 0)}
+                </span>
+              </div>
+
+              <div className="p-3.5 bg-emerald-50/80 border border-emerald-200 rounded-xl">
+                <span className="text-[11px] font-semibold text-emerald-800 uppercase tracking-wider block">
+                  % Sim (Serviu)
+                </span>
+                <span className="text-xl font-bold text-emerald-700 mt-1 block font-mono">
+                  {formatPercent(summary.feedbackDetails?.yesPercent ?? 0)}
+                </span>
+              </div>
+
+              <div className="p-3.5 bg-rose-50/80 border border-rose-200 rounded-xl">
+                <span className="text-[11px] font-semibold text-rose-800 uppercase tracking-wider block">
+                  % Não (Não serviu)
+                </span>
+                <span className="text-xl font-bold text-rose-700 mt-1 block font-mono">
+                  {formatPercent(summary.feedbackDetails?.noPercent ?? 0)}
+                </span>
+              </div>
+
+              <div className="p-3.5 bg-amber-50/80 border border-amber-200 rounded-xl">
+                <span className="text-[11px] font-semibold text-amber-800 uppercase tracking-wider block">
+                  % Indeciso (Ainda não sei)
+                </span>
+                <span className="text-xl font-bold text-amber-700 mt-1 block font-mono">
+                  {formatPercent(summary.feedbackDetails?.notSurePercent ?? 0)}
+                </span>
+              </div>
+
+              <div className="p-3.5 bg-indigo-50/80 border border-indigo-200 rounded-xl col-span-2 sm:col-span-1">
+                <span className="text-[11px] font-semibold text-indigo-800 uppercase tracking-wider block">
+                  Média de Facilidade
+                </span>
+                <span className="text-xl font-bold text-indigo-700 mt-1 block font-mono">
+                  {(summary.feedbackDetails?.averageEaseRating ?? 0).toFixed(1)} / 5.0
+                </span>
+              </div>
+            </div>
+
+            {/* Comentários Recentes */}
+            <div className="space-y-3 pt-2">
+              <h4 className="text-xs font-bold text-neutral-800 uppercase tracking-wider">
+                Comentários Recentes
+              </h4>
+
+              {(!summary.feedbackDetails?.recentComments || summary.feedbackDetails.recentComments.length === 0) ? (
+                <div className="p-4 bg-neutral-50 border border-neutral-100 rounded-lg text-center text-xs text-neutral-500">
+                  Nenhum comentário enviado até o momento.
+                </div>
+              ) : (
+                <div className="overflow-x-auto">
+                  <table className="w-full text-left text-xs border-collapse">
+                    <thead>
+                      <tr className="border-b border-neutral-200 text-neutral-500 font-semibold">
+                        <th className="py-2.5 px-3">Comentário</th>
+                        <th className="py-2.5 px-3">Tipo de Produto</th>
+                        <th className="py-2.5 px-3">Tamanho Recomendado</th>
+                        <th className="py-2.5 px-3">Data e Hora</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-neutral-100">
+                      {summary.feedbackDetails.recentComments.map((item, idx) => (
+                        <tr key={item.id || idx} className="hover:bg-neutral-50">
+                          <td className="py-2.5 px-3 text-neutral-900 max-w-xs font-medium">
+                            "{item.comment}"
+                          </td>
+                          <td className="py-2.5 px-3 text-neutral-600 font-mono">
+                            {item.productTypeName || item.productTypeId || '—'}
+                          </td>
+                          <td className="py-2.5 px-3 text-neutral-800 font-bold font-mono">
+                            {item.recommendedSize || '—'}
+                          </td>
+                          <td className="py-2.5 px-3 text-neutral-500 font-mono text-[11px] whitespace-nowrap">
+                            {item.submittedAt ? new Date(item.submittedAt).toLocaleString('pt-BR') : '—'}
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )}
             </div>
           </div>
         </div>

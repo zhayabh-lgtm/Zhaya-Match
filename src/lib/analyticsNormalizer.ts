@@ -46,6 +46,8 @@ const DEFAULT_FUNNEL_LABELS: Record<string, string> = {
   widget_opened: 'Widget aberto',
   flow_started: 'Fluxo iniciado',
   measurements_started: 'Medições iniciadas',
+  recommendation_processing_started: 'Cálculo solicitado',
+  recommendation_result_viewed: 'Resultado visualizado',
   recommendation_generated: 'Recomendações',
 };
 
@@ -83,7 +85,8 @@ export function normalizeAnalyticsSummary(raw: any, period: PeriodType = '7days'
         { step: 'widget_opened', stage: 'widget_opened', label: 'Widget aberto', count: 0, rate: 0, conversionRate: 0 },
         { step: 'flow_started', stage: 'flow_started', label: 'Fluxo iniciado', count: 0, rate: 0, conversionRate: 0 },
         { step: 'measurements_started', stage: 'measurements_started', label: 'Medições iniciadas', count: 0, rate: 0, conversionRate: 0 },
-        { step: 'recommendation_generated', stage: 'recommendation_generated', label: 'Recomendações', count: 0, rate: 0, conversionRate: 0 },
+        { step: 'recommendation_processing_started', stage: 'recommendation_processing_started', label: 'Cálculo solicitado', count: 0, rate: 0, conversionRate: 0 },
+        { step: 'recommendation_result_viewed', stage: 'recommendation_result_viewed', label: 'Resultado visualizado', count: 0, rate: 0, conversionRate: 0 },
       ],
       dailyEvolution: [],
       topTypes: [],
@@ -176,7 +179,8 @@ export function normalizeAnalyticsSummary(raw: any, period: PeriodType = '7days'
     'widget_opened',
     'flow_started',
     'measurements_started',
-    'recommendation_generated',
+    'recommendation_processing_started',
+    'recommendation_result_viewed',
   ];
 
   const funnelMap: Record<string, { count: number; rate: number }> = {};
@@ -279,6 +283,27 @@ export function normalizeAnalyticsSummary(raw: any, period: PeriodType = '7days'
     };
   });
 
+  const rawFeedbackDetails = raw.feedbackDetails || {};
+  const feedbackDetails = {
+    totalResponses: safeNumber(rawFeedbackDetails.totalResponses),
+    yesPercent: safeNumber(rawFeedbackDetails.yesPercent),
+    noPercent: safeNumber(rawFeedbackDetails.noPercent),
+    notSurePercent: safeNumber(rawFeedbackDetails.notSurePercent),
+    averageEaseRating: safeNumber(rawFeedbackDetails.averageEaseRating),
+    recentComments: Array.isArray(rawFeedbackDetails.recentComments)
+      ? rawFeedbackDetails.recentComments.map((c: any) => ({
+          id: c.id ? String(c.id) : undefined,
+          comment: String(c.comment || '').trim(),
+          productTypeId: c.productTypeId ? String(c.productTypeId) : undefined,
+          productTypeName: c.productTypeName ? String(c.productTypeName) : undefined,
+          recommendedSize: c.recommendedSize ? String(c.recommendedSize) : undefined,
+          adequacyResponse: c.adequacyResponse ? String(c.adequacyResponse) : undefined,
+          easeRating: c.easeRating ? safeNumber(c.easeRating) : undefined,
+          submittedAt: String(c.submittedAt || c.created_at || ''),
+        }))
+      : [],
+  };
+
   return {
     period: raw.period || period,
     startDate: String(raw.startDate || raw.startDateStr || ''),
@@ -300,6 +325,7 @@ export function normalizeAnalyticsSummary(raw: any, period: PeriodType = '7days'
     completionRate,
     notFoundRate,
     abandonmentRate,
+    feedbackDetails,
     recommendationTypes,
     funnel,
     dailyEvolution,

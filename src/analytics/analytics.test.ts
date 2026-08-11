@@ -65,8 +65,8 @@ function runAnalyticsAggregationsTest() {
   if (emptySummary.openRate !== 0) throw new Error('A. Expected openRate === 0');
   if (emptySummary.completionRate !== 0) throw new Error('A. Expected completionRate === 0');
   if (emptySummary.abandonmentRate !== 0) throw new Error('A. Expected abandonmentRate === 0');
-  if (!Array.isArray(emptySummary.funnel) || emptySummary.funnel.length !== 6) {
-    throw new Error('A. Funnel must contain 6 stages even on empty dataset');
+  if (!Array.isArray(emptySummary.funnel) || emptySummary.funnel.length !== 7) {
+    throw new Error('A. Funnel must contain 7 stages even on empty dataset');
   }
   if (emptySummary.funnel[0].conversionRate !== 0) {
     throw new Error('A. Funnel conversion rate must be 0 for empty dataset');
@@ -85,8 +85,10 @@ function runAnalyticsAggregationsTest() {
   for (let i = 0; i < 40; i++) funnelRecords.push({ event_name: 'flow_started', occurred_at: '2026-08-02T10:03:00Z' });
   // 30 measurements_started
   for (let i = 0; i < 30; i++) funnelRecords.push({ event_name: 'measurements_started', occurred_at: '2026-08-02T10:04:00Z' });
-  // 20 recommendation_generated
-  for (let i = 0; i < 20; i++) funnelRecords.push({ event_name: 'recommendation_generated', occurred_at: '2026-08-02T10:05:00Z' });
+  // 25 recommendation_processing_started
+  for (let i = 0; i < 25; i++) funnelRecords.push({ event_name: 'recommendation_processing_started', occurred_at: '2026-08-02T10:04:30Z' });
+  // 20 recommendation_result_viewed
+  for (let i = 0; i < 20; i++) funnelRecords.push({ event_name: 'recommendation_result_viewed', occurred_at: '2026-08-02T10:05:00Z' });
 
   const funnelSummary = computeAnalyticsSummary(funnelRecords, '7days', startDate, endDate);
   const f = funnelSummary.funnel;
@@ -95,7 +97,8 @@ function runAnalyticsAggregationsTest() {
   if (f[2].count !== 60 || f[2].conversionRate !== 75) throw new Error('B. Stage 3 conversion rate should be 75%');
   if (f[3].count !== 40 || f[3].conversionRate !== 66.7) throw new Error('B. Stage 4 conversion rate should be 66.7%');
   if (f[4].count !== 30 || f[4].conversionRate !== 75) throw new Error('B. Stage 5 conversion rate should be 75%');
-  if (f[5].count !== 20 || f[5].conversionRate !== 66.7) throw new Error('B. Stage 6 conversion rate should be 66.7%');
+  if (f[5].count !== 25 || f[5].conversionRate !== 83.3) throw new Error('B. Stage 6 conversion rate should be 83.3%');
+  if (f[6].count !== 20 || f[6].conversionRate !== 80) throw new Error('B. Stage 7 conversion rate should be 80%');
   console.log('✓ B. Funil completo verificado com sucesso.');
 
   // C. Abandono
@@ -166,7 +169,7 @@ function runAnalyticsNormalizerAndUITests() {
   if (normComplete.totalViewed !== 500) throw new Error('UI Test A: totalViewed mismatch');
   if (normComplete.totalOpened !== 200) throw new Error('UI Test A: totalOpened mismatch');
   if (normComplete.totalRecommended !== 100) throw new Error('UI Test A: totalRecommended mismatch');
-  if (normComplete.funnel.length !== 6) throw new Error('UI Test A: funnel must contain 6 stages');
+  if (normComplete.funnel.length !== 7) throw new Error('UI Test A: funnel must contain 7 stages');
   console.log('✓ UI Test A: Dados completos normalizados com sucesso.');
 
   // B. Dataset vazio

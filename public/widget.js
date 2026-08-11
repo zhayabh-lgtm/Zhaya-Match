@@ -1,16 +1,16 @@
-/* Zhaya Match Standalone Widget v3.0 (hash: 01f97ec2) */
+/* Zhaya Match Standalone Widget v3.0 (hash: 6e46f87b) */
 (function() {
   if (window.__zhayaMatchLoaded || window.__ZHAYA_MATCH_LOADED__) return;
   window.__zhayaMatchLoaded = true;
   window.__ZHAYA_MATCH_LOADED__ = true;
 
-  var MEASUREMENT_LABELS = {"bust":"busto","waist":"cintura","hip":"quadril","shoulders":"ombros","thigh":"coxa","torsoLength":"tronco","footLength":"comprimento do pé","footWidth":"largura do pé"};
+  var MEASUREMENT_LABELS = {"bust":"busto","waist":"cintura","hip":"quadril","shoulders":"ombros","thigh":"coxa","torsoLength":"tronco","footLength":"comprimento do pé","footWidth":"largura do pé","fingerCircumference":"dedo","sleeveLength":"comprimento da manga"};
   function parseNumber(value){if(value===null||value===void 0)return null;if(typeof value==="number"){return isNaN(value)||value<=0||!isFinite(value)?null:value}if(typeof value==="string"){const cleaned=value.trim().replace(",",".");if(!cleaned)return null;if(!/^\d+(\.\d+)?$/.test(cleaned))return null;const num=parseFloat(cleaned);return isNaN(num)||num<=0||!isFinite(num)?null:num}return null}
   function formatMeasurementDisplay(value){if(value===null||value===void 0||value==="")return"";if(typeof value==="string"){const cleaned=value.trim().replace(",",".");const num=parseFloat(cleaned);if(isNaN(num))return value;return String(num).replace(".",",")}return String(value).replace(".",",")}
   function getProductCategoryAndFit(productType){if(productType.category&&productType.fitType){return{category:productType.category,fitType:productType.fitType}}const nameLower=(productType.name||"").toLowerCase();const keys=productType.measurements||[];const hasFoot=keys.includes("footLength")||keys.includes("footWidth")||/sapato|calcado|calçado|tenis|tênis|sapatilha|sandalia|sandália|mocassim|bota|rasteira|scarpin|mule/.test(nameLower);if(hasFoot){const cat=productType.category||"footwear";const fit=productType.fitType||"footwear";return{category:cat,fitType:fit}}const isStructured=/jaqueta|blazer|casaco|colete|paleto|paletó/.test(nameLower);const isFullBody=/vestido|macacao|macacão|body|conjunto/.test(nameLower);const isLower=/calca|calça|short|shorts|saia|bermuda|legging/.test(nameLower);const category=productType.category||(isStructured?"upper_body":isFullBody?"full_body":isLower?"lower_body":keys.includes("bust")||keys.includes("shoulders")||keys.includes("torsoLength")?"upper_body":keys.includes("hip")||keys.includes("thigh")?"lower_body":"generic");const fitType=productType.fitType||(isStructured?"structured":"regular");return{category,fitType}}
-  function getCriticalMeasurements(category,keys){switch(category){case"upper_body":{const critical=[];if(keys.includes("bust"))critical.push("bust");if(keys.includes("shoulders"))critical.push("shoulders");if(keys.includes("waist"))critical.push("waist");if(keys.includes("torsoLength"))critical.push("torsoLength");return critical.length>0?critical:keys}case"lower_body":{const critical=[];if(keys.includes("hip"))critical.push("hip");if(keys.includes("waist"))critical.push("waist");if(keys.includes("thigh"))critical.push("thigh");return critical.length>0?critical:keys}case"full_body":{const critical=[];if(keys.includes("bust"))critical.push("bust");if(keys.includes("hip"))critical.push("hip");if(keys.includes("waist"))critical.push("waist");if(keys.includes("torsoLength"))critical.push("torsoLength");return critical.length>0?critical:keys}case"footwear":{const critical=[];if(keys.includes("footLength"))critical.push("footLength");if(keys.includes("footWidth"))critical.push("footWidth");return critical.length>0?critical:keys}case"generic":default:return keys}}
+  function getCriticalMeasurements(category,keys){switch(category){case"upper_body":{const critical=[];if(keys.includes("bust"))critical.push("bust");if(keys.includes("shoulders"))critical.push("shoulders");if(keys.includes("waist"))critical.push("waist");if(keys.includes("sleeveLength"))critical.push("sleeveLength");if(keys.includes("torsoLength"))critical.push("torsoLength");return critical.length>0?critical:keys}case"lower_body":{const critical=[];if(keys.includes("hip"))critical.push("hip");if(keys.includes("waist"))critical.push("waist");if(keys.includes("thigh"))critical.push("thigh");return critical.length>0?critical:keys}case"full_body":{const critical=[];if(keys.includes("bust"))critical.push("bust");if(keys.includes("hip"))critical.push("hip");if(keys.includes("waist"))critical.push("waist");if(keys.includes("torsoLength"))critical.push("torsoLength");return critical.length>0?critical:keys}case"footwear":{const critical=[];if(keys.includes("footLength"))critical.push("footLength");if(keys.includes("footWidth"))critical.push("footWidth");return critical.length>0?critical:keys}case"generic":default:return keys}}
   function getEffectiveRange(range,key){if(!range)return null;let min=parseNumber(range.min);let max=parseNumber(range.max);const val=parseNumber(range.value);if(min!==null&&max!==null){if(min>max){const temp=min;min=max;max=temp}return{min,max}}if(min!==null&&max===null){return{min,max:min}}if(max!==null&&min===null){return{min:max,max}}if(val!==null){if(key==="footLength"||key==="footWidth"){return{min:Math.max(.1,val-.5),max:val+.5}}return{min:Math.max(.1,val-3),max:val+3}}return null}
-  function calculateRecommendation(productType,userMeasurements){if(!productType||!productType.sizes||productType.sizes.length===0){return{size:null,status:"not_found",message:"N\xE3o encontramos um tamanho adequado nesta tabela. Confira suas medidas ou consulte a equipe da Zhaya."}}const sortedSizes=[...productType.sizes].sort((a,b)=>a.order-b.order);const keysToEvaluate=(productType.measurements||[]).length>0?productType.measurements:Object.keys(sortedSizes[0]?.ranges||{});if(keysToEvaluate.length===0){return{size:null,status:"not_found",message:"N\xE3o encontramos um tamanho adequado nesta tabela. Confira suas medidas ou consulte a equipe da Zhaya."}}const activeMeasurements=[];const missingKeys=[];for(const k of keysToEvaluate){const raw=userMeasurements[k];const parsed=parseNumber(raw);if(parsed===null){missingKeys.push(k)}else{activeMeasurements.push({key:k,val:parsed})}}if(missingKeys.length>0||activeMeasurements.length===0){return{size:null,status:"not_found",message:"N\xE3o encontramos um tamanho adequado nesta tabela. Confira suas medidas ou consulte a equipe da Zhaya."}}const{category,fitType}=getProductCategoryAndFit(productType);const criticalKeys=getCriticalMeasurements(category,keysToEvaluate);for(const{key,val}of activeMeasurements){const label=MEASUREMENT_LABELS[key]||key;let globalMin=Infinity;let globalMax=-Infinity;for(const size of sortedSizes){const r=getEffectiveRange(size.ranges?size.ranges[key]:void 0,key);if(r){if(r.min<globalMin)globalMin=r.min;if(r.max>globalMax)globalMax=r.max}}if(!isFinite(globalMin)||!isFinite(globalMax)){return{size:null,status:"not_found",message:"Tabela de tamanhos sem intervalos v\xE1lidos cadastrados para recomenda\xE7\xE3o."}}if(val>globalMax){if(category==="footwear"){const isLength=key==="footLength";const isWidth=key==="footWidth";let msg=`N\xE3o encontramos um tamanho padr\xE3o que acomode sua medida de ${label} com seguran\xE7a.`;if(isLength){msg=`Sua medida de comprimento do p\xE9 est\xE1 acima da maior numera\xE7\xE3o dispon\xEDvel nesta tabela.`}else if(isWidth){msg=`Sua medida de largura do p\xE9 est\xE1 acima da maior numera\xE7\xE3o dispon\xEDvel nesta tabela.`}return{size:null,status:"not_found",message:msg}}return{size:null,status:"not_found",message:`N\xE3o encontramos um tamanho padr\xE3o que acomode sua medida de ${label} com seguran\xE7a.`}}const underflow=globalMin-val;if(category==="footwear"&&underflow>1.5){const isLength=key==="footLength";const isWidth=key==="footWidth";let msg=`Sua medida de ${label} est\xE1 abaixo da menor numera\xE7\xE3o dispon\xEDvel nesta tabela.`;if(isLength){msg=`Sua medida de comprimento do p\xE9 est\xE1 abaixo da menor numera\xE7\xE3o dispon\xEDvel nesta tabela.`}else if(isWidth){msg=`Sua medida de largura do p\xE9 est\xE1 abaixo da menor numera\xE7\xE3o dispon\xEDvel nesta tabela.`}return{size:null,status:"not_found",message:msg}}else if(category!=="footwear"&&underflow>5){return{size:null,status:"not_found",message:`Sua medida de ${label} est\xE1 significativamente abaixo da menor numera\xE7\xE3o dispon\xEDvel nesta tabela.`}}}const requiredMinSizeIndex={};for(const{key,val}of activeMeasurements){let reqIdx=-1;for(let i=0;i<sortedSizes.length;i++){const r=getEffectiveRange(sortedSizes[i].ranges?sortedSizes[i].ranges[key]:void 0,key);if(r&&val<=r.max){reqIdx=i;break}}if(reqIdx===-1){reqIdx=sortedSizes.length-1}requiredMinSizeIndex[key]=reqIdx}const candidateIdx=Math.max(...Object.values(requiredMinSizeIndex));if(candidateIdx>=sortedSizes.length){return{size:null,status:"not_found",message:"N\xE3o encontramos um tamanho adequado nesta tabela."}}if(category==="footwear"){const hasLength=activeMeasurements.some(m=>m.key==="footLength");const hasWidth=activeMeasurements.some(m=>m.key==="footWidth");const lengthSizeIndex=hasLength?requiredMinSizeIndex["footLength"]:requiredMinSizeIndex[activeMeasurements[0].key];const widthSizeIndex=hasWidth?requiredMinSizeIndex["footWidth"]:lengthSizeIndex;const difference=widthSizeIndex-lengthSizeIndex;if(difference===1){const mainSizeLabel3=sortedSizes[widthSizeIndex].label;const altSizeLabel=sortedSizes[lengthSizeIndex].label;return{size:mainSizeLabel3,alternateSize:altSizeLabel,status:"between_sizes",message:`Recomendamos o tamanho ${mainSizeLabel3} porque a largura do seu p\xE9 ultrapassa o limite seguro do ${altSizeLabel}.`}}else if(difference===2){const mainSizeLabel3=sortedSizes[widthSizeIndex].label;const altSizeLabel=sortedSizes[lengthSizeIndex].label;return{size:mainSizeLabel3,alternateSize:altSizeLabel,status:"between_sizes",message:`Recomendamos o tamanho ${mainSizeLabel3} para acomodar a largura do seu p\xE9. Como seu p\xE9 \xE9 mais largo em rela\xE7\xE3o ao comprimento, o tamanho ${altSizeLabel} ou menor ficaria apertado nas laterais.`}}else if(difference>=3){return{size:null,status:"not_found",message:"N\xE3o encontramos um tamanho padr\xE3o que acomode o comprimento e a largura do seu p\xE9 simultaneamente com seguran\xE7a. Recomendamos buscar modelos com forma especial para p\xE9s largos."}}if(difference===-1){const mainSizeLabel3=sortedSizes[lengthSizeIndex].label;const altSizeLabel=sortedSizes[widthSizeIndex].label;return{size:mainSizeLabel3,alternateSize:altSizeLabel,status:"between_sizes",message:`Recomendamos o tamanho ${mainSizeLabel3} para garantir o comprimento correto do p\xE9. Como seu p\xE9 \xE9 mais fino, o tamanho ${altSizeLabel} pode oferecer um caimento justo, mas corre o risco de apertar no comprimento.`}}else if(difference===-2){const mainSizeLabel3=sortedSizes[lengthSizeIndex].label;const altSizeLabel=sortedSizes[lengthSizeIndex-1]?sortedSizes[lengthSizeIndex-1].label:sortedSizes[widthSizeIndex].label;return{size:mainSizeLabel3,alternateSize:altSizeLabel,status:"between_sizes",message:`Recomendamos o tamanho ${mainSizeLabel3} para acomodar o comprimento do p\xE9. Como seu p\xE9 \xE9 fino em rela\xE7\xE3o ao comprimento, o cal\xE7ado pode apresentar folga nas laterais.`}}else if(difference<=-3){return{size:null,status:"not_found",message:"N\xE3o encontramos um tamanho padr\xE3o que acomode o comprimento e a largura do seu p\xE9 simultaneamente com seguran\xE7a."}}let isAtUpperEdge2=false;for(const{key,val}of activeMeasurements){const r=getEffectiveRange(sortedSizes[lengthSizeIndex].ranges?sortedSizes[lengthSizeIndex].ranges[key]:void 0,key);if(r&&r.max-val<.15&&val>r.min){isAtUpperEdge2=true;break}}const mainSizeLabel2=sortedSizes[lengthSizeIndex].label;if(isAtUpperEdge2&&lengthSizeIndex+1<sortedSizes.length){const altSizeLabel=sortedSizes[lengthSizeIndex+1].label;return{size:mainSizeLabel2,alternateSize:altSizeLabel,status:"between_sizes",message:`Recomendamos o tamanho ${mainSizeLabel2}. Suas medidas de p\xE9 est\xE3o pr\xF3ximas do limite; se preferir mais folga, escolha o ${altSizeLabel}.`}}let message2="";if(hasLength&&hasWidth){message2=`Recomendamos o tamanho ${mainSizeLabel2} porque comprimento e largura do p\xE9 ficam dentro do intervalo seguro.`}else{message2=`Recomendamos o tamanho ${mainSizeLabel2} para acomodar seus p\xE9s com conforto e seguran\xE7a.`}return{size:mainSizeLabel2,status:"recommended",message:message2}}const criticalReqIndices=criticalKeys.filter(k=>requiredMinSizeIndex[k]!==void 0).map(k=>requiredMinSizeIndex[k]);const activeIndices=criticalReqIndices.length>0?criticalReqIndices:Object.values(requiredMinSizeIndex);const minCritIdx=Math.min(...activeIndices);const maxCritIdx=Math.max(...activeIndices);const divergence=maxCritIdx-minCritIdx;const decisiveKeys=activeMeasurements.filter(({key})=>requiredMinSizeIndex[key]===candidateIdx).map(({key})=>key);const decisiveNames=decisiveKeys.map(k=>MEASUREMENT_LABELS[k]||k).join(" e ");if(divergence>=2){const minKeys=activeMeasurements.filter(({key})=>requiredMinSizeIndex[key]===minCritIdx).map(({key})=>MEASUREMENT_LABELS[key]||key).join(" e ");return{size:null,status:"not_found",message:`N\xE3o encontramos um tamanho padr\xE3o que acomode suas medidas de ${decisiveNames} e ${minKeys} simultaneamente com seguran\xE7a.`}}if(divergence===1){const mainSizeLabel2=sortedSizes[candidateIdx].label;const altSizeLabel=sortedSizes[minCritIdx].label;const message2=`Recomendamos o tamanho ${mainSizeLabel2}. Ele acomoda suas medidas de ${decisiveNames} com conforto e seguran\xE7a. O tamanho ${altSizeLabel} pode oferecer um caimento mais justo, mas pode ficar apertado no ${decisiveNames}.`;return{size:mainSizeLabel2,alternateSize:altSizeLabel,status:"between_sizes",message:message2}}let isAtUpperEdge=false;const edgeThreshold=.5;for(const{key,val}of activeMeasurements){const r=getEffectiveRange(sortedSizes[candidateIdx].ranges?sortedSizes[candidateIdx].ranges[key]:void 0,key);if(r&&r.max-val<edgeThreshold&&val>r.min){isAtUpperEdge=true;break}}const mainSizeLabel=sortedSizes[candidateIdx].label;if(isAtUpperEdge&&candidateIdx+1<sortedSizes.length){const altSizeLabel=sortedSizes[candidateIdx+1].label;const message2=`Recomendamos o tamanho ${mainSizeLabel}. Suas medidas est\xE3o no limite superior deste tamanho; para um caimento mais solto, opte pelo ${altSizeLabel}.`;return{size:mainSizeLabel,alternateSize:altSizeLabel,status:"between_sizes",message:message2}}let message="";if(decisiveNames){message=`Recomendamos o tamanho ${mainSizeLabel} porque apresenta a melhor correspond\xEAncia com suas medidas de ${decisiveNames}.`}else{message=`Recomendamos o tamanho ${mainSizeLabel} que apresenta a melhor correspond\xEAncia com suas medidas.`}return{size:mainSizeLabel,status:"recommended",message}}
+  function calculateRecommendation(productType,userMeasurements){if(!productType||!productType.sizes||productType.sizes.length===0){return{size:null,status:"not_found",message:"N\xE3o conseguimos indicar um tamanho a partir destas medidas. Confira os valores e tente novamente."}}const sortedSizes=[...productType.sizes].sort((a,b)=>a.order-b.order);const keysToEvaluate=(productType.measurements||[]).length>0?productType.measurements:Object.keys(sortedSizes[0]?.ranges||{});if(keysToEvaluate.length===0){return{size:null,status:"not_found",message:"N\xE3o conseguimos indicar um tamanho a partir destas medidas. Confira os valores e tente novamente."}}const activeMeasurements=[];const missingKeys=[];for(const k of keysToEvaluate){const raw=userMeasurements[k];const parsed=parseNumber(raw);if(parsed===null){missingKeys.push(k)}else{activeMeasurements.push({key:k,val:parsed})}}if(missingKeys.length>0||activeMeasurements.length===0){return{size:null,status:"not_found",message:"N\xE3o conseguimos indicar um tamanho a partir destas medidas. Confira os valores e tente novamente."}}const{category,fitType}=getProductCategoryAndFit(productType);const criticalKeys=getCriticalMeasurements(category,keysToEvaluate);for(const{key,val}of activeMeasurements){const label=MEASUREMENT_LABELS[key]||key;let globalMin=Infinity;let globalMax=-Infinity;for(const size of sortedSizes){const r=getEffectiveRange(size.ranges?size.ranges[key]:void 0,key);if(r){if(r.min<globalMin)globalMin=r.min;if(r.max>globalMax)globalMax=r.max}}if(!isFinite(globalMin)||!isFinite(globalMax)){return{size:null,status:"not_found",message:"Ainda n\xE3o h\xE1 dados suficientes para calcular uma recomenda\xE7\xE3o para este modelo."}}if(val>globalMax){if(category==="footwear"){const isLength=key==="footLength";const isWidth=key==="footWidth";let msg=`Sua medida de ${label} fica acima das op\xE7\xF5es dispon\xEDveis para este modelo.`;if(isLength){msg=`O comprimento do seu p\xE9 fica acima da maior numera\xE7\xE3o dispon\xEDvel para este modelo.`}else if(isWidth){msg=`A largura do seu p\xE9 fica acima da maior numera\xE7\xE3o dispon\xEDvel para este modelo.`}return{size:null,status:"not_found",message:msg}}return{size:null,status:"not_found",message:`Sua medida de ${label} fica acima das op\xE7\xF5es dispon\xEDveis para este modelo.`}}const underflow=globalMin-val;if(category==="footwear"&&underflow>1.5){const isLength=key==="footLength";const isWidth=key==="footWidth";let msg=`Sua medida de ${label} fica abaixo da menor numera\xE7\xE3o dispon\xEDvel para este modelo.`;if(isLength){msg=`Pelo comprimento informado, a menor numera\xE7\xE3o dispon\xEDvel para este modelo ainda pode ficar grande para voc\xEA.`}else if(isWidth){msg=`Pela largura informada, a menor numera\xE7\xE3o dispon\xEDvel para este modelo ainda pode ficar mais larga do que o ideal.`}return{size:null,status:"not_found",message:msg}}else if(category!=="footwear"&&underflow>5){return{size:null,status:"not_found",message:`Sua medida de ${label} fica abaixo das op\xE7\xF5es dispon\xEDveis para este modelo.`}}}const requiredMinSizeIndex={};for(const{key,val}of activeMeasurements){let reqIdx=-1;for(let i=0;i<sortedSizes.length;i++){const r=getEffectiveRange(sortedSizes[i].ranges?sortedSizes[i].ranges[key]:void 0,key);if(r&&val<=r.max){reqIdx=i;break}}if(reqIdx===-1){reqIdx=sortedSizes.length-1}requiredMinSizeIndex[key]=reqIdx}const candidateIdx=Math.max(...Object.values(requiredMinSizeIndex));if(candidateIdx>=sortedSizes.length){return{size:null,status:"not_found",message:"N\xE3o conseguimos indicar um tamanho com estas medidas."}}if(category==="footwear"){const hasLength=activeMeasurements.some(m=>m.key==="footLength");const hasWidth=activeMeasurements.some(m=>m.key==="footWidth");const lengthSizeIndex=hasLength?requiredMinSizeIndex["footLength"]:requiredMinSizeIndex[activeMeasurements[0].key];const widthSizeIndex=hasWidth?requiredMinSizeIndex["footWidth"]:lengthSizeIndex;const difference=widthSizeIndex-lengthSizeIndex;if(difference===1){const mainSizeLabel3=sortedSizes[widthSizeIndex].label;const altSizeLabel=sortedSizes[lengthSizeIndex].label;return{size:mainSizeLabel3,alternateSize:altSizeLabel,status:"between_sizes",message:`Pelas suas medidas, o ${mainSizeLabel3} tende a vestir melhor. O ${altSizeLabel} pode ficar mais justo nas laterais.`}}else if(difference===2){const mainSizeLabel3=sortedSizes[widthSizeIndex].label;const altSizeLabel=sortedSizes[lengthSizeIndex].label;return{size:mainSizeLabel3,alternateSize:altSizeLabel,status:"between_sizes",message:`Para dar espa\xE7o \xE0 largura do seu p\xE9, a melhor escolha \xE9 o ${mainSizeLabel3}. O ${altSizeLabel} tende a ficar apertado nas laterais.`}}else if(difference>=3){return{size:null,status:"not_found",message:"O comprimento e a largura do seu p\xE9 indicam numera\xE7\xF5es bem diferentes. Confira se as duas medidas foram preenchidas corretamente. Se estiverem certas, este modelo pode n\xE3o ter o ajuste ideal para voc\xEA."}}if(difference===-1){const mainSizeLabel3=sortedSizes[lengthSizeIndex].label;const altSizeLabel=sortedSizes[widthSizeIndex].label;return{size:mainSizeLabel3,alternateSize:altSizeLabel,status:"between_sizes",message:`O ${mainSizeLabel3} \xE9 a melhor escolha para preservar o comprimento. O ${altSizeLabel} fica mais ajustado, mas pode apertar na frente.`}}else if(difference===-2){const mainSizeLabel3=sortedSizes[lengthSizeIndex].label;const altSizeLabel=sortedSizes[lengthSizeIndex-1]?sortedSizes[lengthSizeIndex-1].label:sortedSizes[widthSizeIndex].label;return{size:mainSizeLabel3,alternateSize:altSizeLabel,status:"between_sizes",message:`O ${mainSizeLabel3} \xE9 a melhor escolha pelo comprimento. Como seu p\xE9 \xE9 mais fino, pode haver um pouco mais de folga nas laterais.`}}else if(difference<=-3){return{size:null,status:"not_found",message:"O comprimento e a largura do seu p\xE9 indicam numera\xE7\xF5es bem diferentes. Confira se as duas medidas foram preenchidas corretamente. Se estiverem certas, este modelo pode n\xE3o ter o ajuste ideal para voc\xEA."}}let isAtUpperEdge2=false;for(const{key,val}of activeMeasurements){const r=getEffectiveRange(sortedSizes[lengthSizeIndex].ranges?sortedSizes[lengthSizeIndex].ranges[key]:void 0,key);if(r&&r.max-val<.15&&val>r.min){isAtUpperEdge2=true;break}}const mainSizeLabel2=sortedSizes[lengthSizeIndex].label;if(isAtUpperEdge2&&lengthSizeIndex+1<sortedSizes.length){const altSizeLabel=sortedSizes[lengthSizeIndex+1].label;return{size:mainSizeLabel2,alternateSize:altSizeLabel,status:"between_sizes",message:`O ${mainSizeLabel2} funciona bem pelas suas medidas. Se voc\xEA gosta de um pouco mais de folga, o ${altSizeLabel} tamb\xE9m pode ser uma boa op\xE7\xE3o.`}}let message2="";if(hasLength&&hasWidth){message2=`Pelas suas medidas, o ${mainSizeLabel2} \xE9 a op\xE7\xE3o mais equilibrada.`}else{message2=`Pelas suas medidas, o ${mainSizeLabel2} \xE9 a op\xE7\xE3o que melhor se encaixa.`}return{size:mainSizeLabel2,status:"recommended",message:message2}}const criticalReqIndices=criticalKeys.filter(k=>requiredMinSizeIndex[k]!==void 0).map(k=>requiredMinSizeIndex[k]);const activeIndices=criticalReqIndices.length>0?criticalReqIndices:Object.values(requiredMinSizeIndex);const minCritIdx=Math.min(...activeIndices);const maxCritIdx=Math.max(...activeIndices);const divergence=maxCritIdx-minCritIdx;const decisiveKeys=activeMeasurements.filter(({key})=>requiredMinSizeIndex[key]===candidateIdx).map(({key})=>key);const decisiveNames=decisiveKeys.map(k=>MEASUREMENT_LABELS[k]||k).join(" e ");if(divergence>=2){const minKeys=activeMeasurements.filter(({key})=>requiredMinSizeIndex[key]===minCritIdx).map(({key})=>MEASUREMENT_LABELS[key]||key).join(" e ");return{size:null,status:"not_found",message:`As medidas de ${decisiveNames} e ${minKeys} apontam para tamanhos diferentes. Por isso, este modelo pode n\xE3o ter uma op\xE7\xE3o \xFAnica que fique equilibrada para voc\xEA.`}}if(divergence===1){const mainSizeLabel2=sortedSizes[candidateIdx].label;const altSizeLabel=sortedSizes[minCritIdx].label;const message2=`O ${mainSizeLabel2} \xE9 a op\xE7\xE3o mais equilibrada para suas medidas. O ${altSizeLabel} fica mais ajustado e pode apertar em ${decisiveNames}.`;return{size:mainSizeLabel2,alternateSize:altSizeLabel,status:"between_sizes",message:message2}}let isAtUpperEdge=false;const edgeThreshold=.5;for(const{key,val}of activeMeasurements){const r=getEffectiveRange(sortedSizes[candidateIdx].ranges?sortedSizes[candidateIdx].ranges[key]:void 0,key);if(r&&r.max-val<edgeThreshold&&val>r.min){isAtUpperEdge=true;break}}const mainSizeLabel=sortedSizes[candidateIdx].label;if(isAtUpperEdge&&candidateIdx+1<sortedSizes.length){const altSizeLabel=sortedSizes[candidateIdx+1].label;const message2=`O ${mainSizeLabel} funciona pelas suas medidas. Se preferir um caimento mais solto, o ${altSizeLabel} pode ser uma escolha melhor.`;return{size:mainSizeLabel,alternateSize:altSizeLabel,status:"between_sizes",message:message2}}let message="";if(decisiveNames){message=`Pelas suas medidas de ${decisiveNames}, o ${mainSizeLabel} \xE9 a op\xE7\xE3o mais equilibrada.`}else{message=`Pelas suas medidas, o ${mainSizeLabel} \xE9 a op\xE7\xE3o que melhor se encaixa.`}return{size:mainSizeLabel,status:"recommended",message}}
 
   var API_BASE = (function() {
     var provided = '';
@@ -49,6 +49,12 @@
   var MAX_INJECT_ATTEMPTS = 15;
   var hasTrackedLauncher = false;
   var hasTrackedMeasurementsInSession = false;
+  var hasTrackedClosedInSession = false;
+  var hasTrackedFlowStartedInSession = false;
+  var hasTrackedProcessingStartedInSession = false;
+  var hasTrackedResultViewedInSession = false;
+  var hasTrackedFeedbackStartedInSession = false;
+  var loadingTimerId = null;
   var isPreviewSessionActive = false;
   var lastAppliedRevision = 0;
   var lastAppliedSessionId = '';
@@ -269,6 +275,77 @@ fetch(url, {
     return false;
   }
 
+  function normalizeTag(tag) {
+    if (!tag && tag !== 0) return '';
+    return String(tag)
+      .trim()
+      .toLowerCase()
+      .normalize('NFD')
+      .replace(/[̀-ͯ]/g, '');
+  }
+
+  function getStoreProductTags() {
+    if (typeof window !== 'undefined' && Array.isArray(window.ZHAYA_PRODUCT_TAGS)) {
+      return window.ZHAYA_PRODUCT_TAGS;
+    }
+    if (typeof window !== 'undefined' && Array.isArray(window.dataLayer)) {
+      for (var i = window.dataLayer.length - 1; i >= 0; i--) {
+        var item = window.dataLayer[i];
+        if (item && Array.isArray(item.zhaya_product_tags)) {
+          return item.zhaya_product_tags;
+        }
+        if (item && item.ecommerce && Array.isArray(item.ecommerce.zhaya_product_tags)) {
+          return item.ecommerce.zhaya_product_tags;
+        }
+      }
+    }
+    return null;
+  }
+
+  function resolveProductTypeByTags() {
+    var storeTags = getStoreProductTags();
+    if (storeTags === null) {
+      return { selectedType: null, hasTagConstraint: false, matchingCount: 0 };
+    }
+
+    var normStoreTags = storeTags.map(normalizeTag).filter(Boolean);
+    var activeTypes = (configData && Array.isArray(configData.productTypes))
+      ? configData.productTypes.filter(function(pt) { return pt.active !== false; })
+      : [];
+
+    var matches = [];
+    for (var i = 0; i < activeTypes.length; i++) {
+      var type = activeTypes[i];
+      var typeTags = (type.storeTags || []).map(normalizeTag).filter(Boolean);
+      var hasMatch = false;
+      for (var j = 0; j < normStoreTags.length; j++) {
+        if (typeTags.indexOf(normStoreTags[j]) !== -1) {
+          hasMatch = true;
+          break;
+        }
+      }
+      if (hasMatch) {
+        matches.push(type);
+      }
+    }
+
+    if (matches.length === 1) {
+      return { selectedType: matches[0], hasTagConstraint: true, matchingCount: 1 };
+    } else if (matches.length > 1) {
+      matches.sort(function(a, b) {
+        var ordA = typeof a.order === 'number' ? a.order : 1;
+        var ordB = typeof b.order === 'number' ? b.order : 1;
+        return ordA - ordB;
+      });
+      if (window.console && console.warn) {
+        console.warn('[Zhaya Match] Múltiplos tipos correspondem às tags do produto:', matches.map(function(t) { return t.name; }).join(', '), '. Selecionado o de menor ordem:', matches[0].name);
+      }
+      return { selectedType: matches[0], hasTagConstraint: true, matchingCount: matches.length };
+    } else {
+      return { selectedType: null, hasTagConstraint: true, matchingCount: 0 };
+    }
+  }
+
 function initZhayaMatch() {
   sendPreviewReady();
 
@@ -381,6 +458,12 @@ function fetchConfigFromNetwork(isBackground) {
   }
 
   function startInjection() {
+    var resolved = resolveProductTypeByTags();
+    if (resolved.hasTagConstraint && resolved.matchingCount === 0 && !isPreviewSessionActive) {
+      removeTriggerButton();
+      return;
+    }
+
     if (tryInjectButton()) return;
 
     if (window.MutationObserver && !observer) {
@@ -537,10 +620,26 @@ function fetchConfigFromNetwork(isBackground) {
   }
 
   function openModal() {
-    currentStep = 0;
-    selectedType = null;
+    var resolved = resolveProductTypeByTags();
+    if (resolved.selectedType) {
+      selectedType = resolved.selectedType;
+      currentStep = 2; // Auto-selected type by tags, jump directly to measurements
+    } else {
+      currentStep = 0;
+      selectedType = null;
+    }
+
     userMeasurements = {};
     hasTrackedMeasurementsInSession = false;
+    hasTrackedClosedInSession = false;
+    hasTrackedFlowStartedInSession = false;
+    hasTrackedProcessingStartedInSession = false;
+    hasTrackedResultViewedInSession = false;
+    hasTrackedFeedbackStartedInSession = false;
+    if (loadingTimerId) {
+      clearTimeout(loadingTimerId);
+      loadingTimerId = null;
+    }
 
     sendWidgetAnalyticsEvent('widget_opened');
 
@@ -587,7 +686,14 @@ function fetchConfigFromNetwork(isBackground) {
   }
 
   function closeModal() {
-    sendWidgetAnalyticsEvent('widget_closed');
+    if (loadingTimerId) {
+      clearTimeout(loadingTimerId);
+      loadingTimerId = null;
+    }
+    if (!hasTrackedClosedInSession) {
+      hasTrackedClosedInSession = true;
+      sendWidgetAnalyticsEvent('widget_closed');
+    }
     try {
       document.body.style.overflow = '';
       document.documentElement.style.overflow = '';
@@ -867,7 +973,10 @@ if (hasFootMeasurements) {
 var activeImgUrl = '';
 var activeCaption = '';
 
-if (measurementGroup === 'footwear') {
+if (selectedType && selectedType.measurementImageUrl && selectedType.measurementImageUrl.trim()) {
+  activeImgUrl = selectedType.measurementImageUrl.trim();
+  activeCaption = selectedType.measurementImageCaption || ('Referência de medidas para ' + (selectedType.name || 'este produto'));
+} else if (measurementGroup === 'footwear') {
   activeImgUrl =
     app.footwearMeasurementImageUrl || '';
 
@@ -1036,6 +1145,20 @@ var imgBlockHtml =
       }
     }
 
+    // STEP 2.5: Loading do resultado
+    else if (currentStep === 2.5) {
+      innerHtml += '<div style="text-align: center; padding: 48px 16px 36px; max-width: 360px; margin: 0 auto; display: flex; flex-direction: column; align-items: center; justify-content: center; min-height: 240px; box-sizing: border-box;">' +
+        '<div style="position: relative; width: 64px; height: 64px; display: flex; align-items: center; justify-content: center; margin-bottom: 24px;">' +
+          '<div style="position: absolute; inset: 0; border-radius: 50%; border: 2px solid rgba(255,255,255,0.2); animation: zhayaPulse 1.8s cubic-bezier(0, 0, 0.2, 1) infinite;"></div>' +
+          '<div style="width: 48px; height: 48px; border-radius: 50%; border: 2px solid rgba(255,255,255,0.2); border-top-color: #ffffff; animation: zhayaSpin 1s linear infinite; display: flex; align-items: center; justify-content: center;">' +
+            '<svg style="width: 20px; height: 20px; color: #ffffff;" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 3v4M3 5h4M6 17v4m-2-2h4m11-16v4m-2-2h4m-2 10v4m-2-2h4M12 3v18"></path></svg>' +
+          '</div>' +
+        '</div>' +
+        '<h3 style="font-size: 15px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.1em; color: ' + escapeHtml(textColor) + '; margin: 0 0 8px 0;">Analisando suas medidas</h3>' +
+        '<p style="font-size: 12px; color: ' + escapeHtml(secTextColor) + '; margin: 0; letter-spacing: 0.02em;">Preparando sua recomendação</p>' +
+      '</div>';
+    }
+
     // STEP 3: Resultado
     else if (currentStep === 3) {
       innerHtml += '<div style="text-align: center; padding: 20px 8px 12px; max-width: 440px; margin: 0 auto;">';
@@ -1045,11 +1168,11 @@ var imgBlockHtml =
 
         if (res.status === 'recommended' && res.size) {
           innerHtml += '<div style="font-size: 11px; text-transform: uppercase; letter-spacing: 0.18em; color: ' + escapeHtml(secTextColor) + '; margin-bottom: 12px; font-weight: 500;">SEU TAMANHO SUGERIDO</div>';
-          innerHtml += '<div style="font-size: 64px; font-weight: 700; color: ' + escapeHtml(textColor) + '; line-height: 1; margin-bottom: 16px; letter-spacing: -0.02em;">' + escapeHtml(res.size) + '</div>';
+          innerHtml += '<div style="font-size: clamp(32px, 8vw, 56px); font-weight: 700; color: ' + escapeHtml(textColor) + '; line-height: 1.1; margin-bottom: 16px; letter-spacing: -0.02em; word-break: break-word;">' + escapeHtml(res.size) + '</div>';
           innerHtml += '<div style="font-size: 13px; color: ' + escapeHtml(secTextColor) + '; margin-bottom: 28px; line-height: 1.5;">' + escapeHtml(res.message || 'Este tamanho apresenta a melhor correspondência com as medidas informadas.') + '</div>';
         } else if (res.status === 'between_sizes' && res.size && res.alternateSize) {
           innerHtml += '<div style="font-size: 11px; text-transform: uppercase; letter-spacing: 0.18em; color: ' + escapeHtml(secTextColor) + '; margin-bottom: 12px; font-weight: 500;">VOCÊ ESTÁ ENTRE DOIS TAMANHOS</div>';
-          innerHtml += '<div style="font-size: 48px; font-weight: 700; color: ' + escapeHtml(textColor) + '; line-height: 1; margin-bottom: 16px; letter-spacing: -0.02em;">' + escapeHtml(res.size) + ' e ' + escapeHtml(res.alternateSize) + '</div>';
+          innerHtml += '<div style="font-size: clamp(24px, 6vw, 40px); font-weight: 700; color: ' + escapeHtml(textColor) + '; line-height: 1.1; margin-bottom: 16px; letter-spacing: -0.02em; word-break: break-word;">' + escapeHtml(res.size) + ' e ' + escapeHtml(res.alternateSize) + '</div>';
           innerHtml += '<div style="font-size: 13px; color: ' + escapeHtml(secTextColor) + '; margin-bottom: 28px; line-height: 1.6;">' + escapeHtml(res.message || (escapeHtml(res.size) + ' pode oferecer um caimento mais ajustado.<br/>' + escapeHtml(res.alternateSize) + ' pode oferecer mais conforto.')) + '</div>';
         } else {
           innerHtml += '<div style="font-size: 11px; text-transform: uppercase; letter-spacing: 0.18em; color: ' + escapeHtml(secTextColor) + '; margin-bottom: 12px; font-weight: 500;">NÃO ENCONTRADO</div>';
@@ -1060,8 +1183,76 @@ var imgBlockHtml =
 
       innerHtml += '<div style="display: flex; gap: 10px; flex-wrap: wrap; border-top: 1px solid rgba(255,255,255,0.08); padding-top: 18px;">';
       innerHtml += '<button id="zhaya-recalc-btn" style="flex: 1 1 120px; min-height: 48px; background: transparent; color: #ffffff; border: 1px solid rgba(255,255,255,0.2); border-radius: 8px; font-size: 12px; font-weight: 600; cursor: pointer; transition: background 0.2s; font-family: inherit;">' + escapeHtml(txt.recalculateButtonText || 'Calcular novamente') + '</button>';
-      innerHtml += '<button id="zhaya-close-btn" style="flex: 1 1 120px; min-height: 48px; background: ' + escapeHtml(btnColor) + '; color: ' + escapeHtml(btnTextColor) + '; border: none; border-radius: 8px; font-size: 12px; font-weight: 600; cursor: pointer; transition: opacity 0.2s; font-family: inherit;">' + escapeHtml(txt.closeButtonText || 'Fechar') + '</button>';
+      innerHtml += '<button id="zhaya-close-btn" style="flex: 1 1 120px; min-height: 48px; background: ' + escapeHtml(btnColor) + '; color: ' + escapeHtml(btnTextColor) + '; border: none; border-radius: 8px; font-size: 12px; font-weight: 600; cursor: pointer; transition: opacity 0.2s; font-family: inherit;">' + escapeHtml(txt.closeButtonText || 'Concluir') + '</button>';
       innerHtml += '</div>';
+
+      innerHtml += '</div>';
+    }
+
+    // STEP 4: Pesquisa de Feedback Pós-Recomendação
+    else if (currentStep === 4) {
+      var feedbackFormState = window.__zhayaFeedbackState || { adequacy: null, ease: null, comment: '' };
+      var isSuccess = Boolean(window.__zhayaFeedbackSubmitted);
+
+      innerHtml += '<div style="text-align: left; padding: 12px 8px; max-width: 440px; margin: 0 auto; box-sizing: border-box;">';
+      innerHtml += '<div style="text-align: center; border-bottom: 1px solid rgba(255,255,255,0.1); padding-bottom: 12px; margin-bottom: 16px;">' +
+        '<h3 style="font-size: 13px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.08em; color: ' + escapeHtml(textColor) + '; margin: 0 0 4px 0;">Sua opinião é importante</h3>' +
+        '<p style="font-size: 11px; color: ' + escapeHtml(secTextColor) + '; margin: 0;">Responda 2 perguntas rápidas para melhorar nossas recomendações</p>' +
+      '</div>';
+
+      if (isSuccess) {
+        innerHtml += '<div style="padding: 32px 16px; text-align: center;">' +
+          '<div style="display: inline-flex; align-items: center; justify-content: center; width: 44px; height: 44px; border-radius: 50%; background: rgba(16, 185, 129, 0.15); border: 1px solid rgba(16, 185, 129, 0.3); color: #10b981; margin-bottom: 12px;">✓</div>' +
+          '<p style="font-size: 13px; font-weight: 600; color: ' + escapeHtml(textColor) + '; margin: 0;">Obrigado pelo seu feedback!</p>' +
+        '</div>';
+      } else {
+        // Q1: Adequação
+        innerHtml += '<div style="margin-bottom: 16px;">' +
+          '<label style="display: block; font-size: 11px; font-weight: 600; color: ' + escapeHtml(textColor) + '; margin-bottom: 8px;">1. A recomendação pareceu adequada para você? <span style="color: #ef4444;">*</span></label>' +
+          '<div style="display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px;">';
+
+        var opts = ['Sim', 'Não', 'Ainda não sei'];
+        for (var oIdx = 0; oIdx < opts.length; oIdx++) {
+          var optVal = opts[oIdx];
+          var isSelOpt = feedbackFormState.adequacy === optVal;
+          var optBtnStyle = isSelOpt
+            ? 'background: ' + escapeHtml(btnColor) + '; color: ' + escapeHtml(btnTextColor) + '; border: 1px solid ' + escapeHtml(btnColor) + ';'
+            : 'background: rgba(255,255,255,0.04); color: ' + escapeHtml(textColor) + '; border: 1px solid rgba(255,255,255,0.12);';
+          innerHtml += '<button type="button" class="zhaya-fb-adequacy-btn" data-val="' + escapeHtml(optVal) + '" style="' + optBtnStyle + ' padding: 8px 4px; border-radius: 6px; font-size: 11px; font-weight: 600; cursor: pointer; transition: all 0.2s; font-family: inherit;">' + escapeHtml(optVal) + '</button>';
+        }
+        innerHtml += '</div></div>';
+
+        // Q2: Facilidade
+        innerHtml += '<div style="margin-bottom: 16px;">' +
+          '<label style="display: block; font-size: 11px; font-weight: 600; color: ' + escapeHtml(textColor) + '; margin-bottom: 8px;">2. Foi fácil informar suas medidas? (1 a 5) <span style="color: #ef4444;">*</span></label>' +
+          '<div style="display: flex; gap: 6px; justify-content: space-between;">';
+        for (var rVal = 1; rVal <= 5; rVal++) {
+          var isSelRate = feedbackFormState.ease === rVal;
+          var rateBtnStyle = isSelRate
+            ? 'background: ' + escapeHtml(btnColor) + '; color: ' + escapeHtml(btnTextColor) + '; border: 1px solid ' + escapeHtml(btnColor) + ';'
+            : 'background: rgba(255,255,255,0.04); color: ' + escapeHtml(textColor) + '; border: 1px solid rgba(255,255,255,0.12);';
+          innerHtml += '<button type="button" class="zhaya-fb-ease-btn" data-val="' + rVal + '" style="' + rateBtnStyle + ' flex: 1; padding: 8px 0; border-radius: 6px; font-size: 12px; font-weight: 700; cursor: pointer; transition: all 0.2s; font-family: inherit; text-align: center;">' + rVal + '</button>';
+        }
+        innerHtml += '</div>' +
+        '<div style="display: flex; justify-content: space-between; font-size: 9px; color: ' + escapeHtml(secTextColor) + '; margin-top: 4px;"><span>Muito difícil</span><span>Muito fácil</span></div>' +
+        '</div>';
+
+        // Q3: Comentário
+        innerHtml += '<div style="margin-bottom: 20px;">' +
+          '<label style="display: block; font-size: 11px; font-weight: 500; color: ' + escapeHtml(secTextColor) + '; margin-bottom: 6px;">3. Quer contar algo para a gente? <span style="opacity: 0.6;">(Opcional)</span></label>' +
+          '<textarea id="zhaya-fb-comment" rows="2" placeholder="Sua sugestão ou comentário..." style="width: 100%; background: rgba(255,255,255,0.04); color: ' + escapeHtml(textColor) + '; border: 1px solid rgba(255,255,255,0.12); border-radius: 6px; padding: 8px 10px; font-size: 11px; font-family: inherit; box-sizing: border-box; resize: none; outline: none;">' + escapeHtml(feedbackFormState.comment || '') + '</textarea>' +
+        '</div>';
+
+        // Actions
+        var canSubmit = Boolean(feedbackFormState.adequacy && feedbackFormState.ease);
+        var submitOpacity = canSubmit ? '1' : '0.4';
+        var submitCursor = canSubmit ? 'pointer' : 'not-allowed';
+
+        innerHtml += '<div style="display: flex; flex-direction: column; gap: 8px;">' +
+          '<button id="zhaya-fb-submit-btn" style="width: 100%; min-height: 44px; background: ' + escapeHtml(btnColor) + '; color: ' + escapeHtml(btnTextColor) + '; border: none; border-radius: 8px; font-size: 12px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.05em; opacity: ' + submitOpacity + '; cursor: ' + submitCursor + '; transition: all 0.2s; font-family: inherit;">Enviar</button>' +
+          '<button id="zhaya-fb-skip-btn" style="width: 100%; padding: 8px 0; background: transparent; color: ' + escapeHtml(secTextColor) + '; border: none; font-size: 11px; cursor: pointer; font-family: inherit;">Pular</button>' +
+        '</div>';
+      }
 
       innerHtml += '</div>';
     }
@@ -1277,6 +1468,10 @@ var imgBlockHtml =
     var btnConfirm = document.getElementById('zhaya-wheel-btn-confirm');
     if (btnConfirm) {
       btnConfirm.onclick = function() {
+        if (!hasTrackedMeasurementsInSession) {
+          hasTrackedMeasurementsInSession = true;
+          sendWidgetAnalyticsEvent('measurements_started');
+        }
         var confirmedOpt = options[selectedIdx];
         if (confirmedOpt) {
           var formattedVal = confirmedOpt.display;
@@ -1312,7 +1507,127 @@ var imgBlockHtml =
     if (closeX) closeX.onclick = closeModal;
 
     var closeBtn = document.getElementById('zhaya-close-btn');
-    if (closeBtn) closeBtn.onclick = closeModal;
+    if (closeBtn) {
+      closeBtn.onclick = function() {
+        var enableFeedback = configData && configData.enableFeedbackSurvey !== false;
+        if (enableFeedback) {
+          currentStep = 4;
+          renderModalContent();
+        } else {
+          closeModal();
+        }
+      };
+    }
+
+    if (currentStep === 4) {
+      if (!hasTrackedFeedbackStartedInSession) {
+        hasTrackedFeedbackStartedInSession = true;
+        sendWidgetAnalyticsEvent('feedback_started', {
+          productTypeId: selectedType ? selectedType.id : null,
+          productTypeName: selectedType ? selectedType.name : null,
+          productCategory: selectedType ? selectedType.category : null,
+          recommendationStatus: (userMeasurements.__result || {}).status || null
+        });
+      }
+
+      if (!window.__zhayaFeedbackState) {
+        window.__zhayaFeedbackState = { adequacy: null, ease: null, comment: '' };
+      }
+
+      var adBtns = document.querySelectorAll('.zhaya-fb-adequacy-btn');
+      adBtns.forEach(function(b) {
+        b.onclick = function() {
+          window.__zhayaFeedbackState.adequacy = b.getAttribute('data-val');
+          renderModalContent();
+        };
+      });
+
+      var easeBtns = document.querySelectorAll('.zhaya-fb-ease-btn');
+      easeBtns.forEach(function(b) {
+        b.onclick = function() {
+          window.__zhayaFeedbackState.ease = parseInt(b.getAttribute('data-val'), 10);
+          renderModalContent();
+        };
+      });
+
+      var commentTa = document.getElementById('zhaya-fb-comment');
+      if (commentTa) {
+        commentTa.oninput = function() {
+          window.__zhayaFeedbackState.comment = commentTa.value;
+        };
+      }
+
+      var skipBtn = document.getElementById('zhaya-fb-skip-btn');
+      if (skipBtn) {
+        skipBtn.onclick = function() {
+          sendWidgetAnalyticsEvent('feedback_skipped', {
+            productTypeId: selectedType ? selectedType.id : null,
+            productTypeName: selectedType ? selectedType.name : null,
+            productCategory: selectedType ? selectedType.category : null,
+            recommendationStatus: (userMeasurements.__result || {}).status || null
+          });
+          window.__zhayaFeedbackState = null;
+          window.__zhayaFeedbackSubmitted = false;
+          closeModal();
+        };
+      }
+
+      var submitBtn = document.getElementById('zhaya-fb-submit-btn');
+      if (submitBtn) {
+        submitBtn.onclick = function() {
+          var st = window.__zhayaFeedbackState;
+          if (!st || !st.adequacy || !st.ease) return;
+
+          sendWidgetAnalyticsEvent('feedback_submitted', {
+            productTypeId: selectedType ? selectedType.id : null,
+            productTypeName: selectedType ? selectedType.name : null,
+            productCategory: selectedType ? selectedType.category : null,
+            recommendationStatus: (userMeasurements.__result || {}).status || null
+          });
+
+          submitBtn.disabled = true;
+          submitBtn.textContent = 'Enviando...';
+
+          var isPreview = window.location.search.indexOf('zhaya-match-preview=1') !== -1;
+          var res = userMeasurements.__result || {};
+
+          var payload = {
+            visitorId: getVisitorId(),
+            sessionId: getSessionId(),
+            productTypeId: selectedType ? selectedType.id : null,
+            recommendationStatus: res.status || null,
+            recommendedSize: res.size || null,
+            alternateSize: res.alternateSize || null,
+            adequacyResponse: st.adequacy,
+            easeRating: st.ease,
+            comment: st.comment || null,
+            configVersion: configData && configData.version ? configData.version : 1
+          };
+
+          if (!isPreview && typeof fetch !== 'undefined') {
+            var apiUrl = (configData && configData.apiBaseUrl) ? configData.apiBaseUrl : '';
+            fetch(apiUrl + '/api/public/feedback', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify(payload)
+            }).catch(function(err) {
+              console.warn('[Zhaya Match] Falha ao enviar feedback:', err);
+            });
+          } else {
+            console.log('[Zhaya Match Preview] Feedback simulado:', payload);
+          }
+
+          window.__zhayaFeedbackSubmitted = true;
+          renderModalContent();
+
+          setTimeout(function() {
+            window.__zhayaFeedbackState = null;
+            window.__zhayaFeedbackSubmitted = false;
+            closeModal();
+          }, 1000);
+        };
+      }
+    }
 
     var startBtn = document.getElementById('zhaya-start-btn');
     if (startBtn) {
@@ -1492,6 +1807,15 @@ var imgBlockHtml =
           if (isPreview) console.log('[Zhaya Match] medidas normalizadas');
           if (isPreview) console.log('[Zhaya Match] cálculo iniciado');
 
+          if (!hasTrackedProcessingStartedInSession) {
+            hasTrackedProcessingStartedInSession = true;
+            sendWidgetAnalyticsEvent('recommendation_processing_started', {
+              productTypeId: selectedType ? selectedType.id : null,
+              productTypeName: selectedType ? selectedType.name : null,
+              productCategory: selectedType ? selectedType.category : null
+            });
+          }
+
           var result = calculateRecommendationLocal(selectedType, userMeasurements);
           if (isPreview) console.log('[Zhaya Match] resultado: ' + result.status);
 
@@ -1499,17 +1823,42 @@ var imgBlockHtml =
 
           if (result.status === 'none' || result.status === 'not_found') {
             sendWidgetAnalyticsEvent('recommendation_not_found', {
+              productTypeId: selectedType ? selectedType.id : null,
+              productTypeName: selectedType ? selectedType.name : null,
+              productCategory: selectedType ? selectedType.category : null,
               recommendationStatus: 'not_found'
             });
           } else {
             sendWidgetAnalyticsEvent('recommendation_generated', {
+              productTypeId: selectedType ? selectedType.id : null,
+              productTypeName: selectedType ? selectedType.name : null,
+              productCategory: selectedType ? selectedType.category : null,
               recommendationStatus: result.status
             });
           }
 
-          currentStep = 3;
+          currentStep = 2.5;
           renderModalContent();
-          if (isPreview) console.log('[Zhaya Match] etapa final renderizada');
+
+          if (loadingTimerId) clearTimeout(loadingTimerId);
+
+          loadingTimerId = setTimeout(function() {
+            loadingTimerId = null;
+            currentStep = 3;
+            renderModalContent();
+
+            if (!hasTrackedResultViewedInSession) {
+              hasTrackedResultViewedInSession = true;
+              sendWidgetAnalyticsEvent('recommendation_result_viewed', {
+                productTypeId: selectedType ? selectedType.id : null,
+                productTypeName: selectedType ? selectedType.name : null,
+                productCategory: selectedType ? selectedType.category : null,
+                recommendationStatus: result.status === 'none' ? 'not_found' : result.status
+              });
+            }
+
+            if (isPreview) console.log('[Zhaya Match] etapa final renderizada');
+          }, 2000);
         } catch (err) {
           console.error('[Zhaya Match] Falha no cálculo', err);
         }
@@ -1538,33 +1887,52 @@ var imgBlockHtml =
         '</div>' +
         '<div style="display: flex; flex-direction: column; gap: 10px; flex: 1; overflow-y: auto;">';
 
-        for (var m = 0; m < keys.length; m++) {
-          var mk = keys[m];
-          var h = helps[mk] || {};
-
-          var obsHtml = '';
-          if (h.observations && Array.isArray(h.observations)) {
-            var validObs = h.observations.filter(function(obs) {
-              if (!obs || obs.active === false || !obs.text || !obs.text.trim()) return false;
-              if (obs.condition && obs.condition.type === 'always') return true;
-              if (obs.condition && obs.condition.type === 'measurement_active' && obs.condition.measurementKey) {
-                return keys.indexOf(obs.condition.measurementKey) !== -1;
-              }
-              return false;
-            }).sort(function(a, b) { return (a.order || 0) - (b.order || 0); });
-
-            for (var o = 0; o < validObs.length; o++) {
-              obsHtml += '<div style="font-size: 10px; color: #a3a3a3; margin-top: 6px; padding: 6px 8px; background: rgba(255,255,255,0.03); border: 1px solid rgba(255,255,255,0.06); border-radius: 4px; line-height: 1.3;">' +
-                '<strong style="color: #ffffff;">Obs:</strong> ' + escapeHtml(validObs[o].text) +
+        if (selectedType.measurementGuideTips && Array.isArray(selectedType.measurementGuideTips) && selectedType.measurementGuideTips.length > 0) {
+          for (var tipIdx = 0; tipIdx < selectedType.measurementGuideTips.length; tipIdx++) {
+            var tipItem = selectedType.measurementGuideTips[tipIdx];
+            if (tipItem && (tipItem.title || tipItem.text)) {
+              overlayContent += '<div style="background: rgba(255,255,255,0.04); border: 1px solid rgba(255,255,255,0.08); padding: 10px 12px; border-radius: 6px;">' +
+                (tipItem.title ? '<div style="font-size: 11px; font-weight: 700; color: #ffffff; text-transform: uppercase; margin-bottom: 4px;">' + escapeHtml(tipItem.title) + '</div>' : '') +
+                '<div style="font-size: 11px; color: #a3a3a3; line-height: 1.4;">' + escapeHtml(tipItem.text || '') + '</div>' +
               '</div>';
             }
           }
+        } else {
+          for (var m = 0; m < keys.length; m++) {
+            var mk = keys[m];
+            var h = helps[mk] || {};
 
-          overlayContent += '<div style="background: rgba(255,255,255,0.04); border: 1px solid rgba(255,255,255,0.08); padding: 10px 12px; border-radius: 6px;">' +
-            '<div style="font-size: 11px; font-weight: 700; color: #ffffff; text-transform: uppercase; margin-bottom: 2px;">' + escapeHtml(h.label || mk) + '</div>' +
-            '<div style="font-size: 11px; font-weight: 600; color: #d4d4d4; margin-bottom: 4px;">' + escapeHtml(h.title || ('Como medir ' + (h.label || mk))) + '</div>' +
-            '<div style="font-size: 11px; color: #a3a3a3; line-height: 1.4;">' + escapeHtml(h.description || 'Posicione a fita métrica confortavelmente ao redor da área sem apertar em demasia.') + '</div>' +
-            obsHtml +
+            var obsHtml = '';
+            if (h.observations && Array.isArray(h.observations)) {
+              var validObs = h.observations.filter(function(obs) {
+                if (!obs || obs.active === false || !obs.text || !obs.text.trim()) return false;
+                if (obs.condition && obs.condition.type === 'always') return true;
+                if (obs.condition && obs.condition.type === 'measurement_active' && obs.condition.measurementKey) {
+                  return keys.indexOf(obs.condition.measurementKey) !== -1;
+                }
+                return false;
+              }).sort(function(a, b) { return (a.order || 0) - (b.order || 0); });
+
+              for (var o = 0; o < validObs.length; o++) {
+                obsHtml += '<div style="font-size: 10px; color: #a3a3a3; margin-top: 6px; padding: 6px 8px; background: rgba(255,255,255,0.03); border: 1px solid rgba(255,255,255,0.06); border-radius: 4px; line-height: 1.3;">' +
+                  '<strong style="color: #ffffff;">Obs:</strong> ' + escapeHtml(validObs[o].text) +
+                '</div>';
+              }
+            }
+
+            overlayContent += '<div style="background: rgba(255,255,255,0.04); border: 1px solid rgba(255,255,255,0.08); padding: 10px 12px; border-radius: 6px;">' +
+              '<div style="font-size: 11px; font-weight: 700; color: #ffffff; text-transform: uppercase; margin-bottom: 2px;">' + escapeHtml(h.label || mk) + '</div>' +
+              '<div style="font-size: 11px; font-weight: 600; color: #d4d4d4; margin-bottom: 4px;">' + escapeHtml(h.title || ('Como medir ' + (h.label || mk))) + '</div>' +
+              '<div style="font-size: 11px; color: #a3a3a3; line-height: 1.4;">' + escapeHtml(h.description || 'Posicione a fita métrica confortavelmente ao redor da área sem apertar em demasia.') + '</div>' +
+              obsHtml +
+            '</div>';
+          }
+        }
+
+        if (selectedType.measurementGuideObservation) {
+          overlayContent += '<div style="background: rgba(255,255,255,0.05); border: 1px solid rgba(255,255,255,0.12); padding: 10px 12px; border-radius: 6px; text-align: center; margin-top: 4px;">' +
+            '<div style="font-size: 10px; font-weight: 800; color: #a3a3a3; text-transform: uppercase; tracking-wider; margin-bottom: 2px;">Dica</div>' +
+            '<div style="font-size: 11px; font-weight: 600; color: #ffffff; line-height: 1.4;">' + escapeHtml(selectedType.measurementGuideObservation) + '</div>' +
           '</div>';
         }
 

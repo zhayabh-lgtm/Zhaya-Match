@@ -151,6 +151,7 @@ async function startServer() {
       res.setHeader('Cache-Control', 'public, max-age=60, s-maxage=60');
       return res.json({
         enabled: config.enabled !== false,
+        enableFeedbackSurvey: config.enableFeedbackSurvey !== false,
         version: config.version || 1,
         allowedDomains: allowedDomains,
         testMode: config.testMode || false,
@@ -256,9 +257,14 @@ async function startServer() {
         'flow_started',
         'product_type_selected',
         'measurements_started',
+        'recommendation_processing_started',
         'recommendation_generated',
+        'recommendation_result_viewed',
         'recommendation_not_found',
         'measurement_help_opened',
+        'feedback_started',
+        'feedback_submitted',
+        'feedback_skipped',
         'widget_closed',
       ];
 
@@ -317,6 +323,58 @@ async function startServer() {
       console.error('Analytics API Error:', err);
       // Retorna 200 para garantir que erros de analytics não quebrem a UX do cliente
       return res.status(200).json({ success: false, error: 'SILENT_ERROR' });
+    }
+  });
+
+  // 5b. Public API - Feedback Survey Ingestion
+  app.post('/api/public/feedback', async (req, res) => {
+    try {
+      res.setHeader('Access-Control-Allow-Origin', '*');
+      res.setHeader('Cross-Origin-Resource-Policy', 'cross-origin');
+
+      const body = req.body || {};
+      const {
+        visitorId,
+        sessionId,
+        productTypeId,
+        recommendationStatus,
+        recommendedSize,
+        alternateSize,
+        adequacyResponse,
+        easeRating,
+        comment,
+        configVersion,
+      } = body;
+
+      const VALID_ADEQUACY = ['Sim', 'Não', 'Ainda não sei'];
+      if (!adequacyResponse || !VALID_ADEQUACY.includes(adequacyResponse)) {
+        return res.status(400).json({ error: 'INVALID_ADEQUACY_RESPONSE' });
+      }
+
+      const rating = Number(easeRating);
+      if (isNaN(rating) || rating < 1 || rating > 5) {
+        return res.status(400).json({ error: 'INVALID_EASE_RATING' });
+      }
+
+      const cleanComment = typeof comment === 'string' ? comment.trim().slice(0, 1000) : undefined;
+
+      await Repository.saveFeedbackResponse({
+        visitorId: typeof visitorId === 'string' ? visitorId : undefined,
+        sessionId: typeof sessionId === 'string' ? sessionId : undefined,
+        productTypeId: typeof productTypeId === 'string' ? productTypeId : undefined,
+        recommendationStatus: typeof recommendationStatus === 'string' ? recommendationStatus : undefined,
+        recommendedSize: typeof recommendedSize === 'string' ? recommendedSize : undefined,
+        alternateSize: typeof alternateSize === 'string' ? alternateSize : undefined,
+        adequacyResponse,
+        easeRating: rating,
+        comment: cleanComment,
+        configVersion: typeof configVersion === 'number' ? configVersion : undefined,
+      });
+
+      return res.json({ success: true, message: 'Feedback gravado com sucesso.' });
+    } catch (err: any) {
+      console.error('Feedback API Error:', err);
+      return res.status(500).json({ error: 'FEEDBACK_SAVE_FAILED' });
     }
   });
 
