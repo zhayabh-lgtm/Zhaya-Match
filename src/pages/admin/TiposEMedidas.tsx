@@ -126,8 +126,13 @@ export const TiposEMedidas: React.FC = () => {
   };
 
   const handleSelectType = (id: string) => {
+    let currentTypes = types;
+    if (activeType) {
+      currentTypes = currentTypes.map((t) => (t.id === activeType.id ? activeType : t));
+      setTypes(currentTypes);
+    }
     setSelectedTypeId(id);
-    const found = types.find((t) => t.id === id);
+    const found = currentTypes.find((t) => t.id === id);
     if (found) setActiveType(JSON.parse(JSON.stringify(found)));
   };
 
@@ -235,9 +240,25 @@ export const TiposEMedidas: React.FC = () => {
     setErrorMessage(null);
     setMessage(null);
     try {
+      let currentActive = activeType;
+      if (currentActive && tagInput.trim()) {
+        const raw = tagInput.trim().replace(/^,|,$/g, '');
+        if (raw) {
+          const existing = currentActive.storeTags || [];
+          if (!existing.includes(raw)) {
+            currentActive = {
+              ...currentActive,
+              storeTags: [...existing, raw],
+            };
+            setActiveType(currentActive);
+          }
+          setTagInput('');
+        }
+      }
+
       let typesToSave = [...types];
-      if (activeType) {
-        typesToSave = typesToSave.map((pt) => (pt.id === activeType.id ? activeType : pt));
+      if (currentActive) {
+        typesToSave = typesToSave.map((pt) => (pt.id === currentActive.id ? currentActive : pt));
       }
 
       const valErr = validateProductTypes(typesToSave);
@@ -253,8 +274,8 @@ export const TiposEMedidas: React.FC = () => {
       setTypes(reloaded);
       replaceProductTypes(reloaded);
 
-      if (activeType) {
-        const found = reloaded.find((t) => t.id === activeType.id);
+      if (currentActive) {
+        const found = reloaded.find((t) => t.id === currentActive.id);
         if (found) {
           setActiveType(JSON.parse(JSON.stringify(found)));
         }
@@ -272,9 +293,11 @@ export const TiposEMedidas: React.FC = () => {
 
   const updateActiveType = (updatedType: ProductType) => {
     setActiveType(updatedType);
-    const updatedTypes = types.map((t) => (t.id === updatedType.id ? updatedType : t));
-    setTypes(updatedTypes);
-    replaceProductTypes(updatedTypes);
+    setTypes((prev) => {
+      const updatedTypes = prev.map((t) => (t.id === updatedType.id ? updatedType : t));
+      replaceProductTypes(updatedTypes);
+      return updatedTypes;
+    });
   };
 
   const handleToggleMeasurement = (key: MeasurementKey) => {

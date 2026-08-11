@@ -48,15 +48,23 @@ export function normalizeProductType(raw: any): ProductType {
   const activeVal = raw?.active;
   const isExplicitFalse = activeVal === false || activeVal === 0 || activeVal === 'false' || activeVal === '0';
   
-  const rawTips = Array.isArray(raw?.measurementGuideTips || raw?.measurement_guide_tips)
-    ? (raw.measurementGuideTips || raw.measurement_guide_tips)
-    : [];
+  const rawTips = Array.isArray(raw?.measurementGuideTips)
+    ? raw.measurementGuideTips
+    : (Array.isArray(raw?.measurement_guide_tips) ? raw.measurement_guide_tips : []);
 
   const tips = rawTips.map((tip: any, idx: number) => ({
     id: String(tip?.id || `tip-${idx}-${Math.random().toString(36).substring(2, 7)}`),
     title: String(tip?.title || ''),
     text: String(tip?.text || ''),
   }));
+
+  const rawObs = raw?.measurementGuideObservation !== undefined
+    ? raw.measurementGuideObservation
+    : raw?.measurement_guide_observation;
+
+  const rawTags = Array.isArray(raw?.storeTags)
+    ? raw.storeTags
+    : (Array.isArray(raw?.store_tags) ? raw.store_tags : []);
 
   return {
     id: String(raw?.id || ''),
@@ -71,10 +79,8 @@ export function normalizeProductType(raw: any): ProductType {
     measurementImageUrl: raw?.measurementImageUrl || raw?.measurement_image_url || undefined,
     measurementImageCaption: raw?.measurementImageCaption || raw?.measurement_image_caption || undefined,
     measurementGuideTips: tips,
-    measurementGuideObservation: raw?.measurementGuideObservation || raw?.measurement_guide_observation || undefined,
-    storeTags: Array.isArray(raw?.storeTags || raw?.store_tags)
-      ? (raw.storeTags || raw.store_tags).map((t: any) => String(t).trim()).filter(Boolean)
-      : [],
+    measurementGuideObservation: rawObs !== null && rawObs !== undefined ? String(rawObs) : undefined,
+    storeTags: rawTags.map((t: any) => String(t).trim()).filter(Boolean),
     measurements: Array.isArray(raw?.measurements) ? raw.measurements : [],
     sizes: Array.isArray(raw?.sizes) ? raw.sizes.map(normalizeSizeRow) : [],
   };

@@ -681,53 +681,19 @@ export const Repository = {
         measurement_guide_tips: pt.measurementGuideTips || [],
         measurement_guide_observation: pt.measurementGuideObservation || null,
         store_tags: pt.storeTags || [],
-        measurements: pt.measurements,
-        sizes: pt.sizes,
+        measurements: pt.measurements || [],
+        sizes: pt.sizes || [],
       };
 
-      let { error } = await client.from('product_types').upsert(dbPayload);
-
-      if (
-        error &&
-        (error.message?.includes('category') ||
-          error.message?.includes('fit_type') ||
-          error.message?.includes('icon_url') ||
-          error.message?.includes('use_icon_in_selector') ||
-          error.message?.includes('measurement_guide_tips') ||
-          error.message?.includes('measurement_guide_observation') ||
-          error.message?.includes('store_tags') ||
-          error.code === 'PGRST204')
-      ) {
-        console.warn(
-          'Alguma coluna opcional não foi encontrada na tabela product_types do Supabase. Salvando com payload simplificado...',
-          error.message
-        );
-        if (error.message?.includes('category')) delete dbPayload.category;
-        if (error.message?.includes('fit_type')) delete dbPayload.fit_type;
-        if (error.message?.includes('measurement_guide_tips')) delete dbPayload.measurement_guide_tips;
-        if (error.message?.includes('measurement_guide_observation')) delete dbPayload.measurement_guide_observation;
-        if (error.message?.includes('store_tags')) delete dbPayload.store_tags;
-        if (error.message?.includes('icon_url')) delete dbPayload.icon_url;
-        if (error.message?.includes('use_icon_in_selector')) delete dbPayload.use_icon_in_selector;
-        
-        // Se error for PGRST204 ou genérico, limpa todos os opcionais
-        if (error.code === 'PGRST204' || !dbPayload.id) {
-          delete dbPayload.category;
-          delete dbPayload.fit_type;
-          delete dbPayload.icon_url;
-          delete dbPayload.use_icon_in_selector;
-          delete dbPayload.measurement_guide_tips;
-          delete dbPayload.measurement_guide_observation;
-          delete dbPayload.store_tags;
-        }
-
-        const fallbackRes = await client.from('product_types').upsert(dbPayload);
-        error = fallbackRes.error;
-      }
+      const { data, error } = await client.from('product_types').upsert(dbPayload).select();
 
       if (error) {
         console.error('Erro ao salvar tipo de produto:', error);
-        throw new Error(`Falha ao salvar no banco de dados: ${error.message}`);
+        throw new Error(`Falha ao salvar no banco de dados (${error.code || 'ERRO'}): ${error.message}`);
+      }
+
+      if (data && Array.isArray(data) && data.length > 0) {
+        return normalizeProductType(data[0]);
       }
 
       return pt;
@@ -753,45 +719,19 @@ export const Repository = {
         measurement_guide_tips: pt.measurementGuideTips || [],
         measurement_guide_observation: pt.measurementGuideObservation || null,
         store_tags: pt.storeTags || [],
-        measurements: pt.measurements,
-        sizes: pt.sizes,
+        measurements: pt.measurements || [],
+        sizes: pt.sizes || [],
       }));
 
-      let { error } = await client.from('product_types').upsert(dbPayloads);
-
-      if (
-        error &&
-        (error.message?.includes('category') ||
-          error.message?.includes('fit_type') ||
-          error.message?.includes('icon_url') ||
-          error.message?.includes('use_icon_in_selector') ||
-          error.message?.includes('measurement_guide_tips') ||
-          error.message?.includes('measurement_guide_observation') ||
-          error.message?.includes('store_tags') ||
-          error.code === 'PGRST204')
-      ) {
-        console.warn(
-          'Alguma coluna opcional não foi encontrada na tabela product_types do Supabase. Salvando com payload simplificado...',
-          error.message
-        );
-        const fallbackPayloads = dbPayloads.map((payload) => {
-          const copy = { ...payload };
-          delete copy.category;
-          delete copy.fit_type;
-          delete copy.icon_url;
-          delete copy.use_icon_in_selector;
-          delete copy.measurement_guide_tips;
-          delete copy.measurement_guide_observation;
-          delete copy.store_tags;
-          return copy;
-        });
-        const fallbackRes = await client.from('product_types').upsert(fallbackPayloads);
-        error = fallbackRes.error;
-      }
+      const { data, error } = await client.from('product_types').upsert(dbPayloads).select();
 
       if (error) {
         console.error('Erro ao salvar tipos de produtos em lote:', error);
-        throw new Error(`Falha ao salvar tipos de peças no banco de dados: ${error.message}`);
+        throw new Error(`Falha ao salvar tipos de peças no banco de dados (${error.code || 'ERRO'}): ${error.message}`);
+      }
+
+      if (data && Array.isArray(data) && data.length > 0) {
+        return data.map((row: any) => normalizeProductType(row));
       }
 
       return typesList;
