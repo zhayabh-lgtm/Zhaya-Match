@@ -1,4 +1,5 @@
 import { createClient } from '@supabase/supabase-js';
+import { normalizeProductType } from '../../src/lib/normalize';
 
 const defaultAppearance = {
   showLogo: true,
@@ -228,31 +229,7 @@ if (error) {
     error.message
   );
 } else {
-  productTypes = (data || []).map((row: any) => ({
-    id: row.id,
-    name: row.name,
-    active: row.active === true,
-    order: row.sort_order ?? 0,
-
-    imageUrl: row.image_url || undefined,
-
-    iconUrl: row.icon_url || undefined,
-    useIconInSelector: row.use_icon_in_selector === true,
-
-    measurementImageUrl:
-      row.measurement_image_url || undefined,
-
-    measurementImageCaption:
-      row.measurement_image_caption || undefined,
-
-    measurements: Array.isArray(row.measurements)
-      ? row.measurements
-      : [],
-
-    sizes: Array.isArray(row.sizes)
-      ? row.sizes
-      : [],
-  }));
+  productTypes = (data || []).map((row: any) => normalizeProductType(row));
 }
   } catch (err: any) {
     console.error('[api/public/config] Exception fetching product_types:', err?.message || err);
