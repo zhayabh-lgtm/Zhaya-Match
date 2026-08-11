@@ -2,10 +2,10 @@ import express from 'express';
 import path from 'path';
 import fs from 'fs';
 import { createServer as createViteServer } from 'vite';
-import { Repository } from './src/lib/repository';
-import { calculateRecommendation } from './src/domain/recommendation';
-import { generateWidgetScript } from './src/widget/standaloneWidget';
-import { verifyAdminAuth } from './src/lib/adminAuth';
+import { Repository } from './src/lib/repository.js';
+import { calculateRecommendation } from './src/domain/recommendation.js';
+import { generateWidgetScript } from './src/widget/standaloneWidget.js';
+import { verifyAdminAuth } from './src/lib/adminAuth.js';
 import adminAnalyticsHandler from './api/admin/analytics.js';
 
 async function startServer() {
