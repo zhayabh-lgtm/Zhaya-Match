@@ -390,7 +390,7 @@ function initZhayaMatch() {
 }
 
 function fetchConfigFromNetwork(isBackground) {
-  if (isPreviewSessionActive) return; // Never overwrite active administrative preview snapshot with public API response
+  if (isPreviewSessionActive) returnPromise.resolve(); // Never overwrite active administrative preview snapshot with public API response
 
   fetch(API_BASE + '/api/public/config', {
     cache: 'no-store'
@@ -600,11 +600,18 @@ function fetchConfigFromNetwork(isBackground) {
       button.style.opacity = '1';
     };
 
-    button.onclick = function(e) {
-      e.preventDefault();
-      sendWidgetAnalyticsEvent('launcher_clicked');
+button.onclick = function(e) {
+  e.preventDefault();
+  sendWidgetAnalyticsEvent('launcher_clicked');
+
+  fetchConfigFromNetwork(true)
+    .then(function() {
       openModal();
-    };
+    })
+    .catch(function() {
+      openModal();
+    });
+};
 
     window.openZhayaMatchModal = openModal;
 

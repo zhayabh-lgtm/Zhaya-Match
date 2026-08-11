@@ -181,10 +181,10 @@ export default async function handler(req: any, res: any) {
     return res.status(200).end();
   }
 
-  res.setHeader('Content-Type', 'application/json; charset=utf-8');
-  res.setHeader(
+res.setHeader('Content-Type', 'application/json; charset=utf-8');
+res.setHeader(
   'Cache-Control',
-  'public, max-age=0, s-maxage=60, stale-while-revalidate=60'
+  'no-store, no-cache, must-revalidate'
 );
 
   const url = process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL || '';
@@ -210,10 +210,11 @@ export default async function handler(req: any, res: any) {
   let appearance = defaultAppearance;
   let texts = defaultTexts;
   let measurementHelps: Record<string, any> = { ...defaultMeasurementHelps };
-  let enabled = true;
-  let version = 1;
-  let testMode = false;
-  let allowedDomains = defaultDomains;
+let enabled = true;
+let version = 1;
+let testMode = false;
+let allowedDomains = defaultDomains;
+let enableFeedbackSurvey = true;
 
   // 1. Fetch product_types
   try {
@@ -287,26 +288,29 @@ if (error) {
     if (error) {
       console.error('[api/public/config] Failed fetching app_settings:', error.message);
     } else if (data && data.length > 0) {
-      const row = data[0];
-      enabled = row.enabled ?? true;
-      version = row.version || 1;
-      testMode = row.test_mode ?? false;
-      if (Array.isArray(row.allowed_domains) && row.allowed_domains.length > 0) {
-        allowedDomains = Array.from(new Set([...row.allowed_domains, ...defaultDomains]));
-      }
+const row = data[0];
+enabled = row.enabled ?? true;
+version = row.version || 1;
+testMode = row.test_mode ?? false;
+enableFeedbackSurvey = row.enable_feedback_survey ?? true;
+
+if (Array.isArray(row.allowed_domains) && row.allowed_domains.length > 0) {
+  allowedDomains = Array.from(new Set([...row.allowed_domains, ...defaultDomains]));
+}
     }
   } catch (err: any) {
     console.error('[api/public/config] Exception fetching app_settings:', err?.message || err);
   }
 
-  return res.status(200).json({
-    enabled,
-    version,
-    allowedDomains,
-    testMode,
-    productTypes,
-    appearance,
-    texts,
-    measurementHelps,
-  });
+return res.status(200).json({
+  enabled,
+  version,
+  allowedDomains,
+  testMode,
+  enableFeedbackSurvey,
+  productTypes,
+  appearance,
+  texts,
+  measurementHelps,
+});
 }
