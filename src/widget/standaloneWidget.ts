@@ -604,13 +604,12 @@ button.onclick = function(e) {
   e.preventDefault();
   sendWidgetAnalyticsEvent('launcher_clicked');
 
-  fetchConfigFromNetwork(true)
-    .then(function() {
-      openModal();
-    })
-    .catch(function() {
-      openModal();
-    });
+  // Abre imediatamente com a configuração já disponível.
+  openModal();
+
+  // Revalida em segundo plano; se chegar uma configuração nova,
+  // fetchConfigFromNetwork() já re-renderiza o modal aberto.
+  fetchConfigFromNetwork(true);
 };
 
     window.openZhayaMatchModal = openModal;
