@@ -209,6 +209,17 @@ export function normalizeTexts(raw?: Partial<TextSettings> | null): TextSettings
     closeButtonText: txt.closeButtonText || 'Fechar',
     backButtonText: txt.backButtonText || 'Voltar',
     privacyNotice: txt.privacyNotice || 'Usamos suas medidas apenas para esta recomendação.',
+
+    // Feedback Survey Defaults
+    feedbackAdequacyQuestion: txt.feedbackAdequacyQuestion || 'A recomendação fez sentido para você?',
+    feedbackEaseQuestion: txt.feedbackEaseQuestion || 'Como foi o processo de medição? (1 a 5)',
+    feedbackEaseMinLabel: txt.feedbackEaseMinLabel || 'Muito difícil',
+    feedbackEaseMaxLabel: txt.feedbackEaseMaxLabel || 'Muito fácil',
+    feedbackCommentLabel: txt.feedbackCommentLabel || 'Deixe seu comentário ou sugestão:',
+    feedbackCommentPlaceholder: txt.feedbackCommentPlaceholder || 'Escreva aqui seu comentário ou sugestão...',
+    feedbackSubmitButtonText: txt.feedbackSubmitButtonText || 'Enviar',
+    feedbackSkipButtonText: txt.feedbackSkipButtonText || 'Pular',
+    feedbackThankYouMessage: txt.feedbackThankYouMessage || 'Obrigado pelo seu feedback!',
   };
 }
 

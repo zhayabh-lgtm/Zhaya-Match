@@ -37,13 +37,30 @@ export default async function handler(req: any, res: any) {
     process.env.VITE_SUPABASE_URL ||
     '';
 
-  const supabaseKey = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_ANON_KEY || process.env.VITE_SUPABASE_ANON_KEY || '';
+  const supabaseKey =
+    process.env.SUPABASE_SERVICE_ROLE_KEY ||
+    process.env.SUPABASE_ANON_KEY ||
+    process.env.VITE_SUPABASE_ANON_KEY ||
+    '';
 
   if (!supabaseUrl || !supabaseKey) {
     return res.status(500).json({
       success: false,
       error: 'SUPABASE_NOT_CONFIGURED',
     });
+  }
+
+  // Validação de segurança se chave de service role estiver configurada
+  if (process.env.SUPABASE_SERVICE_ROLE_KEY) {
+    const parts = process.env.SUPABASE_SERVICE_ROLE_KEY.split('.');
+    if (parts.length === 3) {
+      try {
+        const payload = JSON.parse(Buffer.from(parts[1], 'base64').toString('utf-8'));
+        if (payload.role === 'anon') {
+          console.error('[Feedback API] SUPABASE_SERVICE_ROLE_KEY está configurada com uma chave anon em vez da service role!');
+        }
+      } catch {}
+    }
   }
 
   const body = req.body || {};

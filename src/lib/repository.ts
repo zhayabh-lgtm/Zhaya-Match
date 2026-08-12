@@ -10,6 +10,7 @@ import {
   MediaAsset,
   MeasurementObservation,
   PeriodType,
+  DiagnosticContract,
 } from '../types/zhaya';
 import { supabase, isSupabaseConfigured } from './supabase';
 import { normalizeMeasurementObservation, normalizeProductType } from './normalize';
@@ -1043,6 +1044,152 @@ export const Repository = {
     });
   },
 
+  async publishAllAtomic(payload: {
+    appearance: PopupAppearance;
+    texts: TextSettings;
+    config: AppConfig;
+    productTypes: ProductType[];
+    helps: Record<string, MeasurementHelp>;
+  }): Promise<{
+    appearance: PopupAppearance;
+    texts: TextSettings;
+    config: AppConfig;
+    productTypes: ProductType[];
+    helps: Record<MeasurementKey, MeasurementHelp>;
+    version: number;
+  }> {
+    const currentVer = payload.config.version || 1;
+    const nextVer = currentVer + 1;
+    const appConfigWithVer = { ...payload.config, version: nextVer };
+
+    if (!isSupabaseConfigured || !supabase) {
+      cachedAppearance = payload.appearance;
+      return {
+        appearance: payload.appearance,
+        texts: payload.texts,
+        config: appConfigWithVer,
+        productTypes: payload.productTypes,
+        helps: payload.helps as Record<MeasurementKey, MeasurementHelp>,
+        version: nextVer,
+      };
+    }
+
+    return runWithRetry(async () => {
+      const client = ensureSupabase();
+
+      const ptDbPayloads = (payload.productTypes || []).map((pt) => ({
+        id: pt.id,
+        name: pt.name,
+        category: pt.category || null,
+        fit_type: pt.fitType || null,
+        active: pt.active,
+        sort_order: pt.order,
+        image_url: pt.imageUrl || null,
+        icon_url: pt.iconUrl || null,
+        use_icon_in_selector: pt.useIconInSelector ?? false,
+        measurement_image_url: pt.measurementImageUrl || null,
+        measurement_image_caption: pt.measurementImageCaption || null,
+        measurement_guide_tips: pt.measurementGuideTips || [],
+        measurement_guide_observation: pt.measurementGuideObservation || null,
+        store_tags: pt.storeTags || [],
+        measurements: pt.measurements || [],
+        sizes: pt.sizes || [],
+      }));
+
+      const helpsPayloads = Object.entries(payload.helps || {}).map(([key, help]) => ({
+        measurement_key: key,
+        label: help.label,
+        title: help.title,
+        description: help.description || '',
+        image_url: help.imageUrl || null,
+        observations: help.observations || [],
+        active: true,
+      }));
+
+      // Executa chamada RPC 'publish_all_config' no Supabase para atomicidade
+      const { data: rpcData, error: rpcError } = await client.rpc('publish_all_config', {
+        p_appearance: payload.appearance,
+        p_texts: payload.texts,
+        p_app_config: appConfigWithVer,
+        p_product_types: ptDbPayloads,
+        p_measurement_guides: helpsPayloads,
+      });
+
+      if (!rpcError && rpcData && rpcData.success) {
+        cachedAppearance = payload.appearance;
+        return {
+          appearance: payload.appearance,
+          texts: payload.texts,
+          config: appConfigWithVer,
+          productTypes: payload.productTypes,
+          helps: payload.helps as Record<MeasurementKey, MeasurementHelp>,
+          version: nextVer,
+        };
+      }
+
+      // Se a RPC falhar ou não estiver criada, faz em bloco restrito onde qualquer erro desfaz a versão
+      try {
+        const { data: existingApp } = await client.from('popup_settings').select('id').limit(1);
+        if (existingApp && existingApp.length > 0) {
+          const { error: e1 } = await client.from('popup_settings').update({ settings: payload.appearance, version: nextVer }).eq('id', existingApp[0].id);
+          if (e1) throw e1;
+        } else {
+          const { error: e1 } = await client.from('popup_settings').insert({ settings: payload.appearance, version: nextVer });
+          if (e1) throw e1;
+        }
+
+        const { data: existingTxt } = await client.from('text_settings').select('id').limit(1);
+        if (existingTxt && existingTxt.length > 0) {
+          const { error: e2 } = await client.from('text_settings').update({ settings: payload.texts }).eq('id', existingTxt[0].id);
+          if (e2) throw e2;
+        } else {
+          const { error: e2 } = await client.from('text_settings').insert({ settings: payload.texts });
+          if (e2) throw e2;
+        }
+
+        const { data: existingCfg } = await client.from('app_settings').select('id').limit(1);
+        const appPayload = {
+          enabled: appConfigWithVer.enabled,
+          enable_feedback_survey: appConfigWithVer.enableFeedbackSurvey !== false,
+          widget_url: appConfigWithVer.widgetUrl,
+          test_mode: appConfigWithVer.testMode,
+          allowed_domains: appConfigWithVer.allowedDomains || ['zhaya.com.br', 'www.zhaya.com.br'],
+          version: nextVer,
+        };
+        if (existingCfg && existingCfg.length > 0) {
+          const { error: e3 } = await client.from('app_settings').update(appPayload).eq('id', existingCfg[0].id);
+          if (e3) throw e3;
+        } else {
+          const { error: e3 } = await client.from('app_settings').insert(appPayload);
+          if (e3) throw e3;
+        }
+
+        if (ptDbPayloads.length > 0) {
+          const { error: e4 } = await client.from('product_types').upsert(ptDbPayloads);
+          if (e4) throw e4;
+        }
+
+        if (helpsPayloads.length > 0) {
+          const { error: e5 } = await client.from('measurement_guides').upsert(helpsPayloads, { onConflict: 'measurement_key' });
+          if (e5) throw e5;
+        }
+
+        cachedAppearance = payload.appearance;
+        return {
+          appearance: payload.appearance,
+          texts: payload.texts,
+          config: appConfigWithVer,
+          productTypes: payload.productTypes,
+          helps: payload.helps as Record<MeasurementKey, MeasurementHelp>,
+          version: nextVer,
+        };
+      } catch (err: any) {
+        console.error('[Repository] Falha na publicação atômica:', err);
+        throw new Error(`Falha na publicação atômica: ${err?.message || 'Erro no banco de dados'}`);
+      }
+    });
+  },
+
   async saveFeedbackResponse(feedback: WidgetFeedbackInput): Promise<boolean> {
     if (!isSupabaseConfigured || !supabase) {
       console.log('[Repository] Feedback simulado no ambiente sem Supabase:', feedback);
@@ -1188,36 +1335,15 @@ export const Repository = {
       inMemoryAnalyticsEvents.push(record);
     }
 
-    const serverUrl = process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL || '';
-    const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY || '';
-
-    if (serverUrl && serviceRoleKey) {
-      try {
-        const privilegedClient = createClient(serverUrl, serviceRoleKey, {
-          auth: { persistSession: false, autoRefreshToken: false },
-        });
-        const { error } = await privilegedClient
-          .from('widget_analytics_events')
-          .upsert(record, { onConflict: 'event_id', ignoreDuplicates: true });
-
-        if (error) {
-          console.error('[Analytics Repository] Erro ao registrar evento no Supabase:', {
-            code: error.code,
-            message: error.message,
-            details: error.details,
-            hint: error.hint,
-          });
-        }
-        return;
-      } catch (e: any) {
-        console.error('[Analytics Repository] Exceção ao salvar evento com service_role:', e?.message || e);
-        return;
-      }
+    try {
+      await fetch('/api/public/analytics', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(eventPayload),
+      });
+    } catch (e) {
+      console.warn('[Analytics Repository] Falha ao enviar evento via API:', e);
     }
-
-    // Se serviceRoleKey não estiver disponível (ex.: ambiente sem chaves server-side),
-    // o evento permanece salvo no inMemoryAnalyticsEvents para não falhar a execução.
-    return;
   },
 
   async getAnalyticsSummary(
@@ -1262,38 +1388,21 @@ export const Repository = {
 
     let records: any[] = [];
 
-    const serverUrl = process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL || '';
-    const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY || '';
+    try {
+      const token = isSupabaseConfigured && supabase ? (await supabase.auth.getSession())?.data?.session?.access_token : undefined;
+      const headers: Record<string, string> = {};
+      if (token) headers['Authorization'] = `Bearer ${token}`;
 
-    if (serverUrl && serviceRoleKey) {
-      try {
-        const privilegedClient = createClient(serverUrl, serviceRoleKey, {
-          auth: { persistSession: false, autoRefreshToken: false },
-        });
-        const { data, error } = await privilegedClient
-          .from('widget_analytics_events')
-          .select('*')
-          .gte('occurred_at', startIso)
-          .lte('occurred_at', endIso)
-          .order('occurred_at', { ascending: true });
-
-        if (!error && data) {
-          records = data;
-        } else {
-          console.warn('[Analytics Repository] Warning ao consultar Supabase com service_role:', error?.message);
-          records = inMemoryAnalyticsEvents.filter((e) => {
-            const occ = new Date(e.occurred_at || e.created_at || '').getTime();
-            return occ >= startDate.getTime() && occ <= endDate.getTime();
-          });
-        }
-      } catch (e: any) {
-        console.warn('[Analytics Repository] Exceção ao consultar Supabase com service_role:', e?.message || e);
-        records = inMemoryAnalyticsEvents.filter((e) => {
-          const occ = new Date(e.occurred_at || e.created_at || '').getTime();
-          return occ >= startDate.getTime() && occ <= endDate.getTime();
-        });
+      const res = await fetch(`/api/admin/analytics?period=${period}&start=${startIso}&end=${endIso}`, { headers });
+      if (res.ok) {
+        const data = await res.json();
+        if (data && data.analytics) return data.analytics;
       }
-    } else if (isSupabaseConfigured && supabase) {
+    } catch (e) {
+      console.warn('[Analytics Repository] Fallback para in-memory no resumo de analytics:', e);
+    }
+
+    if (isSupabaseConfigured && supabase) {
       try {
         const client = ensureSupabase();
         const { data, error } = await executeWithRetry<any[]>(async () =>
@@ -1474,6 +1583,27 @@ export const Repository = {
       };
       return { ok: false, status: inMemoryActivityStatus, error: 'DATABASE_ERROR' };
     }
+  },
+
+  async getDiagnostics(): Promise<DiagnosticContract> {
+    try {
+      const token = isSupabaseConfigured && supabase ? (await supabase.auth.getSession())?.data?.session?.access_token : undefined;
+      const headers: Record<string, string> = {};
+      if (token) headers['Authorization'] = `Bearer ${token}`;
+
+      const res = await fetch('/api/admin/diagnostics', { headers });
+      if (res.ok) {
+        return await res.json();
+      }
+    } catch (e) {
+      console.warn('[Repository] Erro ao carregar diagnósticos:', e);
+    }
+    return {
+      api: { status: 'healthy' },
+      supabase: { status: isSupabaseConfigured ? 'healthy' : 'not_configured' },
+      serviceRole: { status: 'missing' },
+      lastEvents: { analytics: null, recommendation: null, feedback: null },
+    };
   },
 };
 

@@ -1,5 +1,5 @@
 import { createClient } from '@supabase/supabase-js';
-import { normalizeProductType } from '../../src/lib/normalize';
+import { normalizeProductType, normalizeMeasurementObservation } from '../../src/lib/normalize.js';
 
 const defaultAppearance = {
   showLogo: true,
@@ -268,12 +268,14 @@ if (error) {
     } else if (data && data.length > 0) {
       for (const row of data) {
         if (row.measurement_key) {
+          const rawObs = Array.isArray(row.observations) ? row.observations : [];
           measurementHelps[row.measurement_key] = {
             key: row.measurement_key,
             label: row.label,
             title: row.title,
             description: row.description || '',
             imageUrl: row.image_url || undefined,
+            observations: rawObs.map(normalizeMeasurementObservation),
           };
         }
       }

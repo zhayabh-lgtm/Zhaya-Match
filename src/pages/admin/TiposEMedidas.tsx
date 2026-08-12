@@ -102,7 +102,7 @@ function validateProductTypes(typesList: ProductType[]): string | null {
 }
 
 export const TiposEMedidas: React.FC = () => {
-  const { replaceProductTypes } = useConfigDraft();
+  const { replaceProductTypes, publish } = useConfigDraft();
   const [types, setTypes] = useState<ProductType[]>([]);
   const [selectedTypeId, setSelectedTypeId] = useState<string | null>(null);
   const [activeType, setActiveType] = useState<ProductType | null>(null);
@@ -198,6 +198,8 @@ export const TiposEMedidas: React.FC = () => {
       await Repository.deleteProductType(id);
       const updated = types.filter((t) => t.id !== id);
       setTypes(updated);
+      replaceProductTypes(updated);
+      await publish({ productTypes: updated });
       if (updated.length > 0) {
         setSelectedTypeId(updated[0].id);
         setActiveType(JSON.parse(JSON.stringify(updated[0])));
@@ -236,6 +238,7 @@ export const TiposEMedidas: React.FC = () => {
     setErrorMessage(null);
     const updated = types.map((t) => (t.id === id ? { ...t, active: newActiveState } : t));
     setTypes(updated);
+    replaceProductTypes(updated);
 
     if (activeType && activeType.id === id) {
       setActiveType({ ...activeType, active: newActiveState });
@@ -244,7 +247,7 @@ export const TiposEMedidas: React.FC = () => {
     try {
       const updatedTarget = updated.find((t) => t.id === id);
       if (updatedTarget) {
-        await Repository.saveProductType(updatedTarget);
+        await publish({ productTypes: updated });
       }
     } catch (err: any) {
       console.error('Erro ao salvar alteração de status ativo:', err);
@@ -285,13 +288,12 @@ export const TiposEMedidas: React.FC = () => {
         return;
       }
 
-      await Repository.saveProductTypes(typesToSave);
-
-      const reloaded = await Repository.getProductTypes();
-      setTypes(reloaded);
+      setTypes(typesToSave);
+      replaceProductTypes(typesToSave);
+      await publish({ productTypes: typesToSave });
 
       if (currentActive) {
-        const found = reloaded.find((t) => t.id === currentActive.id);
+        const found = typesToSave.find((t) => t.id === currentActive.id);
         if (found) {
           setActiveType(JSON.parse(JSON.stringify(found)));
         }

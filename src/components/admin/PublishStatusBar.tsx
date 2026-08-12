@@ -86,7 +86,7 @@ export const PublishStatusBar: React.FC = () => {
 
         <button
           type="button"
-          onClick={publish}
+          onClick={() => publish()}
           disabled={!isDirty || status === 'publishing'}
           className="inline-flex items-center gap-2 px-4 py-1.5 bg-neutral-900 hover:bg-black text-white rounded text-xs font-bold uppercase tracking-wider transition-all cursor-pointer shadow-xs disabled:opacity-40 disabled:cursor-not-allowed"
         >

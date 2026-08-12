@@ -7,6 +7,11 @@ import { calculateRecommendation } from './src/domain/recommendation.js';
 import { generateWidgetScript } from './src/widget/standaloneWidget.js';
 import { verifyAdminAuth } from './src/lib/adminAuth.js';
 import adminAnalyticsHandler from './api/admin/analytics.js';
+import adminDiagnosticsHandler from './api/admin/diagnostics.js';
+import publicAnalyticsHandler from './api/public/analytics.js';
+import publicFeedbackHandler from './api/public/feedback.js';
+import publicHealthHandler from './api/public/health.js';
+import publicConfigHandler from './api/public/config.js';
 
 async function startServer() {
   const app = express();
@@ -125,86 +130,10 @@ async function startServer() {
   });
 
   // 3. Public API - Full widget initial config
-  app.get('/api/public/config', async (req, res) => {
-    try {
-      const productTypes = await Repository.getProductTypes();
-      const appearance = await Repository.getAppearance();
-      const texts = await Repository.getTexts();
-      const measurementHelps = await Repository.getMeasurementHelps();
-      const config = await Repository.getConfig();
-
-      const defaultDomains = [
-        'zhaya.com.br',
-        'www.zhaya.com.br',
-        'localhost',
-        '127.0.0.1',
-        'localhost:8080',
-        '127.0.0.1:8080',
-      ];
-
-      const allowedDomains = (config.allowedDomains && config.allowedDomains.length > 0)
-        ? Array.from(new Set([...config.allowedDomains, ...defaultDomains]))
-        : defaultDomains;
-
-      res.setHeader('Access-Control-Allow-Origin', '*');
-      res.setHeader('Cross-Origin-Resource-Policy', 'cross-origin');
-      res.setHeader('Cache-Control', 'public, max-age=60, s-maxage=60');
-      return res.json({
-        enabled: config.enabled !== false,
-        enableFeedbackSurvey: config.enableFeedbackSurvey !== false,
-        version: config.version || 1,
-        allowedDomains: allowedDomains,
-        testMode: config.testMode || false,
-        productTypes: productTypes.filter((pt) => pt.active !== false),
-        appearance,
-        texts,
-        measurementHelps,
-      });
-    } catch (err: any) {
-      console.error('API Error:', err);
-      return res.status(500).json({ enabled: false, error: 'SERVER_ERROR' });
-    }
-  });
+  app.get('/api/public/config', publicConfigHandler);
 
   // Legacy fallback URL for widget backwards compatibility
-  app.get('/api/public/products/:id', async (req, res) => {
-    try {
-      const productTypes = await Repository.getProductTypes();
-      const appearance = await Repository.getAppearance();
-      const texts = await Repository.getTexts();
-      const measurementHelps = await Repository.getMeasurementHelps();
-      const config = await Repository.getConfig();
-
-      const defaultDomains = [
-        'zhaya.com.br',
-        'www.zhaya.com.br',
-        'localhost',
-        '127.0.0.1',
-        'localhost:8080',
-        '127.0.0.1:8080',
-      ];
-
-      const allowedDomains = (config.allowedDomains && config.allowedDomains.length > 0)
-        ? Array.from(new Set([...config.allowedDomains, ...defaultDomains]))
-        : defaultDomains;
-
-      res.setHeader('Access-Control-Allow-Origin', '*');
-      res.setHeader('Cross-Origin-Resource-Policy', 'cross-origin');
-      res.setHeader('Cache-Control', 'public, max-age=60, s-maxage=300, stale-while-revalidate=600');
-      return res.json({
-        enabled: config.enabled !== false,
-        version: config.version || 1,
-        allowedDomains: allowedDomains,
-        testMode: config.testMode || false,
-        productTypes: productTypes.filter((pt) => pt.active !== false),
-        appearance,
-        texts,
-        measurementHelps,
-      });
-    } catch (err: any) {
-      return res.status(500).json({ enabled: false, error: 'SERVER_ERROR' });
-    }
-  });
+  app.get('/api/public/products/:id', publicConfigHandler);
 
   // 4. Public API - Server-side recommendation endpoint
   app.post('/api/public/recommend', async (req, res) => {
@@ -228,158 +157,16 @@ async function startServer() {
   });
 
   // 5. Public API - Analytics Event Ingestion
-  app.post('/api/public/analytics', async (req, res) => {
-    try {
-      res.setHeader('Access-Control-Allow-Origin', '*');
-      res.setHeader('Cross-Origin-Resource-Policy', 'cross-origin');
-
-      const body = req.body || {};
-      const {
-        eventId,
-        eventName,
-        visitorId,
-        sessionId,
-        productTypeId,
-        productTypeName,
-        productCategory,
-        recommendationStatus,
-        sourceDomain,
-        pagePath,
-        deviceType,
-        configVersion,
-        metadata,
-      } = body;
-
-      const ALLOWED_EVENTS = [
-        'launcher_viewed',
-        'launcher_clicked',
-        'widget_opened',
-        'flow_started',
-        'product_type_selected',
-        'measurements_started',
-        'recommendation_processing_started',
-        'recommendation_generated',
-        'recommendation_result_viewed',
-        'recommendation_not_found',
-        'measurement_help_opened',
-        'feedback_started',
-        'feedback_submitted',
-        'feedback_skipped',
-        'widget_closed',
-      ];
-
-      if (!eventName || !ALLOWED_EVENTS.includes(eventName)) {
-        return res.status(400).json({ error: 'INVALID_EVENT_NAME' });
-      }
-
-      if (!sessionId) {
-        return res.status(400).json({ error: 'MISSING_SESSION_ID' });
-      }
-
-      // Sanitiza caminho da página (remove query strings privados)
-      let cleanPath = typeof pagePath === 'string' ? pagePath.split('?')[0].trim() : '/';
-      if (cleanPath.length > 200) cleanPath = cleanPath.slice(0, 200);
-
-      // Determina e limpa o domínio de origem
-      let domain = typeof sourceDomain === 'string' ? sourceDomain.trim() : '';
-      if (req.headers.origin) {
-        try {
-          domain = new URL(req.headers.origin as string).hostname;
-        } catch (e) {}
-      } else if (req.headers.referer) {
-        try {
-          domain = new URL(req.headers.referer as string).hostname;
-        } catch (e) {}
-      }
-
-      const cleanEventId = typeof eventId === 'string' && eventId.length >= 10
-        ? eventId
-        : `${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
-
-      await Repository.saveAnalyticsEvent({
-        eventId: cleanEventId,
-        eventName,
-        visitorId: typeof visitorId === 'string' ? visitorId : undefined,
-        sessionId,
-        productTypeId: typeof productTypeId === 'string' ? productTypeId : undefined,
-        productTypeName: typeof productTypeName === 'string' ? productTypeName : undefined,
-        productCategory: typeof productCategory === 'string' ? productCategory : undefined,
-        recommendationStatus:
-          recommendationStatus === 'recommended' ||
-          recommendationStatus === 'between_sizes' ||
-          recommendationStatus === 'not_found'
-            ? recommendationStatus
-            : undefined,
-        sourceDomain: domain || undefined,
-        pagePath: cleanPath,
-        deviceType: deviceType === 'mobile' ? 'mobile' : 'desktop',
-        configVersion: typeof configVersion === 'number' ? configVersion : 1,
-        metadata: typeof metadata === 'object' && metadata ? metadata : {},
-        occurredAt: new Date().toISOString(),
-      });
-
-      return res.status(200).json({ success: true });
-    } catch (err: any) {
-      console.error('Analytics API Error:', err);
-      // Retorna 200 para garantir que erros de analytics não quebrem a UX do cliente
-      return res.status(200).json({ success: false, error: 'SILENT_ERROR' });
-    }
-  });
+  app.post('/api/public/analytics', publicAnalyticsHandler);
 
   // 5b. Public API - Feedback Survey Ingestion
-  app.post('/api/public/feedback', async (req, res) => {
-    try {
-      res.setHeader('Access-Control-Allow-Origin', '*');
-      res.setHeader('Cross-Origin-Resource-Policy', 'cross-origin');
-
-      const body = req.body || {};
-      const {
-        visitorId,
-        sessionId,
-        productTypeId,
-        recommendationStatus,
-        recommendedSize,
-        alternateSize,
-        adequacyResponse,
-        easeRating,
-        comment,
-        configVersion,
-      } = body;
-
-      const VALID_ADEQUACY = ['Sim', 'Não', 'Ainda não sei'];
-      if (!adequacyResponse || !VALID_ADEQUACY.includes(adequacyResponse)) {
-        return res.status(400).json({ error: 'INVALID_ADEQUACY_RESPONSE' });
-      }
-
-      const rating = Number(easeRating);
-      if (isNaN(rating) || rating < 1 || rating > 5) {
-        return res.status(400).json({ error: 'INVALID_EASE_RATING' });
-      }
-
-      const cleanComment = typeof comment === 'string' ? comment.trim().slice(0, 1000) : undefined;
-
-      await Repository.saveFeedbackResponse({
-        visitorId: typeof visitorId === 'string' ? visitorId : undefined,
-        sessionId: typeof sessionId === 'string' ? sessionId : undefined,
-        productTypeId: typeof productTypeId === 'string' ? productTypeId : undefined,
-        recommendationStatus: typeof recommendationStatus === 'string' ? recommendationStatus : undefined,
-        recommendedSize: typeof recommendedSize === 'string' ? recommendedSize : undefined,
-        alternateSize: typeof alternateSize === 'string' ? alternateSize : undefined,
-        adequacyResponse,
-        easeRating: rating,
-        comment: cleanComment,
-        configVersion: typeof configVersion === 'number' ? configVersion : undefined,
-      });
-
-      return res.json({ success: true, message: 'Feedback gravado com sucesso.' });
-    } catch (err: any) {
-      console.error('Feedback API Error:', err);
-      return res.status(500).json({ error: 'FEEDBACK_SAVE_FAILED' });
-    }
-  });
+  app.post('/api/public/feedback', publicFeedbackHandler);
 
   // 6. Admin API - Analytics Summary
   app.get('/api/admin/analytics', adminAnalyticsHandler);
+
+  // 6b. Admin API - Diagnostics Status
+  app.get('/api/admin/diagnostics', adminDiagnosticsHandler);
 
   // 7. Admin API - System Activity Monitor
   app.get('/api/admin/activity-status', async (req, res) => {
@@ -397,54 +184,9 @@ async function startServer() {
     }
   });
 
-  // 8. Public Health Check Endpoint
-  app.get('/api/health', async (req, res) => {
-    try {
-      const isConfigured = Boolean(
-        process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL
-      ) && Boolean(
-        process.env.SUPABASE_ANON_KEY || process.env.VITE_SUPABASE_ANON_KEY || process.env.SUPABASE_SERVICE_ROLE_KEY
-      );
-
-      if (!isConfigured) {
-        return res.status(200).json({
-          success: false,
-          status: 'configuration_error',
-          services: {
-            api: 'healthy',
-            database: 'not_configured',
-          },
-          message: 'Configuração do Supabase ausente.',
-          timestamp: new Date().toISOString(),
-        });
-      }
-
-      const activity = await Repository.getActivityStatus();
-      const isDbHealthy = activity.lastStatus === 'healthy' || activity.lastStatus === 'success';
-
-      return res.status(200).json({
-        success: isDbHealthy,
-        status: isDbHealthy ? 'healthy' : activity.lastStatus,
-        services: {
-          api: 'healthy',
-          database: isDbHealthy ? 'healthy' : 'unhealthy',
-        },
-        activity,
-        timestamp: new Date().toISOString(),
-      });
-    } catch (err: any) {
-      return res.status(500).json({
-        success: false,
-        status: 'database_error',
-        services: {
-          api: 'healthy',
-          database: 'unhealthy',
-        },
-        message: 'Falha ao realizar health check.',
-        timestamp: new Date().toISOString(),
-      });
-    }
-  });
+  // 8. Public Health Check Endpoints
+  app.get('/api/health', publicHealthHandler);
+  app.get('/api/public/health', publicHealthHandler);
 
   // 9. Automated Cron Trigger Endpoint
   app.all('/api/cron/health', async (req, res) => {

@@ -41,7 +41,13 @@ interface ConfigDraftContextType {
   updateHelps: (helps: Record<string, MeasurementHelp>) => void;
 
   // Actions
-  publish: () => Promise<void>;
+  publish: (overrides?: Partial<{
+    appearance: PopupAppearance;
+    texts: TextSettings;
+    config: AppConfig;
+    productTypes: ProductType[];
+    helps: Record<string, MeasurementHelp>;
+  }>) => Promise<void>;
   discard: () => void;
   reloadFromDatabase: () => Promise<void>;
 }
@@ -169,42 +175,67 @@ export const ConfigDraftProvider: React.FC<{ children: ReactNode }> = ({ childre
     incrementRevision();
   };
 
-  const publish = async () => {
+  const publish = async (overrides?: Partial<{
+    appearance: PopupAppearance;
+    texts: TextSettings;
+    config: AppConfig;
+    productTypes: ProductType[];
+    helps: Record<string, MeasurementHelp>;
+  }>) => {
     setStatus('publishing');
     setErrorMessage(null);
     setSuccessMessage(null);
 
     try {
-      if (!appearance || !texts) {
+      const appToSave = overrides?.appearance || appearance;
+      const txtToSave = overrides?.texts || texts;
+      const cfgToSave = overrides?.config || config;
+      const ptToSave = overrides?.productTypes || productTypes;
+      const hlpToSave = overrides?.helps || helps;
+
+      if (!appToSave || !txtToSave) {
         throw new Error('Configurações inválidas para publicação.');
       }
 
       const nextVersion = (version || 1) + 1;
-      const updatedConfigPayload = { ...config, version: nextVersion };
+      const updatedConfigPayload = { ...cfgToSave, version: nextVersion };
 
-      const [savedApp, savedTxt, savedCfg, savedPt, savedHlp] = await Promise.all([
-        Repository.saveAppearance(appearance),
-        Repository.saveTexts(texts),
-        Repository.saveConfig(updatedConfigPayload),
-        Repository.saveProductTypes(productTypes),
-        Repository.saveMeasurementHelps(helps),
-      ]);
+      // Make sure local draft state matches what we're saving right now if overrides were passed
+      if (overrides?.appearance) setAppearance(overrides.appearance);
+      if (overrides?.texts) setTexts(overrides.texts);
+      if (overrides?.config) setConfig(updatedConfigPayload);
+      if (overrides?.productTypes) setProductTypes(overrides.productTypes);
+      if (overrides?.helps) setHelps(overrides.helps);
 
-      const normApp = normalizeAppearance(savedApp);
-      const normTxt = normalizeTexts(savedTxt);
-      const normPt = savedPt.map(normalizeProductType);
+      const result = await Repository.publishAllAtomic({
+        appearance: appToSave,
+        texts: txtToSave,
+        config: cfgToSave,
+        productTypes: ptToSave,
+        helps: hlpToSave,
+      });
+
+      const normApp = normalizeAppearance(result.appearance);
+      const normTxt = normalizeTexts(result.texts);
+      const normPt = result.productTypes.map(normalizeProductType);
+
+      setAppearance(normApp);
+      setTexts(normTxt);
+      setConfig(result.config);
+      setProductTypes(normPt);
+      setHelps(result.helps);
 
       setPublishedAppearance(normApp);
       setPublishedTexts(normTxt);
-      setPublishedConfig(savedCfg);
+      setPublishedConfig(result.config);
       setPublishedProductTypes(normPt);
-      setPublishedHelps(savedHlp);
-      setVersion(savedCfg.version || nextVersion);
+      setPublishedHelps(result.helps);
+      setVersion(result.version);
 
       const nowStr = new Date().toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' });
       setLastPublishedAt(nowStr);
       setStatus('published');
-      setSuccessMessage(`Configuração publicada com sucesso! (v${savedCfg.version})`);
+      setSuccessMessage(`Configuração publicada com sucesso! (v${result.version})`);
       incrementRevision();
 
       setTimeout(() => {
@@ -214,6 +245,7 @@ export const ConfigDraftProvider: React.FC<{ children: ReactNode }> = ({ childre
       console.error('Erro ao publicar:', err);
       setStatus('error');
       setErrorMessage(err?.message || 'Falha ao publicar alterações.');
+      throw err;
     }
   };
 

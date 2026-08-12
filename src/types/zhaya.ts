@@ -215,6 +215,17 @@ export interface TextSettings {
   closeButtonText: string;
   backButtonText: string;
   privacyNotice: string;
+
+  // Feedback Survey Texts
+  feedbackAdequacyQuestion?: string;
+  feedbackEaseQuestion?: string;
+  feedbackEaseMinLabel?: string;
+  feedbackEaseMaxLabel?: string;
+  feedbackCommentLabel?: string;
+  feedbackCommentPlaceholder?: string;
+  feedbackSubmitButtonText?: string;
+  feedbackSkipButtonText?: string;
+  feedbackThankYouMessage?: string;
 }
 
 export interface RecommendationResult {
@@ -272,6 +283,17 @@ export interface SystemActivityStatus {
   lastStatus: 'success' | 'healthy' | 'pending' | 'warning' | 'stale' | 'error' | 'database_error' | 'not_configured' | 'configuration_error';
   lastError: string | null;
   updatedAt: string;
+}
+
+export interface DiagnosticContract {
+  api: { status: 'healthy' | 'unhealthy' };
+  supabase: { status: 'healthy' | 'unhealthy' | 'not_configured' };
+  serviceRole: { status: 'valid' | 'invalid_anon' | 'missing' };
+  lastEvents: {
+    analytics: string | null;
+    recommendation: string | null;
+    feedback: string | null;
+  };
 }
 
 export interface AnalyticsEventInput {

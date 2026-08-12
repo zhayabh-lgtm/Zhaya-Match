@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { useConfigDraft } from '../../context/ConfigDraftContext';
-import { AppConfig, SystemActivityStatus } from '../../types/zhaya';
+import { AppConfig, SystemActivityStatus, DiagnosticContract } from '../../types/zhaya';
 import { Repository } from '../../lib/repository';
 import {
   Save,
@@ -29,10 +29,13 @@ export const Configuracoes: React.FC = () => {
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [saving, setSaving] = useState<boolean>(false);
 
-  // Estados do Monitor de Atividade do Supabase
+  // Estados do Monitor de Atividade do Supabase e Diagnóstico
   const [activityStatus, setActivityStatus] = useState<SystemActivityStatus | null>(null);
+  const [diagnosticsData, setDiagnosticsData] = useState<DiagnosticContract | null>(null);
   const [loadingActivity, setLoadingActivity] = useState<boolean>(true);
   const [checkingActivity, setCheckingActivity] = useState<boolean>(false);
+  const [sendingTestEvent, setSendingTestEvent] = useState<boolean>(false);
+  const [testEventResult, setTestEventResult] = useState<{ id: string; success: boolean; message: string } | null>(null);
 
   const loadActivityStatus = async () => {
     setLoadingActivity(true);
@@ -46,6 +49,60 @@ export const Configuracoes: React.FC = () => {
     }
   };
 
+  const loadDiagnostics = async () => {
+    try {
+      const data = await Repository.getDiagnostics();
+      setDiagnosticsData(data);
+    } catch (e) {
+      console.warn('Erro ao carregar diagnósticos:', e);
+    }
+  };
+
+  const handleSendTestEvent = async () => {
+    setSendingTestEvent(true);
+    setTestEventResult(null);
+    const testId = `test-evt-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`;
+    try {
+      const res = await fetch('/api/public/analytics', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          eventId: testId,
+          eventName: 'launcher_clicked',
+          productTypeName: 'Evento Teste Diagnóstico',
+          sourceDomain: window.location.hostname || 'admin.zhaya.com.br',
+          sessionId: 'diag-session-1',
+          occurredAt: new Date().toISOString(),
+        }),
+      });
+
+      if (res.ok) {
+        const diagData = await Repository.getDiagnostics();
+        setDiagnosticsData(diagData);
+        setTestEventResult({
+          id: testId,
+          success: true,
+          message: `Evento de teste enviado e confirmado no banco de dados. ID: ${testId}`,
+        });
+      } else {
+        const errJson = await res.json().catch(() => ({}));
+        setTestEventResult({
+          id: testId,
+          success: false,
+          message: errJson.message || 'Falha ao enviar evento de teste para a API.',
+        });
+      }
+    } catch (err: any) {
+      setTestEventResult({
+        id: testId,
+        success: false,
+        message: err?.message || 'Erro de rede ao enviar evento de teste.',
+      });
+    } finally {
+      setSendingTestEvent(false);
+    }
+  };
+
   const handleVerifyActivity = async () => {
     setCheckingActivity(true);
     try {
@@ -55,6 +112,7 @@ export const Configuracoes: React.FC = () => {
       } else {
         await loadActivityStatus();
       }
+      await loadDiagnostics();
     } catch (e) {
       console.error('Erro ao executar verificação de atividade:', e);
     } finally {
@@ -67,6 +125,7 @@ export const Configuracoes: React.FC = () => {
       setDomainInput(config.allowedDomains.join(', '));
     }
     loadActivityStatus();
+    loadDiagnostics();
   }, [config.allowedDomains]);
 
   const handleSave = async () => {
@@ -78,12 +137,14 @@ export const Configuracoes: React.FC = () => {
         .map((d) => d.trim().toLowerCase())
         .filter(Boolean);
 
-      updateConfig((prev) => ({
-        ...prev,
+      const updatedConfig: AppConfig = {
+        ...config,
         allowedDomains: parsedDomains.length > 0 ? parsedDomains : ['zhaya.com.br', 'www.zhaya.com.br'],
-      }));
+      };
 
-      await publish();
+      updateConfig(() => updatedConfig);
+
+      await publish({ config: updatedConfig });
       setSavedMessage('Configurações publicadas com sucesso!');
       setTimeout(() => setSavedMessage(null), 3000);
     } catch (err: any) {
@@ -346,7 +407,162 @@ export const Configuracoes: React.FC = () => {
               </ol>
             </div>
 
-            {/* Section 4: Monitor de atividade do Supabase */}
+            {/* Section 4: Diagnóstico do Sistema */}
+            <div className="bg-white border border-neutral-200 rounded-lg p-6 space-y-5">
+              <div className="flex items-center justify-between border-b border-neutral-100 pb-3">
+                <div className="flex items-center gap-2">
+                  <Activity className="w-4 h-4 text-neutral-800" />
+                  <h2 className="text-xs font-bold text-neutral-900 uppercase tracking-wider">
+                    Diagnóstico de API, Supabase & Eventos
+                  </h2>
+                </div>
+                <div className="flex items-center gap-2">
+                  <button
+                    type="button"
+                    onClick={handleSendTestEvent}
+                    disabled={sendingTestEvent}
+                    className="text-xs bg-neutral-900 hover:bg-neutral-800 text-white font-semibold px-3 py-1.5 rounded flex items-center gap-1.5 transition-colors cursor-pointer disabled:opacity-50"
+                  >
+                    <Play className={`w-3.5 h-3.5 ${sendingTestEvent ? 'animate-spin' : ''}`} />
+                    <span>{sendingTestEvent ? 'Enviando...' : 'Enviar evento de teste'}</span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={loadDiagnostics}
+                    className="text-xs text-neutral-600 hover:text-neutral-900 flex items-center gap-1 font-medium px-2 py-1"
+                  >
+                    <RefreshCw className="w-3 h-3" />
+                    <span>Atualizar</span>
+                  </button>
+                </div>
+              </div>
+
+              {testEventResult && (
+                <div
+                  className={`p-3.5 rounded-lg border text-xs font-mono flex items-center justify-between ${
+                    testEventResult.success
+                      ? 'bg-emerald-50 text-emerald-800 border-emerald-200'
+                      : 'bg-red-50 text-red-800 border-red-200'
+                  }`}
+                >
+                  <div className="flex items-center gap-2">
+                    {testEventResult.success ? (
+                      <CheckCircle className="w-4 h-4 text-emerald-600 shrink-0" />
+                    ) : (
+                      <AlertCircle className="w-4 h-4 text-red-600 shrink-0" />
+                    )}
+                    <span>{testEventResult.message}</span>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => setTestEventResult(null)}
+                    className="text-[11px] underline opacity-70 hover:opacity-100 ml-2"
+                  >
+                    Fechar
+                  </button>
+                </div>
+              )}
+
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                {/* API Status */}
+                <div className="p-3.5 bg-neutral-50 rounded-lg border border-neutral-200 space-y-1">
+                  <span className="text-[10px] font-semibold uppercase tracking-wider text-neutral-500 block">
+                    Status da API Base
+                  </span>
+                  <div className="flex items-center gap-1.5 pt-0.5">
+                    {diagnosticsData?.api?.status === 'healthy' ? (
+                      <span className="inline-flex items-center gap-1 text-xs font-bold text-emerald-700">
+                        <CheckCircle className="w-3.5 h-3.5" />
+                        <span>Online & Responsiva</span>
+                      </span>
+                    ) : (
+                      <span className="inline-flex items-center gap-1 text-xs font-bold text-red-700">
+                        <AlertCircle className="w-3.5 h-3.5" />
+                        <span>Indisponível</span>
+                      </span>
+                    )}
+                  </div>
+                </div>
+
+                {/* Supabase Status */}
+                <div className="p-3.5 bg-neutral-50 rounded-lg border border-neutral-200 space-y-1">
+                  <span className="text-[10px] font-semibold uppercase tracking-wider text-neutral-500 block">
+                    Status do Supabase
+                  </span>
+                  <div className="flex items-center gap-1.5 pt-0.5">
+                    {diagnosticsData?.supabase?.status === 'healthy' ? (
+                      <span className="inline-flex items-center gap-1 text-xs font-bold text-emerald-700">
+                        <CheckCircle className="w-3.5 h-3.5" />
+                        <span>Conectado & Gravando</span>
+                      </span>
+                    ) : (
+                      <span className="inline-flex items-center gap-1 text-xs font-bold text-amber-700">
+                        <AlertTriangle className="w-3.5 h-3.5" />
+                        <span>Erro de Conexão</span>
+                      </span>
+                    )}
+                  </div>
+                </div>
+
+                {/* Service Role Status */}
+                <div className="p-3.5 bg-neutral-50 rounded-lg border border-neutral-200 space-y-1">
+                  <span className="text-[10px] font-semibold uppercase tracking-wider text-neutral-500 block">
+                    Status da Service Role Key
+                  </span>
+                  <div className="flex items-center gap-1.5 pt-0.5">
+                    {diagnosticsData?.serviceRole?.status === 'valid' ? (
+                      <span className="inline-flex items-center gap-1 text-xs font-bold text-emerald-700">
+                        <Shield className="w-3.5 h-3.5" />
+                        <span>Service Role Válida</span>
+                      </span>
+                    ) : (
+                      <span className="inline-flex items-center gap-1 text-xs font-bold text-red-700" title={diagnosticsData?.serviceRole?.status || ''}>
+                        <AlertCircle className="w-3.5 h-3.5" />
+                        <span>Chave Ausente / Anon Usada</span>
+                      </span>
+                    )}
+                  </div>
+                </div>
+              </div>
+
+              {/* Timestamps dos Últimos Eventos */}
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 pt-2">
+                <div className="p-3 bg-neutral-50 rounded-lg border border-neutral-200 space-y-1">
+                  <span className="text-[10px] font-semibold uppercase tracking-wider text-neutral-500 block">
+                    Último Evento de Analytics
+                  </span>
+                  <span className="text-xs font-mono font-semibold text-neutral-800 block">
+                    {diagnosticsData?.lastEvents?.analytics
+                      ? new Date(diagnosticsData.lastEvents.analytics).toLocaleString('pt-BR')
+                      : 'Nenhum evento registrado'}
+                  </span>
+                </div>
+
+                <div className="p-3 bg-neutral-50 rounded-lg border border-neutral-200 space-y-1">
+                  <span className="text-[10px] font-semibold uppercase tracking-wider text-neutral-500 block">
+                    Última Recomendação / Clique
+                  </span>
+                  <span className="text-xs font-mono font-semibold text-neutral-800 block">
+                    {diagnosticsData?.lastEvents?.recommendation
+                      ? new Date(diagnosticsData.lastEvents.recommendation).toLocaleString('pt-BR')
+                      : 'Nenhuma recomendação registrada'}
+                  </span>
+                </div>
+
+                <div className="p-3 bg-neutral-50 rounded-lg border border-neutral-200 space-y-1">
+                  <span className="text-[10px] font-semibold uppercase tracking-wider text-neutral-500 block">
+                    Último Feedback Recebido
+                  </span>
+                  <span className="text-xs font-mono font-semibold text-neutral-800 block">
+                    {diagnosticsData?.lastEvents?.feedback
+                      ? new Date(diagnosticsData.lastEvents.feedback).toLocaleString('pt-BR')
+                      : 'Nenhum feedback registrado'}
+                  </span>
+                </div>
+              </div>
+            </div>
+
+            {/* Section 5: Monitor de atividade do Supabase */}
             <div className="bg-white border border-neutral-200 rounded-lg p-6 space-y-5">
               <div className="flex items-center justify-between border-b border-neutral-100 pb-3">
                 <div className="flex items-center gap-2">

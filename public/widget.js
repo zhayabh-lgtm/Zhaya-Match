@@ -1,4 +1,4 @@
-/* Zhaya Match Standalone Widget v3.0 (hash: 94ab5f52) */
+/* Zhaya Match Standalone Widget v3.0 (hash: 4fa92307) */
 (function() {
   if (window.__zhayaMatchLoaded || window.__ZHAYA_MATCH_LOADED__) return;
   window.__zhayaMatchLoaded = true;
@@ -117,30 +117,48 @@
         }
       };
 
-var url = API_BASE + '/api/public/analytics';
+      // Integration with Google Tag Manager / window.dataLayer
+      if (typeof window !== 'undefined') {
+        window.dataLayer = window.dataLayer || [];
+        window.dataLayer.push({
+          event: 'zhaya_' + eventName,
+          zhaya_event_name: eventName,
+          zhaya_product_type_id: eventData.productTypeId,
+          zhaya_product_type_name: eventData.productTypeName,
+          zhaya_recommendation_status: eventData.recommendationStatus,
+          zhaya_session_id: eventData.sessionId,
+          zhaya_visitor_id: eventData.visitorId,
+        });
+      }
 
-fetch(url, {
-  method: 'POST',
-  headers: {
-    'Content-Type': 'application/json'
-  },
-  body: JSON.stringify(eventData),
-  keepalive: true,
-  credentials: 'omit',
-  mode: 'cors'
-}).catch(function(error) {
-  var isDevelopment =
-    window.location.hostname === 'localhost' ||
-    window.location.hostname === '127.0.0.1' ||
-    window.location.search.indexOf('debug=1') !== -1;
+      var url = API_BASE + '/api/public/analytics';
 
-  if (isDevelopment) {
-    console.warn(
-      '[Zhaya Match] Falha ao enviar evento de Analytics:',
-      error
-    );
-  }
-});
+      fetch(url, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify(eventData),
+        keepalive: true,
+        credentials: 'omit',
+        mode: 'cors'
+      }).then(function(res) {
+        if (!res.ok) {
+          throw new Error('HTTP ' + res.status);
+        }
+      }).catch(function(error) {
+        var isDevelopment =
+          window.location.hostname === 'localhost' ||
+          window.location.hostname === '127.0.0.1' ||
+          window.location.search.indexOf('debug=1') !== -1;
+
+        if (isDevelopment) {
+          console.warn(
+            '[Zhaya Match] Falha ao enviar evento de Analytics:',
+            error
+          );
+        }
+      });
     } catch (e) {
       var isDevelopment =
         window.location.hostname === 'localhost' ||
@@ -172,6 +190,10 @@ fetch(url, {
       if (!raw) return null;
       var parsed = JSON.parse(raw);
       if (parsed && parsed.data && typeof parsed.timestamp === 'number') {
+        if (Date.now() - parsed.timestamp >= CACHE_TTL_MS) {
+          localStorage.removeItem(CACHE_KEY);
+          return null;
+        }
         return parsed;
       }
     } catch (e) {}
@@ -284,66 +306,341 @@ fetch(url, {
       .replace(/[̀-ͯ]/g, '');
   }
 
-  function getStoreProductTags() {
-    if (typeof window !== 'undefined' && Array.isArray(window.ZHAYA_PRODUCT_TAGS)) {
-      return window.ZHAYA_PRODUCT_TAGS;
+  function normalizeStr(str) {
+    if (!str && str !== 0) return '';
+    return String(str)
+      .trim()
+      .toLowerCase()
+      .normalize('NFD')
+      .replace(/[̀-ͯ]/g, '')
+      .replace(/[^a-z0-9s-]/g, ' ');
+  }
+
+  function logDiagnostics(data) {
+    if (typeof window !== 'undefined') {
+      window.__ZHAYA_MATCH_DETECTOR_DIAGNOSTICS__ = data;
     }
-    if (typeof window !== 'undefined' && Array.isArray(window.dataLayer)) {
-      for (var i = window.dataLayer.length - 1; i >= 0; i--) {
-        var item = window.dataLayer[i];
-        if (item && Array.isArray(item.zhaya_product_tags)) {
-          return item.zhaya_product_tags;
+    var isTestMode = Boolean(configData && (configData.testMode || configData.debugMode));
+    if (isTestMode && typeof window !== 'undefined' && window.console && console.log) {
+      console.log('[Zhaya Match Detector]', data);
+    }
+  }
+
+  function detectProductInfo() {
+    var explicitTags = [];
+    var ecommerceItems = [];
+    var jsonLdProducts = [];
+    var pageTitles = [];
+    var urlSlug = '';
+
+    // Source 1: Explicit GTM / dataLayer / window tags
+    if (typeof window !== 'undefined') {
+      if (Array.isArray(window.ZHAYA_PRODUCT_TAGS)) {
+        explicitTags = explicitTags.concat(window.ZHAYA_PRODUCT_TAGS);
+      } else if (typeof window.ZHAYA_PRODUCT_TAGS === 'string') {
+        explicitTags.push(window.ZHAYA_PRODUCT_TAGS);
+      }
+
+      if (Array.isArray(window.zhaya_product_tags)) {
+        explicitTags = explicitTags.concat(window.zhaya_product_tags);
+      } else if (typeof window.zhaya_product_tags === 'string') {
+        explicitTags.push(window.zhaya_product_tags);
+      }
+
+      if (window.ZHAYA_PRODUCT || window.zhaya_product) {
+        var pObj = window.ZHAYA_PRODUCT || window.zhaya_product;
+        if (pObj) {
+          if (Array.isArray(pObj.tags)) explicitTags = explicitTags.concat(pObj.tags);
+          if (pObj.category) explicitTags.push(pObj.category);
+          if (pObj.name) explicitTags.push(pObj.name);
         }
-        if (item && item.ecommerce && Array.isArray(item.ecommerce.zhaya_product_tags)) {
-          return item.ecommerce.zhaya_product_tags;
+      }
+
+      // Check dataLayer array
+      if (Array.isArray(window.dataLayer)) {
+        for (var i = window.dataLayer.length - 1; i >= 0; i--) {
+          var item = window.dataLayer[i];
+          if (!item) continue;
+
+          if (Array.isArray(item.zhaya_product_tags)) {
+            explicitTags = explicitTags.concat(item.zhaya_product_tags);
+          }
+          if (item.ecommerce && Array.isArray(item.ecommerce.zhaya_product_tags)) {
+            explicitTags = explicitTags.concat(item.ecommerce.zhaya_product_tags);
+          }
+
+          // Source 2: Ecommerce payloads in dataLayer
+          if (item.ecommerce) {
+            if (Array.isArray(item.ecommerce.items) && item.ecommerce.items.length > 0) {
+              ecommerceItems = ecommerceItems.concat(item.ecommerce.items);
+            }
+            if (item.ecommerce.detail && Array.isArray(item.ecommerce.detail.products) && item.ecommerce.detail.products.length > 0) {
+              ecommerceItems = ecommerceItems.concat(item.ecommerce.detail.products);
+            }
+          }
+          if (item.items && Array.isArray(item.items)) {
+            ecommerceItems = ecommerceItems.concat(item.items);
+          }
+          if (item.productName || item.product_name || item.itemName || item.item_name) {
+            ecommerceItems.push({
+              item_name: item.productName || item.product_name || item.itemName || item.item_name,
+              item_category: item.productCategory || item.product_category || item.category || '',
+              item_id: item.productId || item.product_id || item.id || '',
+              sku: item.sku || ''
+            });
+          }
         }
       }
     }
-    return null;
+
+    // Source 3: JSON-LD / schema.org Product
+    try {
+      if (typeof document !== 'undefined') {
+        var scripts = document.querySelectorAll('script[type="application/ld+json"]');
+        for (var sIdx = 0; sIdx < scripts.length; sIdx++) {
+          var content = scripts[sIdx].textContent;
+          if (!content) continue;
+          try {
+            var parsed = JSON.parse(content);
+            var itemsToCheck = Array.isArray(parsed) ? parsed : [parsed];
+            if (parsed && Array.isArray(parsed['@graph'])) {
+              itemsToCheck = itemsToCheck.concat(parsed['@graph']);
+            }
+            for (var pIdx = 0; pIdx < itemsToCheck.length; pIdx++) {
+              var pNode = itemsToCheck[pIdx];
+              if (!pNode) continue;
+              var typeStr = String(pNode['@type'] || '').toLowerCase();
+              if (typeStr.indexOf('product') !== -1) {
+                jsonLdProducts.push({
+                  name: pNode.name || pNode.title || '',
+                  category: pNode.category || pNode.productCategory || '',
+                  sku: pNode.sku || pNode.productID || pNode.mpn || '',
+                  description: pNode.description || ''
+                });
+              }
+            }
+          } catch (e) {}
+        }
+      }
+    } catch (e) {}
+
+    // Source 4: Page title / H1 / og:title
+    try {
+      if (typeof document !== 'undefined') {
+        var h1El = document.querySelector('h1.product-title, h1.product-name, .product-single__title, .product__title, h1');
+        if (h1El && h1El.textContent) {
+          pageTitles.push(h1El.textContent.trim());
+        }
+        var ogTitle = document.querySelector('meta[property="og:title"]');
+        if (ogTitle && ogTitle.getAttribute('content')) {
+          pageTitles.push(ogTitle.getAttribute('content').trim());
+        }
+        if (document.title) {
+          pageTitles.push(document.title.trim());
+        }
+      }
+    } catch (e) {}
+
+    // Source 5: URL / slug
+    try {
+      if (typeof window !== 'undefined' && window.location) {
+        urlSlug = window.location.pathname || '';
+      }
+    } catch (e) {}
+
+    return {
+      explicitTags: explicitTags.map(normalizeTag).filter(Boolean),
+      ecommerceItems: ecommerceItems,
+      jsonLdProducts: jsonLdProducts,
+      pageTitles: pageTitles,
+      urlSlug: urlSlug
+    };
   }
 
-  function resolveProductTypeByTags() {
-    var storeTags = getStoreProductTags();
-    if (storeTags === null) {
-      return { selectedType: null, hasTagConstraint: false, matchingCount: 0 };
-    }
-
-    var normStoreTags = storeTags.map(normalizeTag).filter(Boolean);
+  function resolveProductTypeByDetector() {
     var activeTypes = (configData && Array.isArray(configData.productTypes))
       ? configData.productTypes.filter(function(pt) { return pt.active !== false; })
       : [];
 
-    var matches = [];
-    for (var i = 0; i < activeTypes.length; i++) {
-      var type = activeTypes[i];
-      var typeTags = (type.storeTags || []).map(normalizeTag).filter(Boolean);
-      var hasMatch = false;
-      for (var j = 0; j < normStoreTags.length; j++) {
-        if (typeTags.indexOf(normStoreTags[j]) !== -1) {
-          hasMatch = true;
-          break;
+    if (activeTypes.length === 0) {
+      logDiagnostics({
+        productDetected: 'Nenhum Tipo de Produto ativo configurado',
+        idSku: 'N/A',
+        sourceUsed: 'none',
+        selectedType: 'Nenhum',
+        matchedRule: 'none',
+        confidence: 'none'
+      });
+      return { selectedType: null, sourceUsed: 'none', matchedRule: 'none', confidence: 'none' };
+    }
+
+    var info = detectProductInfo();
+
+    function findTypeInText(text, sourceName) {
+      if (!text) return null;
+      var normText = normalizeStr(text);
+      if (!normText) return null;
+
+      for (var i = 0; i < activeTypes.length; i++) {
+        var pt = activeTypes[i];
+        var ptNameNorm = normalizeStr(pt.name);
+        var tags = (pt.storeTags || []).map(normalizeTag).filter(Boolean);
+
+        for (var t = 0; t < tags.length; t++) {
+          var tag = tags[t];
+          if (tag && normText.indexOf(tag) !== -1) {
+            return { type: pt, matchedRule: tag, source: sourceName };
+          }
+        }
+
+        if (ptNameNorm && ptNameNorm.length >= 3 && normText.indexOf(ptNameNorm) !== -1) {
+          return { type: pt, matchedRule: ptNameNorm, source: sourceName };
         }
       }
-      if (hasMatch) {
-        matches.push(type);
+      return null;
+    }
+
+    // 1. SOURCE 1: Explicit GTM / dataLayer tags
+    if (info.explicitTags.length > 0) {
+      for (var eIdx = 0; eIdx < info.explicitTags.length; eIdx++) {
+        var expTag = info.explicitTags[eIdx];
+        for (var i = 0; i < activeTypes.length; i++) {
+          var pt = activeTypes[i];
+          var ptTags = (pt.storeTags || []).map(normalizeTag).filter(Boolean);
+          if (ptTags.indexOf(expTag) !== -1 || normalizeStr(pt.name) === expTag) {
+            logDiagnostics({
+              productDetected: expTag,
+              idSku: 'N/A',
+              sourceUsed: '1_gtm_explicit_tags',
+              selectedType: pt.name,
+              matchedRule: expTag,
+              confidence: 'high'
+            });
+            return { selectedType: pt, sourceUsed: '1_gtm_explicit_tags', matchedRule: expTag, confidence: 'high' };
+          }
+        }
       }
     }
 
-    if (matches.length === 1) {
-      return { selectedType: matches[0], hasTagConstraint: true, matchingCount: 1 };
-    } else if (matches.length > 1) {
-      matches.sort(function(a, b) {
-        var ordA = typeof a.order === 'number' ? a.order : 1;
-        var ordB = typeof b.order === 'number' ? b.order : 1;
-        return ordA - ordB;
-      });
-      if (window.console && console.warn) {
-        console.warn('[Zhaya Match] Múltiplos tipos correspondem às tags do produto:', matches.map(function(t) { return t.name; }).join(', '), '. Selecionado o de menor ordem:', matches[0].name);
+    // 2. SOURCE 2: Ecommerce in dataLayer
+    if (info.ecommerceItems.length > 0) {
+      for (var ecIdx = 0; ecIdx < info.ecommerceItems.length; ecIdx++) {
+        var item = info.ecommerceItems[ecIdx];
+        var catMatch = findTypeInText(item.item_category || item.category || item.item_category2, '2_datalayer_ecommerce_category');
+        if (catMatch) {
+          logDiagnostics({
+            productDetected: item.item_name || item.name || 'Ecommerce Item',
+            idSku: item.item_id || item.id || item.sku || 'N/A',
+            sourceUsed: '2_datalayer_ecommerce_category',
+            selectedType: catMatch.type.name,
+            matchedRule: catMatch.matchedRule,
+            confidence: 'high'
+          });
+          return { selectedType: catMatch.type, sourceUsed: '2_datalayer_ecommerce_category', matchedRule: catMatch.matchedRule, confidence: 'high' };
+        }
+
+        var nameMatch = findTypeInText(item.item_name || item.name || item.title, '2_datalayer_ecommerce_name');
+        if (nameMatch) {
+          logDiagnostics({
+            productDetected: item.item_name || item.name || 'Ecommerce Item',
+            idSku: item.item_id || item.id || item.sku || 'N/A',
+            sourceUsed: '2_datalayer_ecommerce_name',
+            selectedType: nameMatch.type.name,
+            matchedRule: nameMatch.matchedRule,
+            confidence: 'high'
+          });
+          return { selectedType: nameMatch.type, sourceUsed: '2_datalayer_ecommerce_name', matchedRule: nameMatch.matchedRule, confidence: 'high' };
+        }
       }
-      return { selectedType: matches[0], hasTagConstraint: true, matchingCount: matches.length };
-    } else {
-      return { selectedType: null, hasTagConstraint: true, matchingCount: 0 };
     }
+
+    // 3. SOURCE 3: JSON-LD Product schema
+    if (info.jsonLdProducts.length > 0) {
+      for (var jlIdx = 0; jlIdx < info.jsonLdProducts.length; jlIdx++) {
+        var pSchema = info.jsonLdProducts[jlIdx];
+        var jlCatMatch = findTypeInText(pSchema.category, '3_json_ld_category');
+        if (jlCatMatch) {
+          logDiagnostics({
+            productDetected: pSchema.name || 'JSON-LD Product',
+            idSku: pSchema.sku || 'N/A',
+            sourceUsed: '3_json_ld_category',
+            selectedType: jlCatMatch.type.name,
+            matchedRule: jlCatMatch.matchedRule,
+            confidence: 'high'
+          });
+          return { selectedType: jlCatMatch.type, sourceUsed: '3_json_ld_category', matchedRule: jlCatMatch.matchedRule, confidence: 'high' };
+        }
+
+        var jlNameMatch = findTypeInText(pSchema.name, '3_json_ld_name');
+        if (jlNameMatch) {
+          logDiagnostics({
+            productDetected: pSchema.name || 'JSON-LD Product',
+            idSku: pSchema.sku || 'N/A',
+            sourceUsed: '3_json_ld_name',
+            selectedType: jlNameMatch.type.name,
+            matchedRule: jlNameMatch.matchedRule,
+            confidence: 'high'
+          });
+          return { selectedType: jlNameMatch.type, sourceUsed: '3_json_ld_name', matchedRule: jlNameMatch.matchedRule, confidence: 'high' };
+        }
+      }
+    }
+
+    // 4. SOURCE 4: Page title / H1
+    if (info.pageTitles.length > 0) {
+      for (var ptIdx = 0; ptIdx < info.pageTitles.length; ptIdx++) {
+        var pTitle = info.pageTitles[ptIdx];
+        var titleMatch = findTypeInText(pTitle, '4_page_title');
+        if (titleMatch) {
+          logDiagnostics({
+            productDetected: pTitle,
+            idSku: 'N/A',
+            sourceUsed: '4_page_title',
+            selectedType: titleMatch.type.name,
+            matchedRule: titleMatch.matchedRule,
+            confidence: 'medium-high'
+          });
+          return { selectedType: titleMatch.type, sourceUsed: '4_page_title', matchedRule: titleMatch.matchedRule, confidence: 'medium-high' };
+        }
+      }
+    }
+
+    // 5. SOURCE 5: URL / Slug fallback
+    if (info.urlSlug) {
+      var slugMatch = findTypeInText(info.urlSlug, '5_url_slug');
+      if (slugMatch) {
+        logDiagnostics({
+          productDetected: info.urlSlug,
+          idSku: 'N/A',
+          sourceUsed: '5_url_slug',
+          selectedType: slugMatch.type.name,
+          matchedRule: slugMatch.matchedRule,
+          confidence: 'medium'
+        });
+        return { selectedType: slugMatch.type, sourceUsed: '5_url_slug', matchedRule: slugMatch.matchedRule, confidence: 'medium' };
+      }
+    }
+
+    // NO MATCH FOUND
+    logDiagnostics({
+      productDetected: (info.pageTitles[0] || info.urlSlug || 'Nenhum produto identificado'),
+      idSku: 'N/A',
+      sourceUsed: 'none',
+      selectedType: 'Nenhum (Escolha Manual)',
+      matchedRule: 'none',
+      confidence: 'none'
+    });
+
+    return { selectedType: null, sourceUsed: 'none', matchedRule: 'none', confidence: 'none' };
+  }
+
+  function resolveProductTypeByTags() {
+    var det = resolveProductTypeByDetector();
+    return {
+      selectedType: det.selectedType,
+      hasTagConstraint: Boolean(det.selectedType),
+      matchingCount: det.selectedType ? 1 : 0
+    };
   }
 
 function initZhayaMatch() {
@@ -374,9 +671,9 @@ function initZhayaMatch() {
 }
 
 function fetchConfigFromNetwork(isBackground) {
-  if (isPreviewSessionActive) return; // Never overwrite active administrative preview snapshot with public API response
+  if (isPreviewSessionActive) return Promise.resolve(); // Never overwrite active administrative preview snapshot with public API response
 
-  fetch(API_BASE + '/api/public/config', {
+  return fetch(API_BASE + '/api/public/config', {
     cache: 'no-store'
   })
     .then(function(res) {
@@ -413,6 +710,21 @@ function fetchConfigFromNetwork(isBackground) {
         overlay &&
         overlay.style.display !== 'none'
       ) {
+        if (selectedType && configData && Array.isArray(configData.productTypes)) {
+          var updatedSelectedType = configData.productTypes.find(function(pt) {
+            return String(pt.id) === String(selectedType.id);
+          });
+          if (updatedSelectedType) {
+            selectedType = updatedSelectedType;
+          } else {
+            var tagRes = resolveProductTypeByTags();
+            if (tagRes.selectedType) {
+              selectedType = tagRes.selectedType;
+            } else if (configData.productTypes.length > 0) {
+              selectedType = configData.productTypes[0];
+            }
+          }
+        }
         renderModalContent();
       }
     })
@@ -449,12 +761,7 @@ function fetchConfigFromNetwork(isBackground) {
   }
 
   function startInjection() {
-    var resolved = resolveProductTypeByTags();
-    if (resolved.hasTagConstraint && resolved.matchingCount === 0 && !isPreviewSessionActive) {
-      removeTriggerButton();
-      return;
-    }
-
+    // DO NOT hide the trigger button if no tag matched. Always inject launcher so customer can open manually!
     if (tryInjectButton()) return;
 
     if (window.MutationObserver && !observer) {
@@ -584,11 +891,17 @@ function fetchConfigFromNetwork(isBackground) {
       button.style.opacity = '1';
     };
 
-    button.onclick = function(e) {
-      e.preventDefault();
-      sendWidgetAnalyticsEvent('launcher_clicked');
-      openModal();
-    };
+button.onclick = function(e) {
+  e.preventDefault();
+  sendWidgetAnalyticsEvent('launcher_clicked');
+
+  // Abre imediatamente com a configuração já disponível.
+  openModal();
+
+  // Revalida em segundo plano; se chegar uma configuração nova,
+  // fetchConfigFromNetwork() já re-renderiza o modal aberto.
+  fetchConfigFromNetwork(true);
+};
 
     window.openZhayaMatchModal = openModal;
 
@@ -611,12 +924,12 @@ function fetchConfigFromNetwork(isBackground) {
   }
 
   function openModal() {
-    var resolved = resolveProductTypeByTags();
-    if (resolved.selectedType) {
-      selectedType = resolved.selectedType;
-      currentStep = 2; // Auto-selected type by tags, jump directly to measurements
+    var detRes = resolveProductTypeByDetector();
+    if (detRes.selectedType) {
+      selectedType = detRes.selectedType;
+      currentStep = 2; // Auto-selected type by detector, jump directly to measurements
     } else {
-      currentStep = 0;
+      currentStep = 0; // Welcome screen with start button leading to manual choice
       selectedType = null;
     }
 
@@ -1202,14 +1515,16 @@ var imgBlockHtml =
       '</div>';
 
       if (isSuccess) {
+        var thankMsg = txt.feedbackThankYouMessage || 'Obrigado pelo seu feedback!';
         innerHtml += '<div style="padding: 32px 16px; text-align: center;">' +
           '<div style="display: inline-flex; align-items: center; justify-content: center; width: 44px; height: 44px; border-radius: 50%; background: rgba(16, 185, 129, 0.15); border: 1px solid rgba(16, 185, 129, 0.3); color: #10b981; margin-bottom: 12px;">✓</div>' +
-          '<p style="font-size: 13px; font-weight: 600; color: ' + escapeHtml(textColor) + '; margin: 0;">Obrigado pelo seu feedback!</p>' +
+          '<p style="font-size: 13px; font-weight: 600; color: ' + escapeHtml(textColor) + '; margin: 0;">' + escapeHtml(thankMsg) + '</p>' +
         '</div>';
       } else {
         // Q1: Adequação
+        var q1Text = txt.feedbackAdequacyQuestion || 'A recomendação fez sentido para você?';
         innerHtml += '<div style="margin-bottom: 16px;">' +
-          '<label style="display: block; font-size: 11px; font-weight: 600; color: ' + escapeHtml(textColor) + '; margin-bottom: 8px;">1. A recomendação pareceu adequada para você? <span style="color: #ef4444;">*</span></label>' +
+          '<label style="display: block; font-size: 11px; font-weight: 600; color: ' + escapeHtml(textColor) + '; margin-bottom: 8px;">1. ' + escapeHtml(q1Text) + ' <span style="color: #ef4444;">*</span></label>' +
           '<div style="display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px;">';
 
         var opts = ['Sim', 'Não', 'Ainda não sei'];
@@ -1224,8 +1539,12 @@ var imgBlockHtml =
         innerHtml += '</div></div>';
 
         // Q2: Facilidade
+        var q2Text = txt.feedbackEaseQuestion || 'Como foi o processo de medição? (1 a 5)';
+        var minLabel = txt.feedbackEaseMinLabel || 'Muito difícil';
+        var maxLabel = txt.feedbackEaseMaxLabel || 'Muito fácil';
+
         innerHtml += '<div style="margin-bottom: 16px;">' +
-          '<label style="display: block; font-size: 11px; font-weight: 600; color: ' + escapeHtml(textColor) + '; margin-bottom: 8px;">2. Foi fácil informar suas medidas? (1 a 5) <span style="color: #ef4444;">*</span></label>' +
+          '<label style="display: block; font-size: 11px; font-weight: 600; color: ' + escapeHtml(textColor) + '; margin-bottom: 8px;">2. ' + escapeHtml(q2Text) + ' <span style="color: #ef4444;">*</span></label>' +
           '<div style="display: flex; gap: 6px; justify-content: space-between;">';
         for (var rVal = 1; rVal <= 5; rVal++) {
           var isSelRate = feedbackFormState.ease === rVal;
@@ -1235,13 +1554,16 @@ var imgBlockHtml =
           innerHtml += '<button type="button" class="zhaya-fb-ease-btn" data-val="' + rVal + '" style="' + rateBtnStyle + ' flex: 1; padding: 8px 0; border-radius: 6px; font-size: 12px; font-weight: 700; cursor: pointer; transition: all 0.2s; font-family: inherit; text-align: center;">' + rVal + '</button>';
         }
         innerHtml += '</div>' +
-        '<div style="display: flex; justify-content: space-between; font-size: 9px; color: ' + escapeHtml(secTextColor) + '; margin-top: 4px;"><span>Muito difícil</span><span>Muito fácil</span></div>' +
+        '<div style="display: flex; justify-content: space-between; font-size: 9px; color: ' + escapeHtml(secTextColor) + '; margin-top: 4px;"><span>' + escapeHtml(minLabel) + '</span><span>' + escapeHtml(maxLabel) + '</span></div>' +
         '</div>';
 
         // Q3: Comentário
+        var q3Label = txt.feedbackCommentLabel || 'Deixe seu comentário ou sugestão:';
+        var q3Placeholder = txt.feedbackCommentPlaceholder || 'Escreva aqui seu comentário ou sugestão...';
+
         innerHtml += '<div style="margin-bottom: 20px;">' +
-          '<label style="display: block; font-size: 11px; font-weight: 500; color: ' + escapeHtml(secTextColor) + '; margin-bottom: 6px;">3. Quer contar algo para a gente? <span style="opacity: 0.6;">(Opcional)</span></label>' +
-          '<textarea id="zhaya-fb-comment" rows="2" placeholder="Sua sugestão ou comentário..." style="width: 100%; background: rgba(255,255,255,0.04); color: ' + escapeHtml(textColor) + '; border: 1px solid rgba(255,255,255,0.12); border-radius: 6px; padding: 8px 10px; font-size: 11px; font-family: inherit; box-sizing: border-box; resize: none; outline: none;">' + escapeHtml(feedbackFormState.comment || '') + '</textarea>' +
+          '<label style="display: block; font-size: 11px; font-weight: 500; color: ' + escapeHtml(secTextColor) + '; margin-bottom: 6px;">3. ' + escapeHtml(q3Label) + ' <span style="opacity: 0.6;">(Opcional)</span></label>' +
+          '<textarea id="zhaya-fb-comment" rows="2" placeholder="' + escapeHtml(q3Placeholder) + '" style="width: 100%; background: rgba(255,255,255,0.04); color: ' + escapeHtml(textColor) + '; border: 1px solid rgba(255,255,255,0.12); border-radius: 6px; padding: 8px 10px; font-size: 11px; font-family: inherit; box-sizing: border-box; resize: none; outline: none;">' + escapeHtml(feedbackFormState.comment || '') + '</textarea>' +
         '</div>';
 
         // Actions
@@ -1249,9 +1571,13 @@ var imgBlockHtml =
         var submitOpacity = canSubmit ? '1' : '0.4';
         var submitCursor = canSubmit ? 'pointer' : 'not-allowed';
 
+        var submitText = txt.feedbackSubmitButtonText || 'Enviar';
+        var skipText = txt.feedbackSkipButtonText || 'Pular';
+
         innerHtml += '<div style="display: flex; flex-direction: column; gap: 8px;">' +
-          '<button id="zhaya-fb-submit-btn" style="width: 100%; min-height: 44px; background: ' + escapeHtml(btnColor) + '; color: ' + escapeHtml(btnTextColor) + '; border: none; border-radius: 8px; font-size: 12px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.05em; opacity: ' + submitOpacity + '; cursor: ' + submitCursor + '; transition: all 0.2s; font-family: inherit;">Enviar</button>' +
-          '<button id="zhaya-fb-skip-btn" style="width: 100%; padding: 8px 0; background: transparent; color: ' + escapeHtml(secTextColor) + '; border: none; font-size: 11px; cursor: pointer; font-family: inherit;">Pular</button>' +
+          '<button id="zhaya-fb-submit-btn" style="width: 100%; min-height: 44px; background: ' + escapeHtml(btnColor) + '; color: ' + escapeHtml(btnTextColor) + '; border: none; border-radius: 8px; font-size: 12px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.05em; opacity: ' + submitOpacity + '; cursor: ' + submitCursor + '; transition: all 0.2s; font-family: inherit;">' + escapeHtml(submitText) + '</button>' +
+          '<button id="zhaya-fb-skip-btn" style="width: 100%; padding: 8px 0; background: transparent; color: ' + escapeHtml(secTextColor) + '; border: none; font-size: 11px; cursor: pointer; font-family: inherit;">' + escapeHtml(skipText) + '</button>' +
+          '<div id="zhaya-fb-error-msg" style="display: none; font-size: 11px; color: #f87171; text-align: center; margin-top: 4px; font-weight: 500;"></div>' +
         '</div>';
       }
 
@@ -1605,27 +1931,52 @@ var imgBlockHtml =
             configVersion: configData && configData.version ? configData.version : 1
           };
 
+          function handleFeedbackSuccess() {
+            window.__zhayaFeedbackSubmitted = true;
+            renderModalContent();
+            setTimeout(function() {
+              window.__zhayaFeedbackState = null;
+              window.__zhayaFeedbackSubmitted = false;
+              closeModal();
+            }, 1200);
+          }
+
+          function handleFeedbackError(err) {
+            console.warn('[Zhaya Match] Falha ao enviar feedback:', err);
+            if (submitBtn) {
+              submitBtn.disabled = false;
+              submitBtn.textContent = (texts && texts.feedbackSubmitButtonText) || 'Enviar';
+            }
+            var fbErr = document.getElementById('zhaya-fb-error-msg');
+            if (fbErr) {
+              fbErr.style.display = 'block';
+              fbErr.textContent = 'Não foi possível salvar seu feedback. Tente novamente.';
+            }
+          }
+
           if (!isPreview && typeof fetch !== 'undefined') {
-            var apiUrl = (configData && configData.apiBaseUrl) ? configData.apiBaseUrl : '';
+            var apiUrl = (configData && configData.apiBaseUrl) ? configData.apiBaseUrl : API_BASE;
             fetch(apiUrl + '/api/public/feedback', {
               method: 'POST',
               headers: { 'Content-Type': 'application/json' },
               body: JSON.stringify(payload)
+            }).then(function(res) {
+              if (!res.ok) {
+                throw new Error('HTTP_' + res.status);
+              }
+              return res.json();
+            }).then(function(data) {
+              if (!data || data.success === false) {
+                throw new Error((data && data.error) || 'SAVE_FAILED');
+              }
+              handleFeedbackSuccess();
             }).catch(function(err) {
-              console.warn('[Zhaya Match] Falha ao enviar feedback:', err);
+              handleFeedbackError(err);
             });
           } else {
             console.log('[Zhaya Match Preview] Feedback simulado:', payload);
+            handleFeedbackSuccess();
           }
-
-          window.__zhayaFeedbackSubmitted = true;
-          renderModalContent();
-
-          setTimeout(function() {
-            window.__zhayaFeedbackState = null;
-            window.__zhayaFeedbackSubmitted = false;
-            closeModal();
-          }, 1000);
         };
       }
     }

@@ -109,6 +109,7 @@ export const ZhayaWidgetModal: React.FC<ZhayaWidgetModalProps> = ({
   const [feedbackComment, setFeedbackComment] = useState<string>('');
   const [isSubmittingFeedback, setIsSubmittingFeedback] = useState<boolean>(false);
   const [feedbackSuccessMessage, setFeedbackSuccessMessage] = useState<string | null>(null);
+  const [feedbackErrorMessage, setFeedbackErrorMessage] = useState<string | null>(null);
 
   const activeStep = externalStep !== undefined ? externalStep : internalStep;
 
@@ -947,7 +948,7 @@ export const ZhayaWidgetModal: React.FC<ZhayaWidgetModalProps> = ({
                 {/* Q1: Adequação */}
                 <div className="space-y-1.5">
                   <label style={{ color: textColor, fontWeight: titleWeight }} className="block text-[11px]">
-                    1. A recomendação pareceu adequada para você? <span className="text-red-400">*</span>
+                    1. {texts.feedbackAdequacyQuestion || 'A recomendação fez sentido para você?'} <span className="text-red-400">*</span>
                   </label>
                   <div className="grid grid-cols-3 gap-1.5">
                     {(['Sim', 'Não', 'Ainda não sei'] as const).map((opt) => {
@@ -975,7 +976,7 @@ export const ZhayaWidgetModal: React.FC<ZhayaWidgetModalProps> = ({
                 {/* Q2: Facilidade */}
                 <div className="space-y-1.5">
                   <label style={{ color: textColor, fontWeight: titleWeight }} className="block text-[11px]">
-                    2. Foi fácil informar suas medidas? (1 a 5) <span className="text-red-400">*</span>
+                    2. {texts.feedbackEaseQuestion || 'Como foi o processo de medição? (1 a 5)'} <span className="text-red-400">*</span>
                   </label>
                   <div className="flex items-center justify-between gap-1.5">
                     {[1, 2, 3, 4, 5].map((num) => {
@@ -999,21 +1000,21 @@ export const ZhayaWidgetModal: React.FC<ZhayaWidgetModalProps> = ({
                     })}
                   </div>
                   <div className="flex justify-between text-[9px]" style={{ color: secondaryTextColor }}>
-                    <span>Muito difícil</span>
-                    <span>Muito fácil</span>
+                    <span>{texts.feedbackEaseMinLabel || 'Muito difícil'}</span>
+                    <span>{texts.feedbackEaseMaxLabel || 'Muito fácil'}</span>
                   </div>
                 </div>
 
                 {/* Q3: Comentário Opcional */}
                 <div className="space-y-1">
                   <label style={{ color: secondaryTextColor, fontWeight: textWeight }} className="block text-[11px]">
-                    3. Quer contar algo para a gente? <span className="opacity-60">(Opcional)</span>
+                    3. {texts.feedbackCommentLabel || 'Deixe seu comentário ou sugestão:'}
                   </label>
                   <textarea
                     rows={2}
                     value={feedbackComment}
                     onChange={(e) => setFeedbackComment(e.target.value)}
-                    placeholder="Sua sugestão ou comentário..."
+                    placeholder={texts.feedbackCommentPlaceholder || 'Escreva aqui seu comentário ou sugestão...'}
                     style={{
                       backgroundColor: inputBgColor,
                       color: inputTextColor,
@@ -1033,6 +1034,7 @@ export const ZhayaWidgetModal: React.FC<ZhayaWidgetModalProps> = ({
                     onClick={async () => {
                       if (!adequacyResponse || !easeRating) return;
                       setIsSubmittingFeedback(true);
+                      setFeedbackErrorMessage(null);
 
                       trackAnalyticsEvent('feedback_submitted', {
                         productTypeId: activeType?.id,
@@ -1043,7 +1045,7 @@ export const ZhayaWidgetModal: React.FC<ZhayaWidgetModalProps> = ({
                       });
 
                       try {
-                        await fetch('/api/public/feedback', {
+                        const res = await fetch('/api/public/feedback', {
                           method: 'POST',
                           headers: { 'Content-Type': 'application/json' },
                           body: JSON.stringify({
@@ -1057,15 +1059,27 @@ export const ZhayaWidgetModal: React.FC<ZhayaWidgetModalProps> = ({
                             easeRating,
                             comment: feedbackComment,
                           }),
-                        }).catch(() => {});
-                      } catch (e) {}
+                        });
 
-                      setFeedbackSuccessMessage('Obrigado pelo seu feedback!');
-                      setTimeout(() => {
+                        if (!res.ok) {
+                          throw new Error(`HTTP_${res.status}`);
+                        }
+
+                        const data = await res.json();
+                        if (!data || data.success === false) {
+                          throw new Error(data?.error || 'SAVE_FAILED');
+                        }
+
+                        setFeedbackSuccessMessage(texts.feedbackThankYouMessage || 'Obrigado pelo seu feedback!');
+                        setTimeout(() => {
+                          setIsSubmittingFeedback(false);
+                          setShowFeedbackStep(false);
+                          handleCloseModal();
+                        }, 1200);
+                      } catch (e: any) {
                         setIsSubmittingFeedback(false);
-                        setShowFeedbackStep(false);
-                        handleCloseModal();
-                      }, 1000);
+                        setFeedbackErrorMessage('Não foi possível gravar o feedback. Tente novamente.');
+                      }
                     }}
                     style={{
                       backgroundColor: buttonColor,
@@ -1079,8 +1093,14 @@ export const ZhayaWidgetModal: React.FC<ZhayaWidgetModalProps> = ({
                     }}
                     className="w-full tracking-widest transition-all cursor-pointer shadow-md flex items-center justify-center gap-2"
                   >
-                    <span>{isSubmittingFeedback ? 'Enviando...' : 'Enviar'}</span>
+                    <span>{isSubmittingFeedback ? 'Enviando...' : (texts.feedbackSubmitButtonText || 'Enviar')}</span>
                   </button>
+
+                  {feedbackErrorMessage && (
+                    <p className="text-[11px] text-red-400 text-center font-medium">
+                      {feedbackErrorMessage}
+                    </p>
+                  )}
 
                   <button
                     type="button"
@@ -1098,7 +1118,7 @@ export const ZhayaWidgetModal: React.FC<ZhayaWidgetModalProps> = ({
                     className="w-full py-1 text-xs hover:underline cursor-pointer text-center"
                     style={{ color: secondaryTextColor, fontWeight: textWeight }}
                   >
-                    Pular
+                    <span>{texts.feedbackSkipButtonText || 'Pular'}</span>
                   </button>
                 </div>
               </div>

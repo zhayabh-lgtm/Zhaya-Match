@@ -183,6 +183,20 @@ export function trackAnalyticsEvent(
     const endpoint = `${baseUrl}/api/public/analytics`;
     const bodyStr = JSON.stringify(payload);
 
+    // Integration with Google Tag Manager / window.dataLayer
+    if (typeof window !== 'undefined') {
+      (window as any).dataLayer = (window as any).dataLayer || [];
+      (window as any).dataLayer.push({
+        event: 'zhaya_' + eventName,
+        zhaya_event_name: eventName,
+        zhaya_product_type_id: payload.productTypeId,
+        zhaya_product_type_name: payload.productTypeName,
+        zhaya_recommendation_status: payload.recommendationStatus,
+        zhaya_session_id: payload.sessionId,
+        zhaya_visitor_id: payload.visitorId,
+      });
+    }
+
     // Tenta enviar via sendBeacon se disponível (não-bloqueante)
     if (typeof navigator !== 'undefined' && typeof navigator.sendBeacon === 'function') {
       try {

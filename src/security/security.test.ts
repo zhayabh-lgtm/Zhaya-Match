@@ -63,8 +63,8 @@ function runSecurityTests() {
         searchFrontendServiceRole(fullPath);
       } else if (stat.isFile() && (file.endsWith('.ts') || file.endsWith('.tsx'))) {
         if (file.endsWith('.test.ts')) continue;
-        // Exceção permitida: arquivos puramente utilitários do servidor no src (adminAuth.ts, repository.ts no servidor)
-        if (file === 'repository.ts' || file === 'adminAuth.ts') continue;
+        // Exceção permitida: arquivo de auth utilitário do servidor em src (adminAuth.ts)
+        if (file === 'adminAuth.ts') continue;
         const content = fs.readFileSync(fullPath, 'utf8');
         if (content.includes('SUPABASE_SERVICE_ROLE_KEY')) {
           foundFrontendServiceRole = true;
