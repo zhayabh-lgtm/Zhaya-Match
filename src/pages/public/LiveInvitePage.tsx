@@ -1,9 +1,7 @@
 import React, { useEffect, useState, useMemo } from 'react';
 import { useParams } from 'react-router-dom';
 import { motion, AnimatePresence } from 'motion/react';
-import { useAuth } from '../../context/AuthContext';
 import { Repository } from '../../lib/repository';
-import { VISITOR_LOCK_STORAGE_KEY } from '../../components/VisitorLockGuard';
 import type { PublicLiveInvite } from '../../types/zhaya';
 
 /**
@@ -183,26 +181,12 @@ function formatLiveDateTime(startsAt: string, endsAt: string) {
 
 export const LiveInvitePage: React.FC = () => {
   const { slug } = useParams<{ slug: string }>();
-  const { user, session } = useAuth();
   const [invite, setInvite] = useState<PublicLiveInvite | null>(null);
   const [loading, setLoading] = useState<boolean>(true);
   const [buttonClicked, setButtonClicked] = useState<boolean>(false);
   const [now, setNow] = useState<Date>(() => new Date());
 
-  // 1. Visitor Lockdown: Mark unauthenticated visitor session
-  useEffect(() => {
-    if (slug) {
-      if (!user && !session) {
-        try {
-          sessionStorage.setItem(VISITOR_LOCK_STORAGE_KEY, slug);
-        } catch {
-          // Ignore sessionStorage errors
-        }
-      }
-    }
-  }, [slug, user, session]);
-
-  // 2. Real-time ticker: update every second
+  // 1. Real-time ticker: update every second
   useEffect(() => {
     const timer = setInterval(() => {
       setNow(new Date());

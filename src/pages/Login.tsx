@@ -130,7 +130,7 @@ export const Login: React.FC = () => {
                 type="email"
                 value={email}
                 onChange={(e) => setEmail(e.target.value)}
-                placeholder="marketingzhaya@gmail.com"
+                placeholder="seu@email.com"
                 required
                 className="w-full px-3 py-2 bg-neutral-50 border border-neutral-200 rounded text-xs text-neutral-900 focus:outline-none focus:border-neutral-900"
               />
@@ -181,7 +181,7 @@ export const Login: React.FC = () => {
         ) : (
           <form onSubmit={handleForgotSubmit} className="space-y-4">
             <p className="text-xs text-neutral-600 leading-relaxed mb-2">
-              Informe seu e-mail cadastrado (<strong>marketingzhaya@gmail.com</strong>) para receber o link de redefinição de senha.
+              Informe seu e-mail cadastrado para receber o link de redefinição de senha.
             </p>
 
             <div>
@@ -192,7 +192,7 @@ export const Login: React.FC = () => {
                 type="email"
                 value={email}
                 onChange={(e) => setEmail(e.target.value)}
-                placeholder="marketingzhaya@gmail.com"
+                placeholder="seu@email.com"
                 required
                 className="w-full px-3 py-2 bg-neutral-50 border border-neutral-200 rounded text-xs text-neutral-900 focus:outline-none focus:border-neutral-900"
               />
