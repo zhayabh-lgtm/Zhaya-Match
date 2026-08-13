@@ -167,6 +167,31 @@ function runLiveInviteTests() {
   assert(adminPageContent.includes('btn-salvar-edicao-live'), 'Modal de edição possui botão para salvar alterações');
   assert(adminPageContent.includes('btn-edit-live-'), 'Lista de convites possui botão de editar para cada convite');
 
+  // 10. Testes de Detecção de In-App Browser e Roteamento de Calendário (Instagram / Facebook / Safari / Android)
+  console.log('\n--- Teste 10: Detecção de In-App Browser e Roteamento de Calendário ---');
+  assert(livePageContent.includes('isInstagramOrFacebookInApp'), 'Função de detecção de in-app browser existe no LiveInvitePage');
+  assert(livePageContent.includes('Instagram|FBAN|FBAV|FB_IAB|FB4A|FBIOS|Threads'), 'Padrões de userAgent para Instagram e Facebook mapeados corretamente');
+  assert(livePageContent.includes('window.location.assign'), 'Usa window.location.assign para navegação robusta no mesmo clique');
+  assert(!livePageContent.includes('window.open('), 'Não usa window.open para evitar bloqueios de pop-up');
+  assert(livePageContent.includes('visibilitychange') && livePageContent.includes('pagehide'), 'Usa visibilitychange e pagehide para fallback invisível');
+  assert(livePageContent.includes('ctz=America/Sao_Paulo'), 'URL do Google Calendar inclui timezone America/Sao_Paulo');
+
+  // Validação algorítmica de UserAgents
+  const igIphoneUA = 'Mozilla/5.0 (iPhone; CPU iPhone OS 16_6 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Mobile/15E148 Instagram 296.0.0.26.113';
+  const igAndroidUA = 'Mozilla/5.0 (Linux; Android 13; SM-S908B) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/112.0.0.0 Mobile Safari/537.36 Instagram 280.0.0.17.114 Android (33/13; 500dpi; 1440x3088; samsung; SM-S908B; b0q; exynos2200; pt_BR; 461144883)';
+  const fbIosUA = 'Mozilla/5.0 (iPhone; CPU iPhone OS 15_4 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Mobile/15E148 [FBAN/FBIOS;FBAV/360.0.0.25.112;FBBV/362627993;FBDV/iPhone13,2;FBMD/iPhone;FBSN/iOS;FBSV/15.4;FBSS/3;FBID/phone;FBLC/pt_BR;FBOP/5]';
+  const safariIphoneUA = 'Mozilla/5.0 (iPhone; CPU iPhone OS 16_5 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/16.5 Mobile/15E148 Safari/604.1';
+  const chromeAndroidUA = 'Mozilla/5.0 (Linux; Android 13; Pixel 7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/114.0.0.0 Mobile Safari/537.36';
+  const chromeWindowsUA = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/114.0.0.0 Safari/537.36';
+
+  const inAppRegex = /Instagram|FBAN|FBAV|FB_IAB|FB4A|FBIOS|Threads/i;
+  assert(inAppRegex.test(igIphoneUA), 'Detecta Instagram no iPhone como in-app browser');
+  assert(inAppRegex.test(igAndroidUA), 'Detecta Instagram no Android como in-app browser');
+  assert(inAppRegex.test(fbIosUA), 'Detecta Facebook no iOS como in-app browser');
+  assert(!inAppRegex.test(safariIphoneUA), 'Safari iPhone NÃO é classificado como in-app browser restritivo');
+  assert(!inAppRegex.test(chromeAndroidUA), 'Chrome Android NÃO é classificado como in-app browser restritivo');
+  assert(!inAppRegex.test(chromeWindowsUA), 'Chrome Windows NÃO é classificado como in-app browser restritivo');
+
   console.log(`\n=== RESUMO DOS TESTES DE CONVITE DE LIVE: ${passed} PASSOU, ${failed} FALHOU ===`);
   if (failed > 0) {
     process.exit(1);

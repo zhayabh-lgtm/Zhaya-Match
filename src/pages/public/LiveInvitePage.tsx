@@ -6,7 +6,7 @@ import type { PublicLiveInvite } from '../../types/zhaya';
 
 /**
  * Detects if the current device is an iOS/iPadOS device (iPhone, iPad, iPod)
- * which supports seamless 1-click native Calendar import via .ics.
+ * which supports seamless 1-click native Calendar import via .ics on Safari.
  */
 function isIosPlatform(): boolean {
   if (typeof window === 'undefined' || typeof navigator === 'undefined') return false;
@@ -14,6 +14,17 @@ function isIosPlatform(): boolean {
   const isIos = /iPhone|iPod|iPad/i.test(userAgent) && !(window as any).MSStream;
   const isIpadOs = navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1;
   return isIos || isIpadOs;
+}
+
+/**
+ * Detects if the page is running inside an in-app browser (Instagram, Facebook, Threads, etc.)
+ * In these environments, downloading .ics or handling custom schemes is blocked.
+ * The standard Google Calendar Web URL over HTTPS provides 100% reliability.
+ */
+function isInstagramOrFacebookInApp(): boolean {
+  if (typeof window === 'undefined' || typeof navigator === 'undefined') return false;
+  const ua = navigator.userAgent || navigator.vendor || (window as any).opera || '';
+  return /Instagram|FBAN|FBAV|FB_IAB|FB4A|FBIOS|Threads/i.test(ua);
 }
 
 /**
@@ -253,26 +264,61 @@ export const LiveInvitePage: React.FC = () => {
     if (!invite || !slug) return;
     setButtonClicked(true);
 
-    // Registra o clique imediatamente
-    Repository.trackLiveInviteClick(slug);
+    // 1. Registra o clique sem bloquear a navegação
+    try {
+      Repository.trackLiveInviteClick(slug);
+    } catch {
+      // Ignora erro de tracking para nunca bloquear o usuário
+    }
 
     if (isLiveNow) {
       // Quando estiver ao vivo, leva diretamente para o link da live/plataforma (ex: Instagram @shoes.zhaya)
       const liveTargetUrl = invite.platformUrl || 'https://instagram.com/shoes.zhaya';
-      window.location.href = liveTargetUrl;
+      window.location.assign(liveTargetUrl);
+      return;
+    }
+
+    // Antes do evento: adiciona à agenda
+    const gcalUrl = buildGoogleCalendarUrl(invite);
+    const inAppBrowser = isInstagramOrFacebookInApp();
+
+    if (inAppBrowser) {
+      // REGRA PRINCIPAL: Dentro do Instagram ou Facebook (iOS ou Android),
+      // navega diretamente no MESMO clique para o Google Calendar Web via HTTPS.
+      // Nunca abre custom scheme ou .ics bloqueado no in-app browser.
+      window.location.assign(gcalUrl);
+      return;
+    }
+
+    if (isIos) {
+      // Fora do Instagram (Safari no iPhone/iPad):
+      // Tenta integração Apple Calendar nativa com Fallback Invisível
+      let hasNavigatedAway = false;
+
+      const handlePageExit = () => {
+        hasNavigatedAway = true;
+      };
+
+      window.addEventListener('pagehide', handlePageExit, { once: true });
+      window.addEventListener('visibilitychange', () => {
+        if (document.visibilityState === 'hidden') {
+          hasNavigatedAway = true;
+        }
+      }, { once: true });
+
+      const icsUrl = `/api/public/live-ics?slug=${encodeURIComponent(slug)}`;
+      window.location.assign(icsUrl);
+
+      // Fallback invisível: se a página continuar ativa e visível após 1.2s, redireciona para Google Calendar Web
+      setTimeout(() => {
+        if (!hasNavigatedAway && document.visibilityState === 'visible') {
+          window.location.assign(gcalUrl);
+        }
+      }, 1200);
     } else {
-      // Antes do evento: adiciona à agenda
-      if (isIos) {
-        // iPhone / iPad / iOS Safari / Instagram In-App Browser:
-        // Directly invokes native iOS Apple Calendar event sheet via RFC 5545 .ics stream
-        const icsUrl = `/api/public/live-ics?slug=${encodeURIComponent(slug)}`;
-        window.location.href = icsUrl;
-      } else {
-        // Android, Windows, macOS Desktop, Linux, Chromebook & Generic Web:
-        // Directly opens Google Calendar web view with event details pre-filled (avoids intrusive .ics downloads)
-        const gcalUrl = buildGoogleCalendarUrl(invite);
-        window.location.href = gcalUrl;
-      }
+      // Android normal, Windows, macOS Desktop, Linux, Chromebook:
+      // Redireciona diretamente para o Google Calendar Web com dados preenchidos
+      window.location.assign(gcalUrl);
     }
 
     setTimeout(() => {
