@@ -1684,6 +1684,41 @@ export const Repository = {
     }
   },
 
+  async updateLiveInvite(
+    id: string,
+    payload: {
+      title?: string;
+      description?: string;
+      platform?: string;
+      platformUrl?: string;
+      startsAt?: string;
+      endsAt?: string;
+      active?: boolean;
+    }
+  ): Promise<{ success: boolean; invite?: LiveInvite; error?: string }> {
+    try {
+      const token = isSupabaseConfigured && supabase ? (await supabase.auth.getSession())?.data?.session?.access_token : undefined;
+      const headers: Record<string, string> = {
+        'Content-Type': 'application/json',
+      };
+      if (token) headers['Authorization'] = `Bearer ${token}`;
+
+      const res = await fetch('/api/admin/live-invites', {
+        method: 'PUT',
+        headers,
+        body: JSON.stringify({ id, ...payload }),
+      });
+
+      const json = await res.json();
+      if (res.ok && json.success) {
+        return { success: true, invite: json.invite };
+      }
+      return { success: false, error: json.message || json.error || 'Falha ao atualizar convite.' };
+    } catch (e: any) {
+      return { success: false, error: e?.message || 'Erro de conexão ao atualizar convite.' };
+    }
+  },
+
   async deleteLiveInvite(id: string): Promise<boolean> {
     try {
       const token = isSupabaseConfigured && supabase ? (await supabase.auth.getSession())?.data?.session?.access_token : undefined;
@@ -1721,16 +1756,16 @@ export const Repository = {
     if (!slug) return;
     try {
       const payload = JSON.stringify({ slug });
-      if (typeof navigator !== 'undefined' && navigator.sendBeacon) {
-        const blob = new Blob([payload], { type: 'application/json' });
-        navigator.sendBeacon('/api/public/live-click', blob);
-      } else if (typeof fetch !== 'undefined') {
+      if (typeof fetch !== 'undefined') {
         fetch('/api/public/live-click', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: payload,
           keepalive: true,
         }).catch(() => {});
+      } else if (typeof navigator !== 'undefined' && navigator.sendBeacon) {
+        const blob = new Blob([payload], { type: 'application/json' });
+        navigator.sendBeacon('/api/public/live-click', blob);
       }
     } catch (err) {
       console.warn('[Repository] Erro ao registrar clique do convite:', err);

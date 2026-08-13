@@ -61,6 +61,21 @@ export const LiveInvitesStore = {
     });
   },
 
+  update(id: string, updates: Partial<LiveInvite>): LiveInvite | null {
+    const existing = inMemoryLiveInvites.get(id);
+    if (!existing) return null;
+    const updated: LiveInvite = {
+      ...existing,
+      ...updates,
+      id: existing.id,
+      slug: updates.slug || existing.slug,
+      clicks: updates.clicks !== undefined ? updates.clicks : existing.clicks,
+      createdAt: existing.createdAt,
+    };
+    inMemoryLiveInvites.set(id, updated);
+    return updated;
+  },
+
   incrementClicks(slug: string): number {
     if (!slug) return 0;
     const clean = slug.trim().toLowerCase();

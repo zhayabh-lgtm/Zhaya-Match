@@ -5,7 +5,7 @@ import { LiveInvitesStore } from '../../src/lib/liveInvitesStore.js';
 export default async function handler(req: any, res: any) {
   const requestOrigin = typeof req.headers?.origin === 'string' ? req.headers.origin : '*';
   res.setHeader('Access-Control-Allow-Origin', requestOrigin);
-  res.setHeader('Access-Control-Allow-Methods', 'POST, OPTIONS');
+  res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
   res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
   res.setHeader('Cache-Control', 'no-store');
 
@@ -16,13 +16,32 @@ export default async function handler(req: any, res: any) {
   let slug: string | null = null;
 
   try {
-    if (req.method === 'POST') {
-      const body = typeof req.body === 'string' ? JSON.parse(req.body) : req.body || {};
-      slug = body.slug;
+    // 1. From body (JSON or parsed object)
+    if (req.body) {
+      if (typeof req.body === 'object' && req.body.slug) {
+        slug = req.body.slug;
+      } else if (typeof req.body === 'string') {
+        try {
+          const parsed = JSON.parse(req.body);
+          slug = parsed.slug;
+        } catch {
+          // If not JSON, check if form-urlencoded (e.g. slug=xyz)
+          const params = new URLSearchParams(req.body);
+          if (params.get('slug')) {
+            slug = params.get('slug');
+          }
+        }
+      }
     }
+
+    // 2. From query parameters or URL
     if (!slug) {
-      const url = new URL(req.url, `http://${req.headers.host || 'localhost'}`);
-      slug = req.query?.slug || url.searchParams.get('slug');
+      if (req.query?.slug) {
+        slug = req.query.slug;
+      } else {
+        const url = new URL(req.url, `http://${req.headers?.host || 'localhost'}`);
+        slug = url.searchParams.get('slug');
+      }
     }
   } catch {
     // Ignore parsing errors

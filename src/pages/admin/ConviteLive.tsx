@@ -14,13 +14,17 @@ import {
   ChevronUp,
   Globe,
   Info,
-  Radio,
+  Pencil,
+  X,
 } from 'lucide-react';
 import { Repository } from '../../lib/repository';
 import type { LiveInvite } from '../../types/zhaya';
 
 const SUPABASE_SETUP_SQL = `-- ==============================================================================
--- ZHAYA MATCH - SETUP DE CONVITES DE LIVE (OPCIONAL)
+-- ZHAYA MATCH - SETUP DE CONVITES DE LIVE (100% COMPLETO E IDEMPOTENTE)
+-- ==============================================================================
+-- Execute este script no SQL Editor do Supabase para habilitar o armazenamento
+-- persistente de convites de lives, suporte à edição, contador de cliques e plataforma.
 -- ==============================================================================
 
 -- 1. Criação da tabela live_invites
@@ -40,23 +44,24 @@ CREATE TABLE IF NOT EXISTS public.live_invites (
   created_by TEXT
 );
 
--- Adiciona colunas caso a tabela já exista
+-- 2. Garante todas as colunas caso a tabela já tenha sido criada anteriormente
 ALTER TABLE public.live_invites ADD COLUMN IF NOT EXISTS clicks INTEGER NOT NULL DEFAULT 0;
 ALTER TABLE public.live_invites ADD COLUMN IF NOT EXISTS platform TEXT NOT NULL DEFAULT 'instagram';
 ALTER TABLE public.live_invites ADD COLUMN IF NOT EXISTS platform_url TEXT DEFAULT 'https://instagram.com/shoes.zhaya';
+ALTER TABLE public.live_invites ADD COLUMN IF NOT EXISTS active BOOLEAN NOT NULL DEFAULT true;
 
--- 2. Índices de performance
+-- 3. Índices de performance
 CREATE INDEX IF NOT EXISTS idx_live_invites_slug ON public.live_invites(slug);
 CREATE INDEX IF NOT EXISTS idx_live_invites_created_at ON public.live_invites(created_at DESC);
 
--- 3. Habilitação de Segurança por Linha (RLS)
+-- 4. Habilitação de Segurança por Linha (RLS)
 ALTER TABLE public.live_invites ENABLE ROW LEVEL SECURITY;
 
--- 4. Permissões de isolamento
+-- 5. Permissões de isolamento estrito
 REVOKE ALL ON public.live_invites FROM anon, authenticated;
 GRANT ALL ON public.live_invites TO service_role;
 
--- 5. Função atômica para incremento seguro de cliques
+-- 6. Função atômica para incremento seguro de cliques
 CREATE OR REPLACE FUNCTION public.increment_live_invite_clicks(invite_slug TEXT)
 RETURNS INTEGER AS $$
 DECLARE
@@ -73,8 +78,31 @@ $$ LANGUAGE plpgsql SECURITY DEFINER;
 REVOKE ALL ON FUNCTION public.increment_live_invite_clicks(TEXT) FROM public, anon, authenticated;
 GRANT EXECUTE ON FUNCTION public.increment_live_invite_clicks(TEXT) TO service_role;
 
--- 6. Recarga do schema cache do Supabase
+-- 7. Recarga do schema cache do PostgREST / Supabase API
 NOTIFY pgrst, 'reload schema';`;
+
+function parseIsoToLocalDateTime(isoStr: string) {
+  try {
+    const d = new Date(isoStr);
+    const dateParts = new Intl.DateTimeFormat('en-CA', {
+      timeZone: 'America/Sao_Paulo',
+      year: 'numeric',
+      month: '2-digit',
+      day: '2-digit',
+    }).format(d);
+
+    const timeParts = new Intl.DateTimeFormat('pt-BR', {
+      timeZone: 'America/Sao_Paulo',
+      hour: '2-digit',
+      minute: '2-digit',
+      hour12: false,
+    }).format(d);
+
+    return { date: dateParts, time: timeParts };
+  } catch {
+    return { date: '', time: '' };
+  }
+}
 
 export const ConviteLive: React.FC = () => {
   const [invites, setInvites] = useState<LiveInvite[]>([]);
@@ -84,7 +112,7 @@ export const ConviteLive: React.FC = () => {
   const [creating, setCreating] = useState<boolean>(false);
   const [error, setError] = useState<string | null>(null);
 
-  // Form State
+  // Form State (Novo Convite)
   const [title, setTitle] = useState('');
   const [date, setDate] = useState('');
   const [startTime, setStartTime] = useState('19:30');
@@ -93,7 +121,21 @@ export const ConviteLive: React.FC = () => {
   const [platformUrl, setPlatformUrl] = useState('https://instagram.com/shoes.zhaya');
   const [description, setDescription] = useState('');
 
-  // Generated Link Feedback
+  // Edit Modal State
+  const [editingInvite, setEditingInvite] = useState<LiveInvite | null>(null);
+  const [editTitle, setEditTitle] = useState('');
+  const [editDate, setEditDate] = useState('');
+  const [editStartTime, setEditStartTime] = useState('19:30');
+  const [editEndTime, setEditEndTime] = useState('20:30');
+  const [editPlatform, setEditPlatform] = useState<string>('instagram');
+  const [editPlatformUrl, setEditPlatformUrl] = useState('https://instagram.com/shoes.zhaya');
+  const [editDescription, setEditDescription] = useState('');
+  const [editActive, setEditActive] = useState<boolean>(true);
+  const [savingEdit, setSavingEdit] = useState<boolean>(false);
+  const [editError, setEditError] = useState<string | null>(null);
+  const [editSuccessMsg, setEditSuccessMsg] = useState<string | null>(null);
+
+  // Feedback State
   const [latestCreated, setLatestCreated] = useState<LiveInvite | null>(null);
   const [copiedId, setCopiedId] = useState<string | null>(null);
   const [copiedSql, setCopiedSql] = useState<boolean>(false);
@@ -134,6 +176,17 @@ export const ConviteLive: React.FC = () => {
       setPlatformUrl('https://tiktok.com/@shoes.zhaya');
     } else if (selectedPlatform === 'youtube') {
       setPlatformUrl('https://youtube.com/@shoes.zhaya');
+    }
+  };
+
+  const handleEditPlatformSelect = (selectedPlatform: string) => {
+    setEditPlatform(selectedPlatform);
+    if (selectedPlatform === 'instagram' && (!editPlatformUrl || editPlatformUrl.includes('tiktok') || editPlatformUrl.includes('youtube'))) {
+      setEditPlatformUrl('https://instagram.com/shoes.zhaya');
+    } else if (selectedPlatform === 'tiktok' && (!editPlatformUrl || editPlatformUrl.includes('instagram') || editPlatformUrl.includes('youtube'))) {
+      setEditPlatformUrl('https://tiktok.com/@shoes.zhaya');
+    } else if (selectedPlatform === 'youtube' && (!editPlatformUrl || editPlatformUrl.includes('instagram') || editPlatformUrl.includes('tiktok'))) {
+      setEditPlatformUrl('https://youtube.com/@shoes.zhaya');
     }
   };
 
@@ -185,6 +238,82 @@ export const ConviteLive: React.FC = () => {
     }
   };
 
+  // Abrir Modal de Edição
+  const startEditing = (inv: LiveInvite) => {
+    const { date: dStart, time: tStart } = parseIsoToLocalDateTime(inv.startsAt);
+    const { time: tEnd } = parseIsoToLocalDateTime(inv.endsAt);
+
+    setEditingInvite(inv);
+    setEditTitle(inv.title);
+    setEditDate(dStart);
+    setEditStartTime(tStart || '19:30');
+    setEditEndTime(tEnd || '20:30');
+    setEditPlatform(inv.platform || 'instagram');
+    setEditPlatformUrl(inv.platformUrl || 'https://instagram.com/shoes.zhaya');
+    setEditDescription(inv.description || '');
+    setEditActive(inv.active ?? true);
+    setEditError(null);
+    setEditSuccessMsg(null);
+  };
+
+  const handleSaveEdit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!editingInvite) return;
+
+    setEditError(null);
+    setEditSuccessMsg(null);
+
+    if (!editTitle.trim()) {
+      setEditError('O título da live é obrigatório.');
+      return;
+    }
+
+    if (!editDate || !editStartTime || !editEndTime) {
+      setEditError('Preencha a data e os horários.');
+      return;
+    }
+
+    const startsAt = new Date(`${editDate}T${editStartTime}:00-03:00`).toISOString();
+    const endsAt = new Date(`${editDate}T${editEndTime}:00-03:00`).toISOString();
+
+    if (new Date(endsAt) <= new Date(startsAt)) {
+      setEditError('O horário de término deve ser posterior ao início.');
+      return;
+    }
+
+    setSavingEdit(true);
+    try {
+      const res = await Repository.updateLiveInvite(editingInvite.id, {
+        title: editTitle.trim(),
+        description: editDescription.trim() || undefined,
+        platform: editPlatform,
+        platformUrl: editPlatformUrl.trim() || 'https://instagram.com/shoes.zhaya',
+        startsAt,
+        endsAt,
+        active: editActive,
+      });
+
+      if (res.success && res.invite) {
+        const updated = res.invite;
+        setInvites((prev) => prev.map((item) => (item.id === updated.id ? updated : item)));
+        if (latestCreated?.id === updated.id) {
+          setLatestCreated(updated);
+        }
+        setEditSuccessMsg('Convite atualizado com sucesso!');
+        setTimeout(() => {
+          setEditingInvite(null);
+          setEditSuccessMsg(null);
+        }, 1200);
+      } else {
+        setEditError(res.error || 'Erro ao atualizar convite.');
+      }
+    } catch (err: any) {
+      setEditError(err?.message || 'Erro inesperado ao salvar alterações.');
+    } finally {
+      setSavingEdit(false);
+    }
+  };
+
   const handleCopy = (slug: string, id: string) => {
     const url = `${window.location.origin}/live/${slug}`;
     navigator.clipboard.writeText(url);
@@ -225,7 +354,7 @@ export const ConviteLive: React.FC = () => {
             Convite de Live
           </h1>
           <p className="text-xs text-neutral-500 mt-1">
-            Crie links exclusivos e páginas elegantes para o seu público adicionar a live à agenda e assistir com um clique.
+            Crie, edite e gerencie links exclusivos para o seu público adicionar as lives à agenda e assistir com um clique.
           </p>
         </div>
 
@@ -481,6 +610,17 @@ export const ConviteLive: React.FC = () => {
 
             <div className="flex items-center gap-2">
               <button
+                id="btn-editar-convite-destaque"
+                type="button"
+                onClick={() => startEditing(latestCreated)}
+                className="px-3 py-2 bg-white border border-emerald-300 hover:bg-emerald-100 text-emerald-900 rounded text-xs font-semibold flex items-center gap-1.5 transition-colors cursor-pointer"
+                title="Editar este convite"
+              >
+                <Pencil className="w-3.5 h-3.5" />
+                <span>Editar</span>
+              </button>
+
+              <button
                 id="btn-copiar-link-destaque"
                 type="button"
                 onClick={() => handleCopy(latestCreated.slug, latestCreated.id)}
@@ -559,7 +699,11 @@ export const ConviteLive: React.FC = () => {
                       <span className="px-1.5 py-0.5 bg-neutral-100 text-neutral-600 rounded text-[10px] uppercase font-mono">
                         {inv.platform || 'instagram'}
                       </span>
-                      {isEnded ? (
+                      {inv.active === false ? (
+                        <span className="px-1.5 py-0.5 bg-neutral-100 text-neutral-500 rounded text-[10px] font-medium">
+                          Inativo
+                        </span>
+                      ) : isEnded ? (
                         <span className="px-1.5 py-0.5 bg-neutral-100 text-neutral-500 rounded text-[10px] font-medium">
                           Encerrado
                         </span>
@@ -577,7 +721,7 @@ export const ConviteLive: React.FC = () => {
                       <span>•</span>
                       <span className="text-neutral-400">/{inv.slug}</span>
                       <span>•</span>
-                      <span className="font-semibold text-neutral-800 bg-neutral-100 px-1.5 py-0.5 rounded text-[10px]">
+                      <span className="font-semibold text-neutral-800 bg-neutral-100 px-1.5 py-0.5 rounded text-[10px]" title="Total de cliques no botão">
                         Cliques: {inv.clicks ?? 0}
                       </span>
                       {inv.platformUrl && (
@@ -597,6 +741,17 @@ export const ConviteLive: React.FC = () => {
                   </div>
 
                   <div className="flex items-center gap-2 shrink-0">
+                    <button
+                      id={`btn-edit-live-${inv.id}`}
+                      type="button"
+                      onClick={() => startEditing(inv)}
+                      className="px-2.5 py-1.5 text-xs font-medium text-neutral-700 bg-neutral-100 hover:bg-neutral-200 rounded flex items-center gap-1 transition-colors cursor-pointer"
+                      title="Editar convite de live"
+                    >
+                      <Pencil className="w-3.5 h-3.5 text-neutral-500" />
+                      <span>Editar</span>
+                    </button>
+
                     <button
                       type="button"
                       onClick={() => handleCopy(inv.slug, inv.id)}
@@ -642,6 +797,206 @@ export const ConviteLive: React.FC = () => {
           </div>
         )}
       </div>
+
+      {/* Modal de Edição de Convite de Live */}
+      {editingInvite && (
+        <div
+          id="modal-editar-live"
+          className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-xs animate-in fade-in duration-150"
+        >
+          <div className="bg-white rounded-lg shadow-xl border border-neutral-200 w-full max-w-lg overflow-hidden flex flex-col max-h-[90vh]">
+            {/* Header */}
+            <div className="px-5 py-4 border-b border-neutral-100 flex items-center justify-between bg-neutral-50">
+              <div className="flex items-center gap-2">
+                <Pencil className="w-4 h-4 text-neutral-700" />
+                <h3 className="text-sm font-bold text-neutral-900 uppercase tracking-wider">
+                  Editar Convite de Live
+                </h3>
+              </div>
+              <button
+                type="button"
+                onClick={() => setEditingInvite(null)}
+                className="p-1 text-neutral-400 hover:text-neutral-700 rounded transition-colors cursor-pointer"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            {/* Form Body */}
+            <form onSubmit={handleSaveEdit} className="p-5 space-y-4 overflow-y-auto">
+              {editError && (
+                <div className="p-3 bg-rose-50 border border-rose-200 text-rose-700 text-xs rounded-md flex items-center gap-2">
+                  <AlertCircle className="w-4 h-4 shrink-0" />
+                  <span>{editError}</span>
+                </div>
+              )}
+
+              {editSuccessMsg && (
+                <div className="p-3 bg-emerald-50 border border-emerald-200 text-emerald-800 text-xs rounded-md flex items-center gap-2">
+                  <Check className="w-4 h-4 shrink-0 text-emerald-600" />
+                  <span>{editSuccessMsg}</span>
+                </div>
+              )}
+
+              <div className="text-[11px] text-neutral-500 font-mono bg-neutral-50 p-2 rounded border border-neutral-200 flex items-center justify-between">
+                <span>Slug permanente: <strong>/{editingInvite.slug}</strong></span>
+                <span>Cliques registrados: <strong>{editingInvite.clicks ?? 0}</strong></span>
+              </div>
+
+              <div>
+                <label className="block text-xs font-semibold text-neutral-700 mb-1">
+                  Título da Live *
+                </label>
+                <input
+                  id="edit-live-title"
+                  type="text"
+                  value={editTitle}
+                  onChange={(e) => setEditTitle(e.target.value)}
+                  placeholder="Ex: Lançamento Coleção Especial Zhaya"
+                  required
+                  className="w-full px-3 py-2 text-xs border border-neutral-300 rounded-md focus:outline-none focus:ring-1 focus:ring-neutral-900 focus:border-neutral-900 bg-white"
+                />
+              </div>
+
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                <div>
+                  <label className="block text-xs font-semibold text-neutral-700 mb-1">
+                    Data *
+                  </label>
+                  <input
+                    id="edit-live-date"
+                    type="date"
+                    value={editDate}
+                    onChange={(e) => setEditDate(e.target.value)}
+                    required
+                    className="w-full px-3 py-2 text-xs border border-neutral-300 rounded-md focus:outline-none focus:ring-1 focus:ring-neutral-900 focus:border-neutral-900 bg-white"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-xs font-semibold text-neutral-700 mb-1">
+                    Início *
+                  </label>
+                  <input
+                    id="edit-live-start-time"
+                    type="time"
+                    value={editStartTime}
+                    onChange={(e) => setEditStartTime(e.target.value)}
+                    required
+                    className="w-full px-3 py-2 text-xs border border-neutral-300 rounded-md focus:outline-none focus:ring-1 focus:ring-neutral-900 focus:border-neutral-900 bg-white"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-xs font-semibold text-neutral-700 mb-1">
+                    Término *
+                  </label>
+                  <input
+                    id="edit-live-end-time"
+                    type="time"
+                    value={editEndTime}
+                    onChange={(e) => setEditEndTime(e.target.value)}
+                    required
+                    className="w-full px-3 py-2 text-xs border border-neutral-300 rounded-md focus:outline-none focus:ring-1 focus:ring-neutral-900 focus:border-neutral-900 bg-white"
+                  />
+                </div>
+              </div>
+
+              {/* Plataforma e Link */}
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 p-3 bg-neutral-50 rounded-lg border border-neutral-200">
+                <div>
+                  <label className="block text-xs font-semibold text-neutral-700 mb-1">
+                    Plataforma
+                  </label>
+                  <select
+                    id="edit-live-platform"
+                    value={editPlatform}
+                    onChange={(e) => handleEditPlatformSelect(e.target.value)}
+                    className="w-full px-3 py-2 text-xs border border-neutral-300 rounded-md focus:outline-none focus:ring-1 focus:ring-neutral-900 focus:border-neutral-900 bg-white"
+                  >
+                    <option value="instagram">Instagram</option>
+                    <option value="tiktok">TikTok</option>
+                    <option value="youtube">YouTube</option>
+                    <option value="custom">Outro / Link Direto</option>
+                  </select>
+                </div>
+
+                <div className="sm:col-span-2">
+                  <label className="block text-xs font-semibold text-neutral-700 mb-1">
+                    Link da Live / Perfil *
+                  </label>
+                  <input
+                    id="edit-live-platform-url"
+                    type="url"
+                    value={editPlatformUrl}
+                    onChange={(e) => setEditPlatformUrl(e.target.value)}
+                    placeholder="https://instagram.com/shoes.zhaya"
+                    required
+                    className="w-full px-3 py-2 text-xs border border-neutral-300 rounded-md focus:outline-none focus:ring-1 focus:ring-neutral-900 focus:border-neutral-900 bg-white font-mono"
+                  />
+                </div>
+              </div>
+
+              <div>
+                <label className="block text-xs font-semibold text-neutral-700 mb-1">
+                  Descrição do Evento (Opcional)
+                </label>
+                <textarea
+                  id="edit-live-desc"
+                  value={editDescription}
+                  onChange={(e) => setEditDescription(e.target.value)}
+                  placeholder="Ex: Venha conferir as novas peças exclusivas no Instagram @shoes.zhaya."
+                  rows={2}
+                  className="w-full px-3 py-2 text-xs border border-neutral-300 rounded-md focus:outline-none focus:ring-1 focus:ring-neutral-900 focus:border-neutral-900 bg-white resize-none"
+                />
+              </div>
+
+              <div className="flex items-center gap-2 pt-1">
+                <input
+                  id="edit-live-active"
+                  type="checkbox"
+                  checked={editActive}
+                  onChange={(e) => setEditActive(e.target.checked)}
+                  className="w-4 h-4 text-neutral-900 border-neutral-300 rounded focus:ring-neutral-900"
+                />
+                <label htmlFor="edit-live-active" className="text-xs font-medium text-neutral-700 cursor-pointer">
+                  Convite Ativo (desmarque para desativar o link público)
+                </label>
+              </div>
+
+              {/* Footer */}
+              <div className="flex items-center justify-end gap-3 pt-3 border-t border-neutral-100">
+                <button
+                  type="button"
+                  onClick={() => setEditingInvite(null)}
+                  disabled={savingEdit}
+                  className="px-4 py-2 border border-neutral-300 text-neutral-700 hover:bg-neutral-100 rounded text-xs font-semibold transition-colors cursor-pointer"
+                >
+                  Cancelar
+                </button>
+                <button
+                  id="btn-salvar-edicao-live"
+                  type="submit"
+                  disabled={savingEdit}
+                  className="px-4 py-2 bg-neutral-900 text-white hover:bg-neutral-800 rounded text-xs font-semibold transition-colors disabled:opacity-50 flex items-center gap-2 cursor-pointer"
+                >
+                  {savingEdit ? (
+                    <>
+                      <div className="w-3.5 h-3.5 border-2 border-white border-t-transparent rounded-full animate-spin" />
+                      <span>Salvando...</span>
+                    </>
+                  ) : (
+                    <>
+                      <Check className="w-3.5 h-3.5" />
+                      <span>SALVAR ALTERAÇÕES</span>
+                    </>
+                  )}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
     </div>
   );
 };

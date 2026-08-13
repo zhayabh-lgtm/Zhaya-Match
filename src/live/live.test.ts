@@ -144,6 +144,29 @@ function runLiveInviteTests() {
   const platformMigrationPath = path.join(projectRoot, 'supabase/migrations/20260813150000_add_platform_to_live_invites.sql');
   assert(fs.existsSync(platformMigrationPath), 'Migration 20260813150000_add_platform_to_live_invites.sql existe');
 
+  // 9. Testes de Edição de Convites de Live
+  console.log('\n--- Teste 9: Edição de Convites de Live ---');
+  const updatedMemItem = LiveInvitesStore.update('test-inv-1', {
+    title: 'Título Editado Especial Zhaya',
+    platform: 'tiktok',
+    platformUrl: 'https://tiktok.com/@shoes.zhaya',
+  });
+  assert(updatedMemItem !== null, 'LiveInvitesStore.update atualiza o convite com sucesso');
+  assert(updatedMemItem?.title === 'Título Editado Especial Zhaya', 'Título atualizado corretamente no store');
+  assert(updatedMemItem?.platform === 'tiktok', 'Plataforma atualizada para tiktok');
+  assert(updatedMemItem?.platformUrl === 'https://tiktok.com/@shoes.zhaya', 'URL da plataforma atualizada');
+
+  const adminApiContent = fs.readFileSync(path.join(projectRoot, 'api/admin/live-invites.ts'), 'utf8');
+  assert(adminApiContent.includes("req.method === 'PUT'") || adminApiContent.includes("req.method === 'PATCH'"), 'API administrativa aceita PUT e PATCH para edição');
+  assert(adminApiContent.includes('supabaseUpdates'), 'API sincroniza alterações com o Supabase');
+
+  const repositoryContent = fs.readFileSync(path.join(projectRoot, 'src/lib/repository.ts'), 'utf8');
+  assert(repositoryContent.includes('updateLiveInvite'), 'Repository exporta o método updateLiveInvite');
+
+  assert(adminPageContent.includes('modal-editar-live'), 'Aba administrativa possui modal de edição de convite');
+  assert(adminPageContent.includes('btn-salvar-edicao-live'), 'Modal de edição possui botão para salvar alterações');
+  assert(adminPageContent.includes('btn-edit-live-'), 'Lista de convites possui botão de editar para cada convite');
+
   console.log(`\n=== RESUMO DOS TESTES DE CONVITE DE LIVE: ${passed} PASSOU, ${failed} FALHOU ===`);
   if (failed > 0) {
     process.exit(1);

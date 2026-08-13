@@ -22,7 +22,7 @@ export default async function handler(req: any, res: any) {
   const requestOrigin = typeof req.headers?.origin === 'string' ? req.headers.origin : '*';
   res.setHeader('Access-Control-Allow-Origin', requestOrigin);
   res.setHeader('Vary', 'Origin');
-  res.setHeader('Access-Control-Allow-Methods', 'GET, POST, DELETE, OPTIONS');
+  res.setHeader('Access-Control-Allow-Methods', 'GET, POST, PUT, PATCH, DELETE, OPTIONS');
   res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization');
   res.setHeader('Cache-Control', 'no-store');
 
@@ -235,7 +235,129 @@ export default async function handler(req: any, res: any) {
     }
   }
 
-  // 4. DELETE: Excluir convite
+  // 4. PUT/PATCH: Editar convite existente
+  if (req.method === 'PUT' || req.method === 'PATCH') {
+    try {
+      const body = typeof req.body === 'string' ? JSON.parse(req.body) : req.body || {};
+      const { id, title, description, platform, platformUrl, startsAt, endsAt, active } = body;
+
+      if (!id || typeof id !== 'string') {
+        return res.status(400).json({ error: 'MISSING_ID', message: 'ID do convite é obrigatório para edição.' });
+      }
+
+      if (title !== undefined && (!title || typeof title !== 'string' || !title.trim())) {
+        return res.status(400).json({ error: 'INVALID_TITLE', message: 'O título da live não pode ser vazio.' });
+      }
+
+      let startDate: Date | undefined;
+      let endDate: Date | undefined;
+
+      if (startsAt) {
+        startDate = new Date(startsAt);
+        if (isNaN(startDate.getTime())) {
+          return res.status(400).json({ error: 'INVALID_DATES_FORMAT', message: 'Formato de data de início inválido.' });
+        }
+      }
+
+      if (endsAt) {
+        endDate = new Date(endsAt);
+        if (isNaN(endDate.getTime())) {
+          return res.status(400).json({ error: 'INVALID_DATES_FORMAT', message: 'Formato de data de término inválido.' });
+        }
+      }
+
+      if (startDate && endDate && endDate <= startDate) {
+        return res.status(400).json({ error: 'END_BEFORE_START', message: 'O horário de término deve ser posterior ao início.' });
+      }
+
+      const updates: any = {};
+      const supabaseUpdates: any = {};
+
+      if (title !== undefined) {
+        updates.title = title.trim();
+        supabaseUpdates.title = title.trim();
+      }
+      if (description !== undefined) {
+        updates.description = description && typeof description === 'string' && description.trim() ? description.trim() : null;
+        supabaseUpdates.description = updates.description;
+      }
+      if (platform !== undefined) {
+        updates.platform = platform ? platform.trim().toLowerCase() : 'instagram';
+        supabaseUpdates.platform = updates.platform;
+      }
+      if (platformUrl !== undefined) {
+        updates.platformUrl = platformUrl ? platformUrl.trim() : 'https://instagram.com/shoes.zhaya';
+        supabaseUpdates.platform_url = updates.platformUrl;
+      }
+      if (startDate) {
+        updates.startsAt = startDate.toISOString();
+        supabaseUpdates.starts_at = startDate.toISOString();
+      }
+      if (endDate) {
+        updates.endsAt = endDate.toISOString();
+        supabaseUpdates.ends_at = endDate.toISOString();
+      }
+      if (active !== undefined) {
+        updates.active = Boolean(active);
+        supabaseUpdates.active = Boolean(active);
+      }
+
+      // Atualiza no Supabase se disponível
+      if (supabase && Object.keys(supabaseUpdates).length > 0) {
+        const { data, error } = await supabase
+          .from('live_invites')
+          .update(supabaseUpdates)
+          .eq('id', id)
+          .select()
+          .single();
+
+        if (!error && data) {
+          const updatedInvite: LiveInvite = {
+            id: data.id,
+            slug: data.slug,
+            title: data.title,
+            description: data.description || null,
+            platform: data.platform || 'instagram',
+            platformUrl: data.platform_url || 'https://instagram.com/shoes.zhaya',
+            startsAt: data.starts_at,
+            endsAt: data.ends_at,
+            timezone: data.timezone || 'America/Sao_Paulo',
+            active: data.active ?? true,
+            clicks: data.clicks ?? 0,
+            createdAt: data.created_at,
+            createdBy: data.created_by || null,
+          };
+
+          LiveInvitesStore.save(updatedInvite);
+
+          return res.status(200).json({
+            success: true,
+            invite: updatedInvite,
+            tableConfigured: true,
+            storageMode: 'supabase',
+          });
+        }
+      }
+
+      // Atualiza no store em memória
+      const updatedMem = LiveInvitesStore.update(id, updates);
+      if (!updatedMem) {
+        return res.status(404).json({ error: 'NOT_FOUND', message: 'Convite não encontrado para edição.' });
+      }
+
+      return res.status(200).json({
+        success: true,
+        invite: updatedMem,
+        tableConfigured: false,
+        storageMode: 'in_memory',
+      });
+    } catch (err: any) {
+      console.error('[Live Invites API] Exceção no PUT/PATCH:', err);
+      return res.status(500).json({ error: 'INTERNAL_ERROR', message: err?.message });
+    }
+  }
+
+  // 5. DELETE: Excluir convite
   if (req.method === 'DELETE') {
     try {
       const url = new URL(req.url, `http://${req.headers.host || 'localhost'}`);
