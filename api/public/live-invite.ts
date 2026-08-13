@@ -43,7 +43,7 @@ export default async function handler(req: any, res: any) {
 
       const { data, error } = await supabase
         .from('live_invites')
-        .select('title, description, starts_at, ends_at, timezone, active')
+        .select('title, description, platform, platform_url, starts_at, ends_at, timezone, active')
         .eq('slug', cleanSlug)
         .maybeSingle();
 
@@ -54,6 +54,8 @@ export default async function handler(req: any, res: any) {
             invite: {
               title: data.title,
               description: data.description || null,
+              platform: data.platform || 'instagram',
+              platformUrl: data.platform_url || 'https://instagram.com/shoes.zhaya',
               startsAt: data.starts_at,
               endsAt: data.ends_at,
               timezone: data.timezone || 'America/Sao_Paulo',
@@ -69,6 +71,8 @@ export default async function handler(req: any, res: any) {
         const publicInvite: PublicLiveInvite = {
           title: data.title,
           description: data.description || null,
+          platform: data.platform || 'instagram',
+          platformUrl: data.platform_url || 'https://instagram.com/shoes.zhaya',
           startsAt: data.starts_at,
           endsAt: data.ends_at,
           timezone: data.timezone || 'America/Sao_Paulo',

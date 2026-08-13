@@ -425,6 +425,8 @@ export interface LiveInvite {
   slug: string;
   title: string;
   description?: string | null;
+  platform?: string; // 'instagram' | 'youtube' | 'tiktok' | 'custom'
+  platformUrl?: string | null;
   startsAt: string; // ISO String
   endsAt: string; // ISO String
   timezone: string; // 'America/Sao_Paulo'
@@ -437,6 +439,8 @@ export interface LiveInvite {
 export interface PublicLiveInvite {
   title: string;
   description?: string | null;
+  platform?: string;
+  platformUrl?: string | null;
   startsAt: string;
   endsAt: string;
   timezone: string;

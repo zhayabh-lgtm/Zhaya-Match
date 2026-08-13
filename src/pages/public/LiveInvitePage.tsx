@@ -7,14 +7,15 @@ import { VISITOR_LOCK_STORAGE_KEY } from '../../components/VisitorLockGuard';
 import type { PublicLiveInvite } from '../../types/zhaya';
 
 /**
- * Detects device/operating system for optimal 1-click calendar action.
+ * Detects if the current device is an iOS/iPadOS device (iPhone, iPad, iPod)
+ * which supports seamless 1-click native Calendar import via .ics.
  */
-function detectDeviceEnvironment() {
-  if (typeof window === 'undefined') return { isApple: false, isAndroid: false };
+function isIosPlatform(): boolean {
+  if (typeof window === 'undefined' || typeof navigator === 'undefined') return false;
   const userAgent = navigator.userAgent || navigator.vendor || (window as any).opera || '';
-  const isApple = /iPad|iPhone|iPod|Macintosh/i.test(userAgent) && !(window as any).MSStream;
-  const isAndroid = /android/i.test(userAgent);
-  return { isApple, isAndroid };
+  const isIos = /iPhone|iPod|iPad/i.test(userAgent) && !(window as any).MSStream;
+  const isIpadOs = navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1;
+  return isIos || isIpadOs;
 }
 
 /**
@@ -24,6 +25,117 @@ function formatGoogleCalendarDate(dateStr: string): string {
   try {
     const d = new Date(dateStr);
     return d.toISOString().replace(/[-:]/g, '').replace(/\.\d{3}/, '');
+  } catch {
+    return '';
+  }
+}
+
+/**
+ * Builds Google Calendar web template URL with America/Sao_Paulo timezone
+ */
+function buildGoogleCalendarUrl(invite: PublicLiveInvite): string {
+  const startClean = formatGoogleCalendarDate(invite.startsAt);
+  const endClean = formatGoogleCalendarDate(invite.endsAt);
+  const title = encodeURIComponent(invite.title);
+  const details = encodeURIComponent(invite.description || 'Live Zhaya @shoes.zhaya');
+  const location = encodeURIComponent(invite.platformUrl || 'Instagram @shoes.zhaya / Online');
+  return `https://calendar.google.com/calendar/render?action=TEMPLATE&text=${title}&dates=${startClean}/${endClean}&details=${details}&location=${location}&ctz=America/Sao_Paulo`;
+}
+
+/**
+ * Returns date in YYYY-MM-DD format based on America/Sao_Paulo timezone
+ */
+function getSaoPauloDateString(d: Date): string {
+  return new Intl.DateTimeFormat('en-CA', {
+    timeZone: 'America/Sao_Paulo',
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+  }).format(d);
+}
+
+/**
+ * Computes dynamic relative day tag: "HOJE", "AMANHÃ", "EM X DIAS", "AO VIVO AGORA"
+ */
+function getEventRelativeBadge(startsAtStr: string, endsAtStr: string, now: Date): string {
+  try {
+    const start = new Date(startsAtStr);
+    const end = new Date(endsAtStr);
+
+    if (now >= start && now < end) {
+      return 'AO VIVO AGORA';
+    }
+
+    if (now >= end) {
+      return 'LIVE ENCERRADA';
+    }
+
+    const todayStr = getSaoPauloDateString(now);
+    const eventDayStr = getSaoPauloDateString(start);
+
+    // Calculate calendar day difference in São Paulo timezone
+    const todayMidnight = new Date(`${todayStr}T00:00:00-03:00`).getTime();
+    const eventMidnight = new Date(`${eventDayStr}T00:00:00-03:00`).getTime();
+    const diffDays = Math.round((eventMidnight - todayMidnight) / (1000 * 60 * 60 * 24));
+
+    if (diffDays <= 0) {
+      return 'HOJE';
+    }
+    if (diffDays === 1) {
+      return 'AMANHÃ';
+    }
+    return `EM ${diffDays} DIAS`;
+  } catch {
+    return 'AO VIVO';
+  }
+}
+
+/**
+ * Computes real-time countdown timer string:
+ * Before: "Começa em 04:32:18"
+ * During: "Termina em 01:42:10"
+ * After: "LIVE ENCERRADA"
+ */
+function getEventCountdown(startsAtStr: string, endsAtStr: string, now: Date): string {
+  try {
+    const start = new Date(startsAtStr);
+    const end = new Date(endsAtStr);
+
+    const nowMs = now.getTime();
+    const startMs = start.getTime();
+    const endMs = end.getTime();
+
+    if (nowMs < startMs) {
+      const diffSec = Math.max(0, Math.floor((startMs - nowMs) / 1000));
+      const days = Math.floor(diffSec / 86400);
+      const hours = Math.floor((diffSec % 86400) / 3600);
+      const minutes = Math.floor((diffSec % 3600) / 60);
+      const seconds = diffSec % 60;
+
+      const hh = String(hours).padStart(2, '0');
+      const mm = String(minutes).padStart(2, '0');
+      const ss = String(seconds).padStart(2, '0');
+
+      if (days > 0) {
+        return `Começa em ${days}d ${hh}:${mm}:${ss}`;
+      }
+      return `Começa em ${hh}:${mm}:${ss}`;
+    }
+
+    if (nowMs >= startMs && nowMs < endMs) {
+      const diffSec = Math.max(0, Math.floor((endMs - nowMs) / 1000));
+      const hours = Math.floor(diffSec / 3600);
+      const minutes = Math.floor((diffSec % 3600) / 60);
+      const seconds = diffSec % 60;
+
+      const hh = String(hours).padStart(2, '0');
+      const mm = String(minutes).padStart(2, '0');
+      const ss = String(seconds).padStart(2, '0');
+
+      return `Termina em ${hh}:${mm}:${ss}`;
+    }
+
+    return 'LIVE ENCERRADA';
   } catch {
     return '';
   }
@@ -52,7 +164,6 @@ function formatLiveDateTime(startsAt: string, endsAt: string) {
     });
 
     const rawWeekdayAndDate = dateFormatter.format(start);
-    // Capitalize first letter (e.g. "Quinta-feira, 14 de agosto")
     const dateFormatted = rawWeekdayAndDate.charAt(0).toUpperCase() + rawWeekdayAndDate.slice(1);
 
     const startTime = timeFormatter.format(start);
@@ -76,6 +187,7 @@ export const LiveInvitePage: React.FC = () => {
   const [invite, setInvite] = useState<PublicLiveInvite | null>(null);
   const [loading, setLoading] = useState<boolean>(true);
   const [buttonClicked, setButtonClicked] = useState<boolean>(false);
+  const [now, setNow] = useState<Date>(() => new Date());
 
   // 1. Visitor Lockdown: Mark unauthenticated visitor session
   useEffect(() => {
@@ -90,7 +202,16 @@ export const LiveInvitePage: React.FC = () => {
     }
   }, [slug, user, session]);
 
-  // 2. Fetch public invite data
+  // 2. Real-time ticker: update every second
+  useEffect(() => {
+    const timer = setInterval(() => {
+      setNow(new Date());
+    }, 1000);
+
+    return () => clearInterval(timer);
+  }, []);
+
+  // 3. Fetch public invite data
   useEffect(() => {
     let isMounted = true;
     if (!slug) {
@@ -118,43 +239,64 @@ export const LiveInvitePage: React.FC = () => {
     };
   }, [slug]);
 
-  const { isApple, isAndroid } = useMemo(() => detectDeviceEnvironment(), []);
+  const isIos = useMemo(() => isIosPlatform(), []);
+
+  const isLiveNow = useMemo(() => {
+    if (!invite?.startsAt || !invite?.endsAt) return false;
+    const start = new Date(invite.startsAt).getTime();
+    const end = new Date(invite.endsAt).getTime();
+    const current = now.getTime();
+    return current >= start && current < end;
+  }, [invite, now]);
 
   const { dateFormatted, timeFormatted } = useMemo(() => {
     if (!invite?.startsAt || !invite?.endsAt) return { dateFormatted: '', timeFormatted: '' };
     return formatLiveDateTime(invite.startsAt, invite.endsAt);
   }, [invite]);
 
-  // 3. Calendar 1-Click Action
-  const handleAddToCalendar = () => {
+  const relativeBadge = useMemo(() => {
+    if (!invite?.startsAt || !invite?.endsAt) return '';
+    return getEventRelativeBadge(invite.startsAt, invite.endsAt, now);
+  }, [invite, now]);
+
+  const countdownText = useMemo(() => {
+    if (!invite?.startsAt || !invite?.endsAt) return '';
+    return getEventCountdown(invite.startsAt, invite.endsAt, now);
+  }, [invite, now]);
+
+  // 4. Action: Either Add to Calendar OR Go to Live Stream if LIVE NOW
+  const handlePrimaryAction = () => {
     if (!invite || !slug) return;
     setButtonClicked(true);
 
-    // Registra o clique imediatamente antes do redirecionamento
+    // Registra o clique imediatamente
     Repository.trackLiveInviteClick(slug);
 
-    const icsUrl = `/api/public/live-ics?slug=${encodeURIComponent(slug)}`;
-
-    if (isAndroid) {
-      // Android: Google Calendar direct intent/render URL (opens native app or direct web template)
-      const startClean = formatGoogleCalendarDate(invite.startsAt);
-      const endClean = formatGoogleCalendarDate(invite.endsAt);
-      const gcalUrl = `https://calendar.google.com/calendar/render?action=TEMPLATE&text=${encodeURIComponent(
-        invite.title
-      )}&dates=${startClean}/${endClean}&details=${encodeURIComponent(
-        invite.description || 'Live Zhaya'
-      )}&ctz=America/Sao_Paulo`;
-
-      window.location.href = gcalUrl;
+    if (isLiveNow) {
+      // Quando estiver ao vivo, leva diretamente para o link da live/plataforma (ex: Instagram @shoes.zhaya)
+      const liveTargetUrl = invite.platformUrl || 'https://instagram.com/shoes.zhaya';
+      window.location.href = liveTargetUrl;
     } else {
-      // Apple (iOS / macOS / Safari / Instagram WebView) & Desktop Universal Fallback
-      window.location.href = icsUrl;
+      // Antes do evento: adiciona à agenda
+      if (isIos) {
+        // iPhone / iPad / iOS Safari / Instagram In-App Browser:
+        // Directly invokes native iOS Apple Calendar event sheet via RFC 5545 .ics stream
+        const icsUrl = `/api/public/live-ics?slug=${encodeURIComponent(slug)}`;
+        window.location.href = icsUrl;
+      } else {
+        // Android, Windows, macOS Desktop, Linux, Chromebook & Generic Web:
+        // Directly opens Google Calendar web view with event details pre-filled (avoids intrusive .ics downloads)
+        const gcalUrl = buildGoogleCalendarUrl(invite);
+        window.location.href = gcalUrl;
+      }
     }
 
     setTimeout(() => {
       setButtonClicked(false);
     }, 3000);
   };
+
+  const platformTargetUrl = invite?.platformUrl || 'https://instagram.com/shoes.zhaya';
 
   return (
     <div
@@ -197,14 +339,27 @@ export const LiveInvitePage: React.FC = () => {
             animate={{ opacity: 1, y: 0 }}
             exit={{ opacity: 0 }}
             transition={{ duration: 0.25 }}
-            className="text-center px-4 space-y-3"
+            className="text-center px-4 space-y-4 max-w-sm"
           >
+            <div className="inline-block px-3 py-1 bg-neutral-900 border border-neutral-800 rounded text-[11px] font-medium tracking-[0.2em] text-neutral-400 uppercase">
+              LIVE ENCERRADA
+            </div>
             <h1 className="text-xl md:text-2xl font-light tracking-wide text-neutral-200">
               {invite.title}
             </h1>
-            <p className="text-xs md:text-sm text-neutral-500 font-light tracking-widest uppercase">
-              Esta live já encerrou.
+            <p className="text-xs text-neutral-500 font-light tracking-wider">
+              Esta live já foi encerrada. Fique atento às próximas novidades no Instagram @shoes.zhaya.
             </p>
+            <div className="pt-2">
+              <a
+                href={platformTargetUrl}
+                target="_blank"
+                rel="noreferrer noopener"
+                className="inline-block py-2.5 px-5 bg-neutral-900 hover:bg-neutral-800 text-neutral-300 rounded-[8px] text-xs font-semibold tracking-wider uppercase border border-neutral-800 transition-colors"
+              >
+                Acessar @shoes.zhaya
+              </a>
+            </div>
           </motion.div>
         ) : (
           <motion.div
@@ -212,15 +367,34 @@ export const LiveInvitePage: React.FC = () => {
             initial={{ opacity: 0, y: 8 }}
             animate={{ opacity: 1, y: 0 }}
             transition={{ duration: 0.3 }}
-            className="w-full max-w-sm flex flex-col items-center text-center space-y-10 px-4"
+            className="w-full max-w-md flex flex-col items-center text-center space-y-8 sm:space-y-10 px-4"
           >
-            {/* Live Title */}
-            <div className="space-y-4">
+            {/* Dynamic Status / Relative Day Header (HOJE, AMANHÃ, EM X DIAS, AO VIVO AGORA) */}
+            <div className="space-y-4 w-full">
+              {relativeBadge && (
+                <div className="flex justify-center">
+                  <span
+                    id="live-relative-badge"
+                    className={`inline-flex items-center gap-1.5 px-3 py-1 rounded-[6px] text-[11px] sm:text-xs font-semibold tracking-[0.2em] uppercase transition-colors ${
+                      relativeBadge === 'AO VIVO AGORA'
+                        ? 'bg-rose-950/80 text-rose-300 border border-rose-800/80 animate-pulse'
+                        : 'bg-neutral-900/90 text-neutral-300 border border-neutral-800'
+                    }`}
+                  >
+                    {relativeBadge === 'AO VIVO AGORA' && (
+                      <span className="w-1.5 h-1.5 rounded-full bg-rose-500 animate-ping inline-block" />
+                    )}
+                    {relativeBadge}
+                  </span>
+                </div>
+              )}
+
+              {/* Live Title */}
               <h1 className="text-2xl sm:text-3xl md:text-4xl font-normal tracking-tight text-white leading-tight">
                 {invite.title}
               </h1>
 
-              {/* Date & Time */}
+              {/* Date & Time in Portuguese */}
               <div className="space-y-1 pt-1">
                 <p className="text-sm sm:text-base text-neutral-300 font-light tracking-wide">
                   {dateFormatted}
@@ -231,17 +405,37 @@ export const LiveInvitePage: React.FC = () => {
               </div>
             </div>
 
-            {/* 1-Click Calendar Action Button */}
-            <div className="w-full pt-4 flex flex-col items-center">
+            {/* Action Button & Subordinate Countdown Timer */}
+            <div className="w-full flex flex-col items-center space-y-3 pt-2">
               <button
                 id="btn-adicionar-agenda"
                 type="button"
-                onClick={handleAddToCalendar}
+                onClick={handlePrimaryAction}
                 disabled={buttonClicked}
-                className="w-full py-4 px-8 bg-white text-black font-semibold text-xs sm:text-sm tracking-widest uppercase rounded-full hover:bg-neutral-200 active:scale-[0.98] transition-all duration-200 shadow-sm cursor-pointer disabled:opacity-80"
+                className={`w-full py-4 px-8 font-semibold text-xs sm:text-sm tracking-widest uppercase rounded-[8px] active:scale-[0.98] transition-all duration-200 shadow-sm cursor-pointer disabled:opacity-80 ${
+                  isLiveNow
+                    ? 'bg-rose-600 hover:bg-rose-500 text-white shadow-rose-950/50'
+                    : 'bg-white text-black hover:bg-neutral-200'
+                }`}
               >
-                {buttonClicked ? 'Abrindo agenda...' : 'Adicionar à agenda'}
+                {buttonClicked
+                  ? isLiveNow
+                    ? 'Abrindo live...'
+                    : 'Abrindo agenda...'
+                  : isLiveNow
+                  ? 'Assistir ao vivo agora'
+                  : 'Adicionar à agenda'}
               </button>
+
+              {/* Subordinate Real-time Countdown */}
+              {countdownText && (
+                <div
+                  id="live-countdown-timer"
+                  className="text-xs text-neutral-400 font-mono tracking-wider select-none pt-1"
+                >
+                  {countdownText}
+                </div>
+              )}
             </div>
           </motion.div>
         )}

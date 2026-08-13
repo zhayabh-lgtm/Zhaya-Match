@@ -119,6 +119,31 @@ function runLiveInviteTests() {
   const adminPageContent = fs.readFileSync(adminPagePath, 'utf8');
   assert(adminPageContent.includes('Cliques:'), 'Aba administrativa exibe o contador de cliques');
 
+  // 7. Testes de Refinamentos Visuais e Redirecionamento por Plataforma
+  console.log('\n--- Teste 7: Refinamentos Visuais e Roteamento de Calendário ---');
+  const buttonTagMatch = livePageContent.match(/<button[\s\S]*?id="btn-adicionar-agenda"[\s\S]*?>/);
+  const buttonTag = buttonTagMatch ? buttonTagMatch[0] : '';
+  assert(!buttonTag.includes('rounded-full'), 'Botão não usa mais formato de pílula (rounded-full)');
+  assert(buttonTag.includes('rounded-[8px]') || buttonTag.includes('rounded-lg'), 'Botão usa cantos discretos de 8-10px');
+  assert(livePageContent.includes('live-relative-badge'), 'Exibe tag dinâmica de dia relativo (HOJE, AMANHÃ, AO VIVO AGORA)');
+  assert(livePageContent.includes('live-countdown-timer'), 'Exibe contador de contagem regressiva em tempo real');
+  assert(livePageContent.includes('calendar.google.com/calendar/render'), 'Desktop/Android abre Google Calendar Web diretamente');
+  assert(livePageContent.includes('isIosPlatform'), 'Detecta iOS para manter fluxo Apple nativo com .ics');
+
+  // 8. Testes de Instagram @shoes.zhaya, Plataformas e Redirecionamento Ao Vivo
+  console.log('\n--- Teste 8: Instagram @shoes.zhaya, Plataformas e Redirecionamento Ao Vivo ---');
+  assert(!livePageContent.includes('@zhayabr'), 'Nenhuma menção ao antigo @zhayabr na página pública');
+  assert(!adminPageContent.includes('@zhayabr'), 'Nenhuma menção ao antigo @zhayabr na página admin');
+  assert(livePageContent.includes('@shoes.zhaya'), 'Página pública usa o Instagram oficial @shoes.zhaya');
+  assert(adminPageContent.includes('@shoes.zhaya'), 'Página admin usa o Instagram oficial @shoes.zhaya');
+  assert(adminPageContent.includes('live-platform-select'), 'Formulário permite selecionar a plataforma (Instagram, TikTok, YouTube, etc)');
+  assert(adminPageContent.includes('live-platform-url-input'), 'Formulário permite configurar link customizado da plataforma');
+  assert(livePageContent.includes('isLiveNow'), 'Página pública detecta quando a live está ao vivo');
+  assert(livePageContent.includes('Assistir ao vivo agora') || livePageContent.includes('Abrindo live...'), 'Botão muda para assistir ao vivo quando dentro do horário');
+
+  const platformMigrationPath = path.join(projectRoot, 'supabase/migrations/20260813150000_add_platform_to_live_invites.sql');
+  assert(fs.existsSync(platformMigrationPath), 'Migration 20260813150000_add_platform_to_live_invites.sql existe');
+
   console.log(`\n=== RESUMO DOS TESTES DE CONVITE DE LIVE: ${passed} PASSOU, ${failed} FALHOU ===`);
   if (failed > 0) {
     process.exit(1);

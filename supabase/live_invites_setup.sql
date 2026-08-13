@@ -2,7 +2,7 @@
 -- ZHAYA MATCH - SETUP DE CONVITES DE LIVE (OPCIONAL)
 -- ==============================================================================
 -- Execute este script no SQL Editor do Supabase para habilitar o armazenamento
--- persistente de convites de lives com contador de cliques.
+-- persistente de convites de lives com contador de cliques e plataforma customizada.
 -- Se preferir não executar, o sistema continuará funcionando normalmente em modo de memória.
 -- ==============================================================================
 
@@ -12,6 +12,8 @@ CREATE TABLE IF NOT EXISTS public.live_invites (
   slug TEXT UNIQUE NOT NULL,
   title TEXT NOT NULL,
   description TEXT,
+  platform TEXT NOT NULL DEFAULT 'instagram',
+  platform_url TEXT DEFAULT 'https://instagram.com/shoes.zhaya',
   starts_at TIMESTAMPTZ NOT NULL,
   ends_at TIMESTAMPTZ NOT NULL,
   timezone TEXT NOT NULL DEFAULT 'America/Sao_Paulo',
@@ -21,8 +23,10 @@ CREATE TABLE IF NOT EXISTS public.live_invites (
   created_by TEXT
 );
 
--- Adiciona a coluna clicks caso a tabela já tenha sido criada anteriormente
+-- Adiciona colunas caso a tabela já tenha sido criada anteriormente
 ALTER TABLE public.live_invites ADD COLUMN IF NOT EXISTS clicks INTEGER NOT NULL DEFAULT 0;
+ALTER TABLE public.live_invites ADD COLUMN IF NOT EXISTS platform TEXT NOT NULL DEFAULT 'instagram';
+ALTER TABLE public.live_invites ADD COLUMN IF NOT EXISTS platform_url TEXT DEFAULT 'https://instagram.com/shoes.zhaya';
 
 -- 2. Índices de performance
 CREATE INDEX IF NOT EXISTS idx_live_invites_slug ON public.live_invites(slug);

@@ -57,6 +57,8 @@ export default async function handler(req: any, res: any) {
             slug: row.slug,
             title: row.title,
             description: row.description || null,
+            platform: row.platform || 'instagram',
+            platformUrl: row.platform_url || 'https://instagram.com/shoes.zhaya',
             startsAt: row.starts_at,
             endsAt: row.ends_at,
             timezone: row.timezone || 'America/Sao_Paulo',
@@ -119,7 +121,7 @@ export default async function handler(req: any, res: any) {
   if (req.method === 'POST') {
     try {
       const body = typeof req.body === 'string' ? JSON.parse(req.body) : req.body || {};
-      const { title, description, startsAt, endsAt } = body;
+      const { title, description, platform, platformUrl, startsAt, endsAt } = body;
 
       if (!title || typeof title !== 'string' || !title.trim()) {
         return res.status(400).json({ error: 'INVALID_TITLE', message: 'O título da live é obrigatório.' });
@@ -143,6 +145,8 @@ export default async function handler(req: any, res: any) {
       const timezone = 'America/Sao_Paulo';
       const cleanTitle = title.trim();
       const cleanDesc = description && typeof description === 'string' && description.trim() ? description.trim() : null;
+      const cleanPlatform = platform && typeof platform === 'string' && platform.trim() ? platform.trim().toLowerCase() : 'instagram';
+      const cleanPlatformUrl = platformUrl && typeof platformUrl === 'string' && platformUrl.trim() ? platformUrl.trim() : 'https://instagram.com/shoes.zhaya';
       const slug = generateLiveSlug(16);
       const userEmail = auth.user?.email || 'admin@zhaya.com.br';
 
@@ -152,6 +156,8 @@ export default async function handler(req: any, res: any) {
           slug,
           title: cleanTitle,
           description: cleanDesc,
+          platform: cleanPlatform,
+          platform_url: cleanPlatformUrl,
           starts_at: startDate.toISOString(),
           ends_at: endDate.toISOString(),
           timezone,
@@ -171,6 +177,8 @@ export default async function handler(req: any, res: any) {
             slug: data.slug,
             title: data.title,
             description: data.description || null,
+            platform: data.platform || cleanPlatform,
+            platformUrl: data.platform_url || cleanPlatformUrl,
             startsAt: data.starts_at,
             endsAt: data.ends_at,
             timezone: data.timezone || 'America/Sao_Paulo',
@@ -201,6 +209,8 @@ export default async function handler(req: any, res: any) {
         slug,
         title: cleanTitle,
         description: cleanDesc,
+        platform: cleanPlatform,
+        platformUrl: cleanPlatformUrl,
         startsAt: startDate.toISOString(),
         endsAt: endDate.toISOString(),
         timezone,

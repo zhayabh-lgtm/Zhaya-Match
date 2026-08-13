@@ -1656,6 +1656,8 @@ export const Repository = {
   async createLiveInvite(payload: {
     title: string;
     description?: string;
+    platform?: string;
+    platformUrl?: string;
     startsAt: string;
     endsAt: string;
   }): Promise<{ success: boolean; invite?: LiveInvite; error?: string }> {

@@ -25,7 +25,7 @@ function buildIcsResponse(res: any, cleanSlug: string, inviteData: { title: stri
   const dtEnd = formatIcsDate(endDate);
 
   const summary = escapeIcsText(inviteData.title);
-  const description = escapeIcsText(inviteData.description || 'Live Zhaya');
+  const description = escapeIcsText(inviteData.description || 'Live Zhaya @shoes.zhaya');
   const uid = `live-${cleanSlug}@zhaya.com.br`;
 
   const icsContent = [
@@ -41,13 +41,13 @@ function buildIcsResponse(res: any, cleanSlug: string, inviteData: { title: stri
     `DTEND:${dtEnd}`,
     `SUMMARY:${summary}`,
     `DESCRIPTION:${description}`,
-    'LOCATION:Instagram / Online Zhaya',
+    'LOCATION:Instagram @shoes.zhaya / Online',
     'STATUS:CONFIRMED',
     'SEQUENCE:0',
     'TRANSP:OPAQUE',
     'BEGIN:VALARM',
     'ACTION:DISPLAY',
-    'DESCRIPTION:Lembrete de Live Zhaya',
+    'DESCRIPTION:Lembrete de Live Zhaya @shoes.zhaya',
     'TRIGGER:-PT15M',
     'END:VALARM',
     'END:VEVENT',

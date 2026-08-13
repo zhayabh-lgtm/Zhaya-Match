@@ -42,6 +42,8 @@ export const LiveInvitesStore = {
     return {
       title: item.title,
       description: item.description || null,
+      platform: item.platform || 'instagram',
+      platformUrl: item.platformUrl || 'https://instagram.com/shoes.zhaya',
       startsAt: item.startsAt,
       endsAt: item.endsAt,
       timezone: item.timezone || 'America/Sao_Paulo',
@@ -53,6 +55,8 @@ export const LiveInvitesStore = {
     const existing = inMemoryLiveInvites.get(invite.id);
     inMemoryLiveInvites.set(invite.id, {
       ...invite,
+      platform: invite.platform || existing?.platform || 'instagram',
+      platformUrl: invite.platformUrl !== undefined ? invite.platformUrl : existing?.platformUrl || 'https://instagram.com/shoes.zhaya',
       clicks: invite.clicks ?? existing?.clicks ?? 0,
     });
   },

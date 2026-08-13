@@ -1,26 +1,26 @@
 import React, { useState, useEffect } from 'react';
 import {
   Calendar,
-  Plus,
+  Clock,
+  ExternalLink,
   Copy,
   Check,
-  ExternalLink,
+  Plus,
   Trash2,
-  Clock,
-  Globe,
   AlertCircle,
+  Sparkles,
   Database,
   ChevronDown,
   ChevronUp,
-  Sparkles,
+  Globe,
   Info,
+  Radio,
 } from 'lucide-react';
 import { Repository } from '../../lib/repository';
 import type { LiveInvite } from '../../types/zhaya';
 
 const SUPABASE_SETUP_SQL = `-- ==============================================================================
 -- ZHAYA MATCH - SETUP DE CONVITES DE LIVE (OPCIONAL)
--- Execute este script no SQL Editor do Supabase se desejar persistência em banco.
 -- ==============================================================================
 
 -- 1. Criação da tabela live_invites
@@ -29,6 +29,8 @@ CREATE TABLE IF NOT EXISTS public.live_invites (
   slug TEXT UNIQUE NOT NULL,
   title TEXT NOT NULL,
   description TEXT,
+  platform TEXT NOT NULL DEFAULT 'instagram',
+  platform_url TEXT DEFAULT 'https://instagram.com/shoes.zhaya',
   starts_at TIMESTAMPTZ NOT NULL,
   ends_at TIMESTAMPTZ NOT NULL,
   timezone TEXT NOT NULL DEFAULT 'America/Sao_Paulo',
@@ -38,8 +40,10 @@ CREATE TABLE IF NOT EXISTS public.live_invites (
   created_by TEXT
 );
 
--- Adiciona a coluna clicks caso a tabela já exista
+-- Adiciona colunas caso a tabela já exista
 ALTER TABLE public.live_invites ADD COLUMN IF NOT EXISTS clicks INTEGER NOT NULL DEFAULT 0;
+ALTER TABLE public.live_invites ADD COLUMN IF NOT EXISTS platform TEXT NOT NULL DEFAULT 'instagram';
+ALTER TABLE public.live_invites ADD COLUMN IF NOT EXISTS platform_url TEXT DEFAULT 'https://instagram.com/shoes.zhaya';
 
 -- 2. Índices de performance
 CREATE INDEX IF NOT EXISTS idx_live_invites_slug ON public.live_invites(slug);
@@ -85,6 +89,8 @@ export const ConviteLive: React.FC = () => {
   const [date, setDate] = useState('');
   const [startTime, setStartTime] = useState('19:30');
   const [endTime, setEndTime] = useState('20:30');
+  const [platform, setPlatform] = useState<string>('instagram');
+  const [platformUrl, setPlatformUrl] = useState('https://instagram.com/shoes.zhaya');
   const [description, setDescription] = useState('');
 
   // Generated Link Feedback
@@ -120,6 +126,17 @@ export const ConviteLive: React.FC = () => {
     setDate(`${yyyy}-${mm}-${dd}`);
   }, []);
 
+  const handlePlatformSelect = (selectedPlatform: string) => {
+    setPlatform(selectedPlatform);
+    if (selectedPlatform === 'instagram') {
+      setPlatformUrl('https://instagram.com/shoes.zhaya');
+    } else if (selectedPlatform === 'tiktok') {
+      setPlatformUrl('https://tiktok.com/@shoes.zhaya');
+    } else if (selectedPlatform === 'youtube') {
+      setPlatformUrl('https://youtube.com/@shoes.zhaya');
+    }
+  };
+
   const handleCreateInvite = async (e: React.FormEvent) => {
     e.preventDefault();
     setError(null);
@@ -147,6 +164,8 @@ export const ConviteLive: React.FC = () => {
       const res = await Repository.createLiveInvite({
         title: title.trim(),
         description: description.trim() || undefined,
+        platform,
+        platformUrl: platformUrl.trim() || 'https://instagram.com/shoes.zhaya',
         startsAt,
         endsAt,
       });
@@ -206,7 +225,7 @@ export const ConviteLive: React.FC = () => {
             Convite de Live
           </h1>
           <p className="text-xs text-neutral-500 mt-1">
-            Crie links exclusivos e páginas elegantes para o seu público adicionar a live à agenda com um clique.
+            Crie links exclusivos e páginas elegantes para o seu público adicionar a live à agenda e assistir com um clique.
           </p>
         </div>
 
@@ -346,6 +365,44 @@ export const ConviteLive: React.FC = () => {
             </div>
           </div>
 
+          {/* Configuração de Plataforma e Link da Live */}
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 p-3.5 bg-neutral-50 rounded-lg border border-neutral-200">
+            <div>
+              <label className="block text-xs font-semibold text-neutral-700 mb-1">
+                Plataforma da Live
+              </label>
+              <select
+                id="live-platform-select"
+                value={platform}
+                onChange={(e) => handlePlatformSelect(e.target.value)}
+                className="w-full px-3 py-2 text-xs border border-neutral-300 rounded-md focus:outline-none focus:ring-1 focus:ring-neutral-900 focus:border-neutral-900 bg-white"
+              >
+                <option value="instagram">Instagram (@shoes.zhaya)</option>
+                <option value="tiktok">TikTok (@shoes.zhaya)</option>
+                <option value="youtube">YouTube (@shoes.zhaya)</option>
+                <option value="custom">Outro / Link Direto</option>
+              </select>
+            </div>
+
+            <div className="sm:col-span-2">
+              <label className="block text-xs font-semibold text-neutral-700 mb-1">
+                Link da Live / Perfil *
+              </label>
+              <input
+                id="live-platform-url-input"
+                type="url"
+                value={platformUrl}
+                onChange={(e) => setPlatformUrl(e.target.value)}
+                placeholder="https://instagram.com/shoes.zhaya"
+                required
+                className="w-full px-3 py-2 text-xs border border-neutral-300 rounded-md focus:outline-none focus:ring-1 focus:ring-neutral-900 focus:border-neutral-900 bg-white font-mono"
+              />
+              <span className="text-[11px] text-neutral-500 mt-1 block">
+                Quando a live estiver ao vivo, o botão levará o público diretamente para este link.
+              </span>
+            </div>
+          </div>
+
           <div>
             <label className="block text-xs font-semibold text-neutral-700 mb-1">
               Descrição do Evento (Opcional — incluída no calendário)
@@ -354,7 +411,7 @@ export const ConviteLive: React.FC = () => {
               id="live-desc-input"
               value={description}
               onChange={(e) => setDescription(e.target.value)}
-              placeholder="Ex: Venha conferir as novas peças exclusivas no Instagram @zhayabr."
+              placeholder="Ex: Venha conferir as novas peças exclusivas no Instagram @shoes.zhaya."
               rows={2}
               className="w-full px-3 py-2 text-xs border border-neutral-300 rounded-md focus:outline-none focus:ring-1 focus:ring-neutral-900 focus:border-neutral-900 bg-white resize-none"
             />
@@ -408,9 +465,14 @@ export const ConviteLive: React.FC = () => {
             </div>
           </div>
 
-          <p className="text-xs text-emerald-800 font-medium">
-            {latestCreated.title}
-          </p>
+          <div className="flex items-center gap-2">
+            <p className="text-xs text-emerald-800 font-medium">
+              {latestCreated.title}
+            </p>
+            <span className="px-2 py-0.5 bg-emerald-100 text-emerald-800 rounded text-[10px] uppercase font-semibold">
+              {latestCreated.platform || 'instagram'}
+            </span>
+          </div>
 
           <div className="flex flex-col sm:flex-row sm:items-center gap-2 pt-1">
             <div className="flex-1 bg-white border border-emerald-300 rounded px-3 py-2 text-xs font-mono text-neutral-800 truncate select-all">
@@ -494,6 +556,9 @@ export const ConviteLive: React.FC = () => {
                       <span className="text-xs font-bold text-neutral-900 truncate">
                         {inv.title}
                       </span>
+                      <span className="px-1.5 py-0.5 bg-neutral-100 text-neutral-600 rounded text-[10px] uppercase font-mono">
+                        {inv.platform || 'instagram'}
+                      </span>
                       {isEnded ? (
                         <span className="px-1.5 py-0.5 bg-neutral-100 text-neutral-500 rounded text-[10px] font-medium">
                           Encerrado
@@ -515,6 +580,19 @@ export const ConviteLive: React.FC = () => {
                       <span className="font-semibold text-neutral-800 bg-neutral-100 px-1.5 py-0.5 rounded text-[10px]">
                         Cliques: {inv.clicks ?? 0}
                       </span>
+                      {inv.platformUrl && (
+                        <>
+                          <span>•</span>
+                          <a
+                            href={inv.platformUrl}
+                            target="_blank"
+                            rel="noreferrer"
+                            className="text-neutral-600 hover:text-neutral-900 underline truncate max-w-[160px]"
+                          >
+                            {inv.platformUrl.replace(/^https?:\/\//, '')}
+                          </a>
+                        </>
+                      )}
                     </div>
                   </div>
 
