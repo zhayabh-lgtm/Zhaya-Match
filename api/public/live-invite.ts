@@ -1,7 +1,23 @@
 import { createClient } from '@supabase/supabase-js';
-import { isValidServiceRoleKey } from '../../src/lib/supabaseKeyValidator.js';
-import { LiveInvitesStore } from '../../src/lib/liveInvitesStore.js';
-import type { PublicLiveInvite } from '../../src/types/zhaya.js';
+
+function isServiceRoleKey(key: string | undefined | null): boolean {
+  if (!key || typeof key !== 'string') return false;
+  const clean = key.trim();
+  if (clean.startsWith('sb_secret_')) return true;
+  const parts = clean.split('.');
+  if (parts.length === 3) {
+    try {
+      const payloadStr = typeof Buffer !== 'undefined'
+        ? Buffer.from(parts[1], 'base64').toString('utf8')
+        : atob(parts[1].replace(/-/g, '+').replace(/_/g, '/'));
+      const payload = JSON.parse(payloadStr);
+      return payload?.role === 'service_role';
+    } catch {
+      return false;
+    }
+  }
+  return false;
+}
 
 export default async function handler(req: any, res: any) {
   const requestOrigin = typeof req.headers?.origin === 'string' ? req.headers.origin : '*';
@@ -18,26 +34,37 @@ export default async function handler(req: any, res: any) {
     return res.status(405).json({ error: 'METHOD_NOT_ALLOWED' });
   }
 
-  const url = new URL(req.url, `http://${req.headers.host || 'localhost'}`);
-  const slug = req.query?.slug || url.searchParams.get('slug');
+  let slug: string | null = null;
+  try {
+    if (req.query?.slug) {
+      slug = String(req.query.slug);
+    } else if (req.url) {
+      const url = new URL(req.url, `http://${req.headers?.host || 'localhost'}`);
+      slug = url.searchParams.get('slug');
+    }
+  } catch {
+    // Ignore parse errors
+  }
 
   if (!slug || typeof slug !== 'string' || !slug.trim()) {
-    return res.status(400).json({
+    return res.status(404).json({
       success: false,
       status: 'not_found',
-      message: 'Slug inválido ou ausente.',
+      message: 'Convite indisponível.',
     });
   }
 
   const cleanSlug = slug.trim();
 
-  // 1. Tenta buscar no Supabase
+  // 1. Consulta no Supabase
   const supabaseUrl = process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL || '';
   const serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY || '';
+  const anonKey = process.env.SUPABASE_ANON_KEY || process.env.VITE_SUPABASE_ANON_KEY || '';
+  const key = (serviceKey && isServiceRoleKey(serviceKey)) ? serviceKey : (anonKey || serviceKey);
 
-  if (supabaseUrl && serviceKey && isValidServiceRoleKey(serviceKey)) {
+  if (supabaseUrl && key) {
     try {
-      const supabase = createClient(supabaseUrl, serviceKey, {
+      const supabase = createClient(supabaseUrl, key, {
         auth: { persistSession: false, autoRefreshToken: false },
       });
 
@@ -49,18 +76,10 @@ export default async function handler(req: any, res: any) {
 
       if (!error && data) {
         if (!data.active) {
-          return res.status(200).json({
-            success: true,
-            invite: {
-              title: data.title,
-              description: data.description || null,
-              platform: data.platform || 'instagram',
-              platformUrl: data.platform_url || 'https://instagram.com/shoes.zhaya',
-              startsAt: data.starts_at,
-              endsAt: data.ends_at,
-              timezone: data.timezone || 'America/Sao_Paulo',
-              status: 'not_found',
-            } satisfies PublicLiveInvite,
+          return res.status(404).json({
+            success: false,
+            status: 'not_found',
+            message: 'Convite indisponível.',
           });
         }
 
@@ -68,12 +87,12 @@ export default async function handler(req: any, res: any) {
         const endDate = new Date(data.ends_at);
         const isEnded = !isNaN(endDate.getTime()) && endDate.getTime() < now.getTime();
 
-        const publicInvite: PublicLiveInvite = {
+        const publicInvite = {
           title: data.title,
           description: data.description || null,
           platform: data.platform || 'instagram',
           platformUrl: data.platform_url || 'https://instagram.com/shoes.zhaya',
-          startsAt: data.starts_at,
+          startsAt: data.ends_at ? data.starts_at : data.starts_at,
           endsAt: data.ends_at,
           timezone: data.timezone || 'America/Sao_Paulo',
           status: isEnded ? 'ended' : 'active',
@@ -85,21 +104,14 @@ export default async function handler(req: any, res: any) {
         });
       }
     } catch (err: any) {
-      console.warn('[Public Live Invite API] Supabase query falhou, verificando store em memória:', err?.message);
+      console.warn('[Public Live Invite API] Erro ao consultar Supabase:', err?.message);
     }
-  }
-
-  // 2. Fallback gracioso para store em memória (caso a tabela ainda não tenha sido criada no Supabase)
-  const inMemInvite = LiveInvitesStore.getPublicBySlug(cleanSlug);
-  if (inMemInvite) {
-    return res.status(200).json({
-      success: true,
-      invite: inMemInvite,
-    });
   }
 
   return res.status(404).json({
     success: false,
     status: 'not_found',
+    message: 'Convite indisponível.',
   });
 }
+
