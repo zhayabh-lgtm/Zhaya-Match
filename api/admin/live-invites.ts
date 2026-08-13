@@ -61,6 +61,7 @@ export default async function handler(req: any, res: any) {
             endsAt: row.ends_at,
             timezone: row.timezone || 'America/Sao_Paulo',
             active: row.active ?? true,
+            clicks: row.clicks ?? 0,
             createdAt: row.created_at,
             createdBy: row.created_by || null,
           }));
@@ -174,6 +175,7 @@ export default async function handler(req: any, res: any) {
             endsAt: data.ends_at,
             timezone: data.timezone || 'America/Sao_Paulo',
             active: data.active ?? true,
+            clicks: data.clicks ?? 0,
             createdAt: data.created_at,
             createdBy: data.created_by || null,
           };
@@ -203,6 +205,7 @@ export default async function handler(req: any, res: any) {
         endsAt: endDate.toISOString(),
         timezone,
         active: true,
+        clicks: 0,
         createdAt: new Date().toISOString(),
         createdBy: userEmail,
       };

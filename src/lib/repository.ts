@@ -1714,6 +1714,26 @@ export const Repository = {
     }
     return null;
   },
+
+  trackLiveInviteClick(slug: string): void {
+    if (!slug) return;
+    try {
+      const payload = JSON.stringify({ slug });
+      if (typeof navigator !== 'undefined' && navigator.sendBeacon) {
+        const blob = new Blob([payload], { type: 'application/json' });
+        navigator.sendBeacon('/api/public/live-click', blob);
+      } else if (typeof fetch !== 'undefined') {
+        fetch('/api/public/live-click', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: payload,
+          keepalive: true,
+        }).catch(() => {});
+      }
+    } catch (err) {
+      console.warn('[Repository] Erro ao registrar clique do convite:', err);
+    }
+  },
 };
 
 const inMemoryAnalyticsEvents: any[] = [];

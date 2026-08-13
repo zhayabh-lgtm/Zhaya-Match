@@ -429,6 +429,7 @@ export interface LiveInvite {
   endsAt: string; // ISO String
   timezone: string; // 'America/Sao_Paulo'
   active: boolean;
+  clicks: number;
   createdAt: string;
   createdBy?: string | null;
 }

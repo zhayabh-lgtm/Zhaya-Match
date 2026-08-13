@@ -15,6 +15,7 @@ import publicConfigHandler from './api/public/config.js';
 import adminLiveInvitesHandler from './api/admin/live-invites.js';
 import publicLiveInviteHandler from './api/public/live-invite.js';
 import publicLiveIcsHandler from './api/public/live-ics.js';
+import publicLiveClickHandler from './api/public/live-click.js';
 
 async function startServer() {
   const app = express();
@@ -174,9 +175,10 @@ async function startServer() {
   // 6c. Admin API - Live Invites (Management)
   app.all('/api/admin/live-invites', adminLiveInvitesHandler);
 
-  // 6d. Public API - Live Invite Public Lookup & ICS Generation
+  // 6d. Public API - Live Invite Public Lookup & ICS Generation & Click Counter
   app.all('/api/public/live-invite', publicLiveInviteHandler);
   app.all('/api/public/live-ics', publicLiveIcsHandler);
+  app.all('/api/public/live-click', publicLiveClickHandler);
 
   // 7. Admin API - System Activity Monitor
   app.get('/api/admin/activity-status', async (req, res) => {

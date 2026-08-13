@@ -33,9 +33,13 @@ CREATE TABLE IF NOT EXISTS public.live_invites (
   ends_at TIMESTAMPTZ NOT NULL,
   timezone TEXT NOT NULL DEFAULT 'America/Sao_Paulo',
   active BOOLEAN NOT NULL DEFAULT true,
+  clicks INTEGER NOT NULL DEFAULT 0,
   created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
   created_by TEXT
 );
+
+-- Adiciona a coluna clicks caso a tabela já exista
+ALTER TABLE public.live_invites ADD COLUMN IF NOT EXISTS clicks INTEGER NOT NULL DEFAULT 0;
 
 -- 2. Índices de performance
 CREATE INDEX IF NOT EXISTS idx_live_invites_slug ON public.live_invites(slug);
@@ -48,7 +52,24 @@ ALTER TABLE public.live_invites ENABLE ROW LEVEL SECURITY;
 REVOKE ALL ON public.live_invites FROM anon, authenticated;
 GRANT ALL ON public.live_invites TO service_role;
 
--- 5. Recarga do schema cache do Supabase
+-- 5. Função atômica para incremento seguro de cliques
+CREATE OR REPLACE FUNCTION public.increment_live_invite_clicks(invite_slug TEXT)
+RETURNS INTEGER AS $$
+DECLARE
+  new_count INTEGER;
+BEGIN
+  UPDATE public.live_invites
+  SET clicks = clicks + 1
+  WHERE slug = invite_slug
+  RETURNING clicks INTO new_count;
+  RETURN COALESCE(new_count, 0);
+END;
+$$ LANGUAGE plpgsql SECURITY DEFINER;
+
+REVOKE ALL ON FUNCTION public.increment_live_invite_clicks(TEXT) FROM public, anon, authenticated;
+GRANT EXECUTE ON FUNCTION public.increment_live_invite_clicks(TEXT) TO service_role;
+
+-- 6. Recarga do schema cache do Supabase
 NOTIFY pgrst, 'reload schema';`;
 
 export const ConviteLive: React.FC = () => {
@@ -377,9 +398,14 @@ export const ConviteLive: React.FC = () => {
                 Convite Gerado com Sucesso!
               </h3>
             </div>
-            <span className="text-[11px] font-mono text-emerald-700 font-medium">
-              /{latestCreated.slug}
-            </span>
+            <div className="flex items-center gap-3 text-[11px] font-mono">
+              <span className="text-emerald-900 font-semibold">
+                Cliques: {latestCreated.clicks ?? 0}
+              </span>
+              <span className="text-emerald-700 font-medium">
+                /{latestCreated.slug}
+              </span>
+            </div>
           </div>
 
           <p className="text-xs text-emerald-800 font-medium">
@@ -478,13 +504,17 @@ export const ConviteLive: React.FC = () => {
                         </span>
                       )}
                     </div>
-                    <div className="flex items-center gap-3 text-[11px] text-neutral-500 font-mono">
+                    <div className="flex flex-wrap items-center gap-2.5 text-[11px] text-neutral-500 font-mono">
                       <span className="flex items-center gap-1">
                         <Clock className="w-3 h-3 text-neutral-400" />
                         {formattedStart} às {formattedEndTime}
                       </span>
                       <span>•</span>
                       <span className="text-neutral-400">/{inv.slug}</span>
+                      <span>•</span>
+                      <span className="font-semibold text-neutral-800 bg-neutral-100 px-1.5 py-0.5 rounded text-[10px]">
+                        Cliques: {inv.clicks ?? 0}
+                      </span>
                     </div>
                   </div>
 

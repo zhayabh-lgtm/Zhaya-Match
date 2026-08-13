@@ -67,6 +67,7 @@ function runLiveInviteTests() {
     endsAt: new Date(Date.now() + 7200000).toISOString(),
     timezone: 'America/Sao_Paulo',
     active: true,
+    clicks: 0,
     createdAt: new Date().toISOString(),
     createdBy: 'admin@zhaya.com.br',
   };
@@ -99,6 +100,24 @@ function runLiveInviteTests() {
 
   assert(guardContent.includes('zhaya_live_visitor_slug'), 'VisitorLockGuard monitora a chave de sessão do visitante');
   assert(guardContent.includes('sessionStorage.removeItem'), 'VisitorLockGuard remove o bloqueio se autenticado');
+
+  // 6. Testes do Contador de Cliques no Botão "ADICIONAR À AGENDA"
+  console.log('\n--- Teste 6: Contador de Cliques no Botão "ADICIONAR À AGENDA" ---');
+  const initialClicks = LiveInvitesStore.getBySlug('slugtest12345678')?.clicks || 0;
+  const count1 = LiveInvitesStore.incrementClicks('slugtest12345678');
+  assert(count1 === initialClicks + 1, 'Incrementa cliques no store em memória');
+  const count2 = LiveInvitesStore.incrementClicks('slugtest12345678');
+  assert(count2 === initialClicks + 2, 'Incrementos subsequentes acumulam corretamente');
+
+  const clickMigrationPath = path.join(projectRoot, 'supabase/migrations/20260813140000_add_clicks_to_live_invites.sql');
+  assert(fs.existsSync(clickMigrationPath), 'Migration 20260813140000_add_clicks_to_live_invites.sql existe');
+
+  const clickApiPath = path.join(projectRoot, 'api/public/live-click.ts');
+  assert(fs.existsSync(clickApiPath), 'Endpoint /api/public/live-click existe');
+
+  const adminPagePath = path.join(projectRoot, 'src/pages/admin/ConviteLive.tsx');
+  const adminPageContent = fs.readFileSync(adminPagePath, 'utf8');
+  assert(adminPageContent.includes('Cliques:'), 'Aba administrativa exibe o contador de cliques');
 
   console.log(`\n=== RESUMO DOS TESTES DE CONVITE DE LIVE: ${passed} PASSOU, ${failed} FALHOU ===`);
   if (failed > 0) {

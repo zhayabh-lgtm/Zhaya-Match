@@ -50,7 +50,27 @@ export const LiveInvitesStore = {
   },
 
   save(invite: LiveInvite): void {
-    inMemoryLiveInvites.set(invite.id, invite);
+    const existing = inMemoryLiveInvites.get(invite.id);
+    inMemoryLiveInvites.set(invite.id, {
+      ...invite,
+      clicks: invite.clicks ?? existing?.clicks ?? 0,
+    });
+  },
+
+  incrementClicks(slug: string): number {
+    if (!slug) return 0;
+    const clean = slug.trim().toLowerCase();
+    for (const [id, item] of inMemoryLiveInvites.entries()) {
+      if (item.slug.toLowerCase() === clean) {
+        const newCount = (item.clicks || 0) + 1;
+        inMemoryLiveInvites.set(id, {
+          ...item,
+          clicks: newCount,
+        });
+        return newCount;
+      }
+    }
+    return 0;
   },
 
   delete(id: string): boolean {

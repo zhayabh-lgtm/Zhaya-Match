@@ -130,6 +130,9 @@ export const LiveInvitePage: React.FC = () => {
     if (!invite || !slug) return;
     setButtonClicked(true);
 
+    // Registra o clique imediatamente antes do redirecionamento
+    Repository.trackLiveInviteClick(slug);
+
     const icsUrl = `/api/public/live-ics?slug=${encodeURIComponent(slug)}`;
 
     if (isAndroid) {
