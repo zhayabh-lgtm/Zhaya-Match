@@ -195,7 +195,6 @@ export const TiposEMedidas: React.FC = () => {
     setSaving(true);
     setErrorMessage(null);
     try {
-      await Repository.deleteProductType(id);
       const updated = types.filter((t) => t.id !== id);
       setTypes(updated);
       replaceProductTypes(updated);

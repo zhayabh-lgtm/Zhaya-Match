@@ -18,6 +18,8 @@ $$ LANGUAGE plpgsql;
 CREATE TABLE IF NOT EXISTS public.product_types (
   id TEXT PRIMARY KEY DEFAULT gen_random_uuid()::text,
   name TEXT NOT NULL,
+  category TEXT,
+  fit_type TEXT,
   active BOOLEAN NOT NULL DEFAULT true,
   sort_order INTEGER NOT NULL DEFAULT 0,
   image_url TEXT,
@@ -25,6 +27,8 @@ CREATE TABLE IF NOT EXISTS public.product_types (
   measurement_image_url TEXT,
   measurement_image_path TEXT,
   measurement_image_caption TEXT,
+  measurement_guide_tips JSONB DEFAULT '[]'::jsonb,
+  measurement_guide_observation TEXT DEFAULT NULL,
   icon_url TEXT,
   use_icon_in_selector BOOLEAN NOT NULL DEFAULT false,
   store_tags TEXT[] DEFAULT '{}'::text[],
@@ -35,8 +39,12 @@ CREATE TABLE IF NOT EXISTS public.product_types (
 );
 
 -- Garantir colunas adicionais caso a tabela já existisse previamente
+ALTER TABLE public.product_types ADD COLUMN IF NOT EXISTS category TEXT;
+ALTER TABLE public.product_types ADD COLUMN IF NOT EXISTS fit_type TEXT;
 ALTER TABLE public.product_types ADD COLUMN IF NOT EXISTS icon_url TEXT;
 ALTER TABLE public.product_types ADD COLUMN IF NOT EXISTS use_icon_in_selector BOOLEAN NOT NULL DEFAULT false;
+ALTER TABLE public.product_types ADD COLUMN IF NOT EXISTS measurement_guide_tips JSONB DEFAULT '[]'::jsonb;
+ALTER TABLE public.product_types ADD COLUMN IF NOT EXISTS measurement_guide_observation TEXT DEFAULT NULL;
 ALTER TABLE public.product_types ADD COLUMN IF NOT EXISTS store_tags TEXT[] DEFAULT '{}'::text[];
 
 DROP TRIGGER IF EXISTS tr_product_types_updated_at ON public.product_types;
@@ -157,6 +165,7 @@ CREATE TABLE IF NOT EXISTS public.widget_analytics_events (
   page_path TEXT,
   device_type TEXT,
   config_version INTEGER,
+  is_test BOOLEAN NOT NULL DEFAULT false,
   metadata JSONB NOT NULL DEFAULT '{}'::jsonb,
   occurred_at TIMESTAMPTZ NOT NULL DEFAULT now(),
   created_at TIMESTAMPTZ NOT NULL DEFAULT now()
@@ -181,6 +190,7 @@ CREATE TABLE IF NOT EXISTS public.widget_feedback_responses (
   ease_rating INTEGER NOT NULL,
   comment TEXT,
   config_version INTEGER,
+  is_test BOOLEAN NOT NULL DEFAULT false,
   submitted_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 
@@ -366,7 +376,15 @@ DECLARE
   pt record;
   mg record;
 BEGIN
-  v_version := COALESCE((p_app_config->>'version')::integer, 1);
+  -- Versionamento Server-Side: calcula nova versão incrementando a versão máxima publicada
+  SELECT COALESCE(
+    (SELECT MAX(version) FROM (
+      SELECT version FROM public.app_settings
+      UNION ALL
+      SELECT version FROM public.popup_settings
+    ) AS versions),
+    0
+  ) + 1 INTO v_version;
 
   -- 1. Update or Insert popup_settings
   IF EXISTS (SELECT 1 FROM public.popup_settings LIMIT 1) THEN
@@ -413,56 +431,66 @@ BEGIN
     );
   END IF;
 
-  -- 4. Upsert product_types if provided
-  IF p_product_types IS NOT NULL AND jsonb_array_length(p_product_types) > 0 THEN
-    FOR pt IN SELECT * FROM jsonb_to_recordset(p_product_types) AS x(
-      id text,
-      name text,
-      category text,
-      fit_type text,
-      active boolean,
-      sort_order integer,
-      image_url text,
-      icon_url text,
-      use_icon_in_selector boolean,
-      measurement_image_url text,
-      measurement_image_caption text,
-      measurement_guide_tips jsonb,
-      measurement_guide_observation text,
-      store_tags jsonb,
-      measurements jsonb,
-      sizes jsonb
-    )
-    LOOP
-      INSERT INTO public.product_types (
-        id, name, category, fit_type, active, sort_order, image_url, icon_url,
-        use_icon_in_selector, measurement_image_url, measurement_image_caption,
-        measurement_guide_tips, measurement_guide_observation, store_tags, measurements, sizes, updated_at
-      ) VALUES (
-        pt.id, pt.name, pt.category, pt.fit_type, COALESCE(pt.active, true), COALESCE(pt.sort_order, 0),
-        pt.image_url, pt.icon_url, COALESCE(pt.use_icon_in_selector, false), pt.measurement_image_url,
-        pt.measurement_image_caption, COALESCE(pt.measurement_guide_tips, '[]'::jsonb),
-        pt.measurement_guide_observation, COALESCE(pt.store_tags, '[]'::jsonb),
-        COALESCE(pt.measurements, '[]'::jsonb), COALESCE(pt.sizes, '[]'::jsonb), NOW()
+  -- 4. Sincronizar product_types (Exclusão dos removidos e Upsert dos mantidos)
+  IF p_product_types IS NOT NULL THEN
+    IF jsonb_array_length(p_product_types) = 0 THEN
+      DELETE FROM public.product_types;
+    ELSE
+      DELETE FROM public.product_types
+      WHERE id NOT IN (
+        SELECT x.id FROM jsonb_to_recordset(p_product_types) AS x(id text) WHERE x.id IS NOT NULL
+      );
+
+      FOR pt IN SELECT * FROM jsonb_to_recordset(p_product_types) AS x(
+        id text,
+        name text,
+        category text,
+        fit_type text,
+        active boolean,
+        sort_order integer,
+        image_url text,
+        icon_url text,
+        use_icon_in_selector boolean,
+        measurement_image_url text,
+        measurement_image_caption text,
+        measurement_guide_tips jsonb,
+        measurement_guide_observation text,
+        store_tags jsonb,
+        measurements jsonb,
+        sizes jsonb
       )
-      ON CONFLICT (id) DO UPDATE SET
-        name = EXCLUDED.name,
-        category = EXCLUDED.category,
-        fit_type = EXCLUDED.fit_type,
-        active = EXCLUDED.active,
-        sort_order = EXCLUDED.sort_order,
-        image_url = EXCLUDED.image_url,
-        icon_url = EXCLUDED.icon_url,
-        use_icon_in_selector = EXCLUDED.use_icon_in_selector,
-        measurement_image_url = EXCLUDED.measurement_image_url,
-        measurement_image_caption = EXCLUDED.measurement_image_caption,
-        measurement_guide_tips = EXCLUDED.measurement_guide_tips,
-        measurement_guide_observation = EXCLUDED.measurement_guide_observation,
-        store_tags = EXCLUDED.store_tags,
-        measurements = EXCLUDED.measurements,
-        sizes = EXCLUDED.sizes,
-        updated_at = NOW();
-    END LOOP;
+      LOOP
+        INSERT INTO public.product_types (
+          id, name, category, fit_type, active, sort_order, image_url, icon_url,
+          use_icon_in_selector, measurement_image_url, measurement_image_caption,
+          measurement_guide_tips, measurement_guide_observation, store_tags, measurements, sizes, updated_at
+        ) VALUES (
+          pt.id, pt.name, pt.category, pt.fit_type, COALESCE(pt.active, true), COALESCE(pt.sort_order, 0),
+          pt.image_url, pt.icon_url, COALESCE(pt.use_icon_in_selector, false), pt.measurement_image_url,
+          pt.measurement_image_caption, COALESCE(pt.measurement_guide_tips, '[]'::jsonb),
+          pt.measurement_guide_observation,
+          (SELECT COALESCE(ARRAY(SELECT jsonb_array_elements_text(COALESCE(pt.store_tags, '[]'::jsonb))), '{}'::text[])),
+          COALESCE(pt.measurements, '[]'::jsonb), COALESCE(pt.sizes, '[]'::jsonb), NOW()
+        )
+        ON CONFLICT (id) DO UPDATE SET
+          name = EXCLUDED.name,
+          category = EXCLUDED.category,
+          fit_type = EXCLUDED.fit_type,
+          active = EXCLUDED.active,
+          sort_order = EXCLUDED.sort_order,
+          image_url = EXCLUDED.image_url,
+          icon_url = EXCLUDED.icon_url,
+          use_icon_in_selector = EXCLUDED.use_icon_in_selector,
+          measurement_image_url = EXCLUDED.measurement_image_url,
+          measurement_image_caption = EXCLUDED.measurement_image_caption,
+          measurement_guide_tips = EXCLUDED.measurement_guide_tips,
+          measurement_guide_observation = EXCLUDED.measurement_guide_observation,
+          store_tags = EXCLUDED.store_tags,
+          measurements = EXCLUDED.measurements,
+          sizes = EXCLUDED.sizes,
+          updated_at = NOW();
+      END LOOP;
+    END IF;
   END IF;
 
   -- 5. Upsert measurement_guides if provided

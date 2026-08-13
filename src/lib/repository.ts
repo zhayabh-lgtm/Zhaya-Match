@@ -11,6 +11,8 @@ import {
   MeasurementObservation,
   PeriodType,
   DiagnosticContract,
+  LiveInvite,
+  PublicLiveInvite,
 } from '../types/zhaya';
 import { supabase, isSupabaseConfigured } from './supabase';
 import { normalizeMeasurementObservation, normalizeProductType } from './normalize';
@@ -1106,87 +1108,32 @@ export const Repository = {
         active: true,
       }));
 
-      // Executa chamada RPC 'publish_all_config' no Supabase para atomicidade
+      // Executa chamada RPC 'publish_all_config' no Supabase para atomicidade estrita
       const { data: rpcData, error: rpcError } = await client.rpc('publish_all_config', {
         p_appearance: payload.appearance,
         p_texts: payload.texts,
-        p_app_config: appConfigWithVer,
+        p_app_config: payload.config,
         p_product_types: ptDbPayloads,
         p_measurement_guides: helpsPayloads,
       });
 
-      if (!rpcError && rpcData && rpcData.success) {
-        cachedAppearance = payload.appearance;
-        return {
-          appearance: payload.appearance,
-          texts: payload.texts,
-          config: appConfigWithVer,
-          productTypes: payload.productTypes,
-          helps: payload.helps as Record<MeasurementKey, MeasurementHelp>,
-          version: nextVer,
-        };
+      if (rpcError || !rpcData || !rpcData.success) {
+        console.error('[Repository] Erro na RPC publish_all_config:', rpcError || rpcData);
+        throw new Error(rpcError?.message || 'Falha ao executar publicação atômica publish_all_config');
       }
 
-      // Se a RPC falhar ou não estiver criada, faz em bloco restrito onde qualquer erro desfaz a versão
-      try {
-        const { data: existingApp } = await client.from('popup_settings').select('id').limit(1);
-        if (existingApp && existingApp.length > 0) {
-          const { error: e1 } = await client.from('popup_settings').update({ settings: payload.appearance, version: nextVer }).eq('id', existingApp[0].id);
-          if (e1) throw e1;
-        } else {
-          const { error: e1 } = await client.from('popup_settings').insert({ settings: payload.appearance, version: nextVer });
-          if (e1) throw e1;
-        }
+      const publishedVersion = rpcData.version || (payload.config.version ? payload.config.version + 1 : 1);
+      const publishedConfig = { ...payload.config, version: publishedVersion };
 
-        const { data: existingTxt } = await client.from('text_settings').select('id').limit(1);
-        if (existingTxt && existingTxt.length > 0) {
-          const { error: e2 } = await client.from('text_settings').update({ settings: payload.texts }).eq('id', existingTxt[0].id);
-          if (e2) throw e2;
-        } else {
-          const { error: e2 } = await client.from('text_settings').insert({ settings: payload.texts });
-          if (e2) throw e2;
-        }
-
-        const { data: existingCfg } = await client.from('app_settings').select('id').limit(1);
-        const appPayload = {
-          enabled: appConfigWithVer.enabled,
-          enable_feedback_survey: appConfigWithVer.enableFeedbackSurvey !== false,
-          widget_url: appConfigWithVer.widgetUrl,
-          test_mode: appConfigWithVer.testMode,
-          allowed_domains: appConfigWithVer.allowedDomains || ['zhaya.com.br', 'www.zhaya.com.br'],
-          version: nextVer,
-        };
-        if (existingCfg && existingCfg.length > 0) {
-          const { error: e3 } = await client.from('app_settings').update(appPayload).eq('id', existingCfg[0].id);
-          if (e3) throw e3;
-        } else {
-          const { error: e3 } = await client.from('app_settings').insert(appPayload);
-          if (e3) throw e3;
-        }
-
-        if (ptDbPayloads.length > 0) {
-          const { error: e4 } = await client.from('product_types').upsert(ptDbPayloads);
-          if (e4) throw e4;
-        }
-
-        if (helpsPayloads.length > 0) {
-          const { error: e5 } = await client.from('measurement_guides').upsert(helpsPayloads, { onConflict: 'measurement_key' });
-          if (e5) throw e5;
-        }
-
-        cachedAppearance = payload.appearance;
-        return {
-          appearance: payload.appearance,
-          texts: payload.texts,
-          config: appConfigWithVer,
-          productTypes: payload.productTypes,
-          helps: payload.helps as Record<MeasurementKey, MeasurementHelp>,
-          version: nextVer,
-        };
-      } catch (err: any) {
-        console.error('[Repository] Falha na publicação atômica:', err);
-        throw new Error(`Falha na publicação atômica: ${err?.message || 'Erro no banco de dados'}`);
-      }
+      cachedAppearance = payload.appearance;
+      return {
+        appearance: payload.appearance,
+        texts: payload.texts,
+        config: publishedConfig,
+        productTypes: payload.productTypes,
+        helps: payload.helps as Record<MeasurementKey, MeasurementHelp>,
+        version: publishedVersion,
+      };
     });
   },
 
@@ -1604,6 +1551,168 @@ export const Repository = {
       serviceRole: { status: 'missing' },
       lastEvents: { analytics: null, recommendation: null, feedback: null },
     };
+  },
+
+  async verifyAnalyticsEvent(eventId: string): Promise<boolean> {
+    if (!eventId) return false;
+    try {
+      const token = isSupabaseConfigured && supabase ? (await supabase.auth.getSession())?.data?.session?.access_token : undefined;
+      const headers: Record<string, string> = {};
+      if (token) headers['Authorization'] = `Bearer ${token}`;
+
+      const res = await fetch(`/api/admin/diagnostics?verifyEventId=${encodeURIComponent(eventId)}`, { headers });
+      if (res.ok) {
+        const json = await res.json();
+        return json.verifiedEvent === true;
+      }
+    } catch (e) {
+      console.warn('[Repository] Erro ao verificar evento de analytics:', e);
+    }
+    if (isSupabaseConfigured && supabase) {
+      try {
+        const client = ensureSupabase();
+        const { data } = await client
+          .from('widget_analytics_events')
+          .select('event_id')
+          .eq('event_id', eventId)
+          .maybeSingle();
+        return !!data;
+      } catch {
+        return false;
+      }
+    }
+    return true;
+  },
+
+  async verifyFeedbackResponse(sessionId: string): Promise<boolean> {
+    if (!sessionId) return false;
+    try {
+      const token = isSupabaseConfigured && supabase ? (await supabase.auth.getSession())?.data?.session?.access_token : undefined;
+      const headers: Record<string, string> = {};
+      if (token) headers['Authorization'] = `Bearer ${token}`;
+
+      const res = await fetch(`/api/admin/diagnostics?verifyFeedbackId=${encodeURIComponent(sessionId)}`, { headers });
+      if (res.ok) {
+        const json = await res.json();
+        return json.verifiedFeedback === true;
+      }
+    } catch (e) {
+      console.warn('[Repository] Erro ao verificar feedback:', e);
+    }
+    if (isSupabaseConfigured && supabase) {
+      try {
+        const client = ensureSupabase();
+        const { data } = await client
+          .from('widget_feedback_responses')
+          .select('id, session_id')
+          .or(`id.eq.${sessionId},session_id.eq.${sessionId}`)
+          .maybeSingle();
+        return !!data;
+      } catch {
+        return false;
+      }
+    }
+    return true;
+  },
+
+  async getLiveInvites(): Promise<LiveInvite[]> {
+    try {
+      const token = isSupabaseConfigured && supabase ? (await supabase.auth.getSession())?.data?.session?.access_token : undefined;
+      const headers: Record<string, string> = {};
+      if (token) headers['Authorization'] = `Bearer ${token}`;
+
+      const res = await fetch('/api/admin/live-invites', { headers });
+      if (res.ok) {
+        const json = await res.json();
+        return json.invites || [];
+      }
+    } catch (e) {
+      console.warn('[Repository] Erro ao buscar convites de live:', e);
+    }
+    return [];
+  },
+
+  async getLiveInvitesInfo(): Promise<{ invites: LiveInvite[]; tableConfigured: boolean; storageMode: 'supabase' | 'in_memory' }> {
+    try {
+      const token = isSupabaseConfigured && supabase ? (await supabase.auth.getSession())?.data?.session?.access_token : undefined;
+      const headers: Record<string, string> = {};
+      if (token) headers['Authorization'] = `Bearer ${token}`;
+
+      const res = await fetch('/api/admin/live-invites', { headers });
+      if (res.ok) {
+        const json = await res.json();
+        return {
+          invites: json.invites || [],
+          tableConfigured: json.tableConfigured ?? false,
+          storageMode: json.storageMode || (json.tableConfigured ? 'supabase' : 'in_memory'),
+        };
+      }
+    } catch (e) {
+      console.warn('[Repository] Erro ao buscar info de convites de live:', e);
+    }
+    return { invites: [], tableConfigured: false, storageMode: 'in_memory' };
+  },
+
+  async createLiveInvite(payload: {
+    title: string;
+    description?: string;
+    startsAt: string;
+    endsAt: string;
+  }): Promise<{ success: boolean; invite?: LiveInvite; error?: string }> {
+    try {
+      const token = isSupabaseConfigured && supabase ? (await supabase.auth.getSession())?.data?.session?.access_token : undefined;
+      const headers: Record<string, string> = {
+        'Content-Type': 'application/json',
+      };
+      if (token) headers['Authorization'] = `Bearer ${token}`;
+
+      const res = await fetch('/api/admin/live-invites', {
+        method: 'POST',
+        headers,
+        body: JSON.stringify(payload),
+      });
+
+      const json = await res.json();
+      if (res.ok && json.success) {
+        return { success: true, invite: json.invite };
+      }
+      return { success: false, error: json.message || json.error || 'Falha ao criar convite.' };
+    } catch (e: any) {
+      return { success: false, error: e?.message || 'Erro de conexão ao criar convite.' };
+    }
+  },
+
+  async deleteLiveInvite(id: string): Promise<boolean> {
+    try {
+      const token = isSupabaseConfigured && supabase ? (await supabase.auth.getSession())?.data?.session?.access_token : undefined;
+      const headers: Record<string, string> = {};
+      if (token) headers['Authorization'] = `Bearer ${token}`;
+
+      const res = await fetch(`/api/admin/live-invites?id=${encodeURIComponent(id)}`, {
+        method: 'DELETE',
+        headers,
+      });
+      return res.ok;
+    } catch (e) {
+      console.warn('[Repository] Erro ao deletar convite:', e);
+      return false;
+    }
+  },
+
+  async getPublicLiveInvite(slug: string): Promise<PublicLiveInvite | null> {
+    if (!slug) return null;
+    try {
+      const res = await fetch(`/api/public/live-invite?slug=${encodeURIComponent(slug)}`);
+      if (res.ok) {
+        const json = await res.json();
+        if (json.success && json.invite) {
+          return json.invite;
+        }
+      }
+    } catch (e) {
+      console.warn('[Repository] Erro ao buscar convite público:', e);
+    }
+    return null;
   },
 };
 

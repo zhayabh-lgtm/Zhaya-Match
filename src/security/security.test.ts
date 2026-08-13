@@ -63,8 +63,8 @@ function runSecurityTests() {
         searchFrontendServiceRole(fullPath);
       } else if (stat.isFile() && (file.endsWith('.ts') || file.endsWith('.tsx'))) {
         if (file.endsWith('.test.ts')) continue;
-        // Exceção permitida: arquivo de auth utilitário do servidor em src (adminAuth.ts)
-        if (file === 'adminAuth.ts') continue;
+        // Exceções permitidas: arquivos de auth/validação utilitários do servidor em src
+        if (file === 'adminAuth.ts' || file === 'supabaseKeyValidator.ts') continue;
         const content = fs.readFileSync(fullPath, 'utf8');
         if (content.includes('SUPABASE_SERVICE_ROLE_KEY')) {
           foundFrontendServiceRole = true;
@@ -122,7 +122,7 @@ function runSecurityTests() {
       serverlessErrorCount++;
     }
 
-    if (content.includes('src/lib/supabase')) {
+    if (content.includes("src/lib/supabase'") || content.includes('src/lib/supabase"') || content.includes('src/lib/supabase.js') || content.includes('src/lib/supabase.ts')) {
       console.error(`  [ERRO SERVERLESS] ${relPath} importa cliente browser src/lib/supabase!`);
       serverlessErrorCount++;
     }
@@ -162,6 +162,56 @@ function runSecurityTests() {
 
   walkApiDir(apiDir);
   assert(serverlessErrorCount === 0, 'Todas as funções serverless em /api são puras, sem Repository, sem import.meta.env e com imports ESM-safe (.js)');
+
+  // Teste G: RPC publish_all_config e isolamento de versão server-side
+  console.log('\n--- Teste G: Atomicidade e RPC publish_all_config sem Fallback ---');
+  const repoContent = fs.readFileSync(path.join(projectRoot, 'src/lib/repository.ts'), 'utf8');
+  assert(
+    !repoContent.includes("client.from('popup_settings').insert") && !repoContent.includes("client.from('popup_settings').update"),
+    'publishAllAtomic no repository.ts não realiza gravações individuais manuais em tabelas como fallback'
+  );
+
+  const draftContextContent = fs.readFileSync(path.join(projectRoot, 'src/context/ConfigDraftContext.tsx'), 'utf8');
+  assert(
+    !draftContextContent.includes('const nextVersion = (version || 1) + 1') && !draftContextContent.includes('updatedConfigPayload'),
+    'ConfigDraftContext.tsx não altera versão nem config localmente antes do retorno de publishAllAtomic'
+  );
+
+  // Teste H: Exclusão de Tipos via RPC sem deleteProductType prévio
+  console.log('\n--- Teste H: Exclusão Transacional de Tipos de Peça ---');
+  const tiposContent = fs.readFileSync(path.join(projectRoot, 'src/pages/admin/TiposEMedidas.tsx'), 'utf8');
+  assert(
+    !tiposContent.includes('await Repository.deleteProductType'),
+    'TiposEMedidas.tsx não executa deleteProductType antes de publicar'
+  );
+
+  const rpcMigrationContent = fs.readFileSync(path.join(projectRoot, 'supabase/migrations/20260812100000_publish_all_config_rpc.sql'), 'utf8');
+  assert(
+    rpcMigrationContent.includes('DELETE FROM public.product_types') && rpcMigrationContent.includes('WHERE id NOT IN'),
+    'A função publish_all_config executa sincronização e deleção dos tipos removidos na mesma transação'
+  );
+
+  // Teste I: Exigência de Service Role Key em Feedback e Health API
+  console.log('\n--- Teste I: Validação Rigorosa de Service Role Key em Feedback e Health ---');
+  const feedbackApiContent = fs.readFileSync(path.join(projectRoot, 'api/public/feedback.ts'), 'utf8');
+  assert(
+    feedbackApiContent.includes('isValidServiceRoleKey') && !feedbackApiContent.includes('process.env.SUPABASE_ANON_KEY') && !feedbackApiContent.includes('process.env.VITE_SUPABASE_ANON_KEY'),
+    'api/public/feedback.ts exige Service Role e não possui fallback para chaves anon'
+  );
+
+  const healthApiContent = fs.readFileSync(path.join(projectRoot, 'api/public/health.ts'), 'utf8');
+  assert(
+    healthApiContent.includes('hasValidServiceRole') && healthApiContent.includes('isServiceRoleHealthy') && healthApiContent.includes('isServiceRoleHealthy;'),
+    'api/public/health.ts inclui a saúde da Service Role na validação de isDbHealthy'
+  );
+
+  // Teste J: Confirmação Real de Evento de Teste no Banco
+  console.log('\n--- Teste J: Confirmação do Evento de Teste ---');
+  const configPageContent = fs.readFileSync(path.join(projectRoot, 'src/pages/admin/Configuracoes.tsx'), 'utf8');
+  assert(
+    configPageContent.includes('Repository.verifyAnalyticsEvent(testId)'),
+    'handleSendTestEvent em Configuracoes.tsx verifica a existência do evento no banco de dados'
+  );
 
   console.log(`\n=== RESUMO DOS TESTES DE SEGURANÇA: ${passed} PASSOU, ${failed} FALHOU ===`);
   if (failed > 0) {

@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { useConfigDraft } from '../../context/ConfigDraftContext';
 import { AppConfig, SystemActivityStatus, DiagnosticContract } from '../../types/zhaya';
 import { Repository } from '../../lib/repository';
+import { CentralDeDiagnostico } from '../../components/admin/CentralDeDiagnostico';
 import {
   Save,
   Copy,
@@ -77,13 +78,24 @@ export const Configuracoes: React.FC = () => {
       });
 
       if (res.ok) {
+        // Confirmação REAL no banco de dados
+        const verified = await Repository.verifyAnalyticsEvent(testId);
         const diagData = await Repository.getDiagnostics();
         setDiagnosticsData(diagData);
-        setTestEventResult({
-          id: testId,
-          success: true,
-          message: `Evento de teste enviado e confirmado no banco de dados. ID: ${testId}`,
-        });
+
+        if (verified) {
+          setTestEventResult({
+            id: testId,
+            success: true,
+            message: `Evento de teste enviado e confirmado no banco de dados. ID: ${testId}`,
+          });
+        } else {
+          setTestEventResult({
+            id: testId,
+            success: false,
+            message: `Evento de teste enviado (API 200), porém NÃO foi encontrado no banco de dados após verificação. ID: ${testId}`,
+          });
+        }
       } else {
         const errJson = await res.json().catch(() => ({}));
         setTestEventResult({
@@ -210,6 +222,9 @@ export const Configuracoes: React.FC = () => {
         </div>
       ) : (
         <div className="space-y-6">
+          {/* Central de Diagnóstico Completa */}
+          <CentralDeDiagnostico config={config} />
+
           {/* Section 1: Overview & Status Badges */}
           <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
             <div className="bg-white border border-neutral-200 rounded-lg p-4 space-y-1">

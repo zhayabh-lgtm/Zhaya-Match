@@ -197,13 +197,10 @@ export const ConfigDraftProvider: React.FC<{ children: ReactNode }> = ({ childre
         throw new Error('Configurações inválidas para publicação.');
       }
 
-      const nextVersion = (version || 1) + 1;
-      const updatedConfigPayload = { ...cfgToSave, version: nextVersion };
-
       // Make sure local draft state matches what we're saving right now if overrides were passed
       if (overrides?.appearance) setAppearance(overrides.appearance);
       if (overrides?.texts) setTexts(overrides.texts);
-      if (overrides?.config) setConfig(updatedConfigPayload);
+      if (overrides?.config) setConfig(overrides.config);
       if (overrides?.productTypes) setProductTypes(overrides.productTypes);
       if (overrides?.helps) setHelps(overrides.helps);
 

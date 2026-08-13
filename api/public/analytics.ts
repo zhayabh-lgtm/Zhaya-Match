@@ -1,4 +1,5 @@
 import { createClient } from '@supabase/supabase-js';
+import { isValidServiceRoleKey } from '../../src/lib/supabaseKeyValidator.js';
 
 const ALLOWED_EVENTS = new Set([
   'launcher_viewed',
@@ -82,28 +83,12 @@ export default async function handler(req: any, res: any) {
 
   const supabaseKey = process.env.SUPABASE_SERVICE_ROLE_KEY || '';
 
-  if (!supabaseUrl || !supabaseKey) {
+  if (!supabaseUrl || !supabaseKey || !isValidServiceRoleKey(supabaseKey)) {
+    console.error('[Analytics API] SUPABASE_SERVICE_ROLE_KEY está ausente ou possui formato inválido!');
     return res.status(500).json({
       success: false,
       error: 'SUPABASE_NOT_CONFIGURED',
     });
-  }
-
-  // Validação de segurança: Impede uso acidental de chave anon pública no SUPABASE_SERVICE_ROLE_KEY
-  const parts = supabaseKey.split('.');
-  if (parts.length === 3) {
-    try {
-      const payload = JSON.parse(Buffer.from(parts[1], 'base64').toString('utf-8'));
-      if (payload.role === 'anon') {
-        console.error('[Analytics API] SUPABASE_SERVICE_ROLE_KEY está configurada com uma chave anon pública em vez da service role!');
-        return res.status(500).json({
-          success: false,
-          error: 'SUPABASE_NOT_CONFIGURED',
-        });
-      }
-    } catch {
-      // Caso a string não seja um JWT padrão, prossegue com a execução do cliente
-    }
   }
 
   let body = req.body;
@@ -187,6 +172,7 @@ export default async function handler(req: any, res: any) {
     page_path: pagePath,
     device_type: body.deviceType === 'mobile' ? 'mobile' : 'desktop',
     config_version: configVersion,
+    is_test: Boolean(body.is_test),
     metadata: {},
     occurred_at: new Date().toISOString(),
   };

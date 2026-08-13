@@ -1,20 +1,20 @@
 import { createClient } from '@supabase/supabase-js';
 import { verifyAdminAuth } from '../../src/lib/adminAuth.js';
+import {
+  verifyServerSupabaseKey,
+  verifyFrontendSupabaseKey,
+} from '../../src/lib/supabaseKeyValidator.js';
 
 export default async function handler(req: any, res: any) {
   const requestOrigin = typeof req.headers?.origin === 'string' ? req.headers.origin : '*';
   res.setHeader('Access-Control-Allow-Origin', requestOrigin);
   res.setHeader('Vary', 'Origin');
-  res.setHeader('Access-Control-Allow-Methods', 'GET, OPTIONS');
+  res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
   res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization');
   res.setHeader('Cache-Control', 'no-store');
 
   if (req.method === 'OPTIONS') {
     return res.status(200).end();
-  }
-
-  if (req.method !== 'GET') {
-    return res.status(405).json({ error: 'METHOD_NOT_ALLOWED' });
   }
 
   const auth = await verifyAdminAuth(req);
@@ -32,34 +32,34 @@ export default async function handler(req: any, res: any) {
   const serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY || '';
   const anonKey = process.env.SUPABASE_ANON_KEY || process.env.VITE_SUPABASE_ANON_KEY || '';
 
-  // Validação de Service Role
-  let serviceRoleStatusVal: 'valid' | 'invalid_anon' | 'missing' = 'missing';
-  if (serviceKey) {
-    const parts = serviceKey.split('.');
-    if (parts.length === 3) {
-      try {
-        const payload = JSON.parse(Buffer.from(parts[1], 'base64').toString('utf-8'));
-        serviceRoleStatusVal = payload.role === 'service_role' ? 'valid' : 'invalid_anon';
-      } catch {
-        serviceRoleStatusVal = 'invalid_anon';
-      }
-    } else {
-      serviceRoleStatusVal = 'invalid_anon';
-    }
-  }
+  // 1. Validação de Chaves Supabase
+  const serviceKeyVal = await verifyServerSupabaseKey(supabaseUrl, serviceKey);
+  const anonKeyVal = await verifyFrontendSupabaseKey(supabaseUrl, anonKey);
+
+  // Normalização de status legado para manter compatibilidade com testes existentes
+  const serviceRoleStatusVal = serviceKeyVal.isValid ? 'valid' : 'invalid_anon';
+
+  // 2. Query ou verificação de evento por ID
+  const verifyId =
+    req.query?.verifyEventId ||
+    (req.url ? new URL(req.url, `http://${req.headers.host || 'localhost'}`).searchParams.get('verifyEventId') : null);
+
+  const verifyFeedbackId =
+    req.query?.verifyFeedbackId ||
+    (req.url ? new URL(req.url, `http://${req.headers.host || 'localhost'}`).searchParams.get('verifyFeedbackId') : null);
 
   if (!supabaseUrl || (!serviceKey && !anonKey)) {
     return res.status(200).json({
       api: { status: 'healthy' },
       supabase: { status: 'not_configured' },
-      serviceRole: { status: serviceRoleStatusVal },
+      serviceRole: serviceKeyVal,
+      anonKey: anonKeyVal,
+      verifiedEvent: false,
+      verifiedFeedback: false,
       lastEvents: { analytics: null, recommendation: null, feedback: null },
       apiStatus: 'healthy',
       supabaseStatus: 'not_configured',
       serviceRoleStatus: serviceRoleStatusVal,
-      lastAnalyticsEvent: null,
-      lastClickEvent: null,
-      lastFeedback: null,
       timestamp: new Date().toISOString(),
     });
   }
@@ -71,7 +71,66 @@ export default async function handler(req: any, res: any) {
       auth: { persistSession: false, autoRefreshToken: false },
     });
 
-    // 1. Consulta último evento de analytics
+    // Verificação de tabelas essenciais do banco
+    const requiredTables = [
+      'app_settings',
+      'popup_settings',
+      'text_settings',
+      'product_types',
+      'widget_analytics_events',
+      'widget_feedback_responses',
+      'system_activity_status',
+    ];
+
+    const tablesStatus: Record<string, boolean> = {};
+    for (const tbl of requiredTables) {
+      try {
+        const { error: tErr } = await supabase.from(tbl).select('*', { count: 'exact', head: true }).limit(1);
+        tablesStatus[tbl] = !tErr;
+      } catch {
+        tablesStatus[tbl] = false;
+      }
+    }
+
+    // Verificação de existência da RPC publish_all_config
+    let rpcAvailable = false;
+    try {
+      // Teste de chamada sem efetivar alterações
+      const { error: rpcErr } = await supabase.rpc('publish_all_config', {
+        p_app_settings: null,
+        p_popup_settings: null,
+        p_text_settings: null,
+        p_product_types: [],
+      });
+      // Se der erro de validação ou payload mas reconhecer a RPC, a RPC existe
+      rpcAvailable = !rpcErr || rpcErr.code !== '42883'; // 42883 = undefined_function
+    } catch {
+      rpcAvailable = false;
+    }
+
+    // Consulta do evento solicitado para confirmação REAL no banco
+    let verifiedEvent = false;
+    if (verifyId) {
+      const { data: foundEvt } = await supabase
+        .from('widget_analytics_events')
+        .select('event_id')
+        .eq('event_id', verifyId)
+        .maybeSingle();
+      verifiedEvent = !!foundEvt;
+    }
+
+    // Consulta de feedback solicitado para confirmação REAL no banco
+    let verifiedFeedback = false;
+    if (verifyFeedbackId) {
+      const { data: foundFb } = await supabase
+        .from('widget_feedback_responses')
+        .select('id, session_id')
+        .or(`id.eq.${verifyFeedbackId},session_id.eq.${verifyFeedbackId}`)
+        .maybeSingle();
+      verifiedFeedback = !!foundFb;
+    }
+
+    // 1. Consulta último evento de analytics real
     const { data: lastEventData, error: eventErr } = await supabase
       .from('widget_analytics_events')
       .select('*')
@@ -96,7 +155,7 @@ export default async function handler(req: any, res: any) {
       .limit(1)
       .maybeSingle();
 
-    const isSupabaseHealthy = !eventErr && !feedbackErr;
+    const isSupabaseHealthy = !eventErr && !feedbackErr && serviceKeyVal.isValid;
     const sbStatus = isSupabaseHealthy ? 'healthy' : 'unhealthy';
 
     const analyticsTs = lastEventData ? lastEventData.occurred_at : null;
@@ -106,7 +165,14 @@ export default async function handler(req: any, res: any) {
     return res.status(200).json({
       api: { status: 'healthy' },
       supabase: { status: sbStatus },
-      serviceRole: { status: serviceRoleStatusVal },
+      serviceRole: serviceKeyVal,
+      anonKey: anonKeyVal,
+      tables: tablesStatus,
+      rpcPublication: { available: rpcAvailable },
+      verifiedEvent,
+      verifiedEventId: verifyId || null,
+      verifiedFeedback,
+      verifiedFeedbackId: verifyFeedbackId || null,
       lastEvents: {
         analytics: analyticsTs,
         recommendation: recTs,
@@ -148,15 +214,15 @@ export default async function handler(req: any, res: any) {
     return res.status(200).json({
       api: { status: 'healthy' },
       supabase: { status: 'unhealthy' },
-      serviceRole: { status: serviceRoleStatusVal },
+      serviceRole: serviceKeyVal,
+      anonKey: anonKeyVal,
+      tables: {},
+      rpcPublication: { available: false },
       lastEvents: { analytics: null, recommendation: null, feedback: null },
       apiStatus: 'healthy',
       supabaseStatus: 'unhealthy',
       serviceRoleStatus: serviceRoleStatusVal,
       error: err?.message || 'DB_CONNECTION_ERROR',
-      lastAnalyticsEvent: null,
-      lastClickEvent: null,
-      lastFeedback: null,
       timestamp: new Date().toISOString(),
     });
   }

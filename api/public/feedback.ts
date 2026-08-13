@@ -1,4 +1,5 @@
 import { createClient } from '@supabase/supabase-js';
+import { isValidServiceRoleKey } from '../../src/lib/supabaseKeyValidator.js';
 
 const VALID_ADEQUACY = new Set(['Sim', 'Não', 'Ainda não sei']);
 
@@ -10,90 +11,48 @@ function cleanText(value: unknown, maxLength = 1000): string | null {
 }
 
 export default async function handler(req: any, res: any) {
-  const requestOrigin =
-    typeof req.headers?.origin === 'string'
-      ? req.headers.origin
-      : '*';
-
-  res.setHeader('Access-Control-Allow-Origin', requestOrigin);
-  res.setHeader('Vary', 'Origin');
-  res.setHeader('Access-Control-Allow-Methods', 'POST, OPTIONS');
-  res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
-  res.setHeader('Cache-Control', 'no-store');
-
-  if (req.method === 'OPTIONS') {
-    return res.status(204).end();
-  }
-
   if (req.method !== 'POST') {
-    return res.status(405).json({
+    return res.status(405).json({ success: false, error: 'METHOD_NOT_ALLOWED' });
+  }
+
+  const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
+  const supabaseUrl = process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL;
+
+  if (!serviceRoleKey || !supabaseUrl || !isValidServiceRoleKey(serviceRoleKey)) {
+    return res.status(503).json({
       success: false,
-      error: 'METHOD_NOT_ALLOWED',
+      error: 'SERVER_CONFIGURATION_ERROR',
+      message: 'Service Role Key ausente ou inválida.',
     });
   }
 
-  const supabaseUrl =
-    process.env.SUPABASE_URL ||
-    process.env.VITE_SUPABASE_URL ||
-    '';
-
-  const supabaseKey =
-    process.env.SUPABASE_SERVICE_ROLE_KEY ||
-    process.env.SUPABASE_ANON_KEY ||
-    process.env.VITE_SUPABASE_ANON_KEY ||
-    '';
-
-  if (!supabaseUrl || !supabaseKey) {
-    return res.status(500).json({
-      success: false,
-      error: 'SUPABASE_NOT_CONFIGURED',
-    });
-  }
-
-  // Validação de segurança se chave de service role estiver configurada
-  if (process.env.SUPABASE_SERVICE_ROLE_KEY) {
-    const parts = process.env.SUPABASE_SERVICE_ROLE_KEY.split('.');
-    if (parts.length === 3) {
-      try {
-        const payload = JSON.parse(Buffer.from(parts[1], 'base64').toString('utf-8'));
-        if (payload.role === 'anon') {
-          console.error('[Feedback API] SUPABASE_SERVICE_ROLE_KEY está configurada com uma chave anon em vez da service role!');
-        }
-      } catch {}
-    }
-  }
-
-  const body = req.body || {};
-  const {
-    visitorId,
-    sessionId,
-    productTypeId,
-    recommendationStatus,
-    recommendedSize,
-    alternateSize,
-    adequacyResponse,
-    easeRating,
-    comment,
-    configVersion,
-  } = body;
-
-  if (!adequacyResponse || !VALID_ADEQUACY.has(adequacyResponse)) {
-    return res.status(400).json({
-      success: false,
-      error: 'INVALID_ADEQUACY_RESPONSE',
-    });
-  }
-
-  const rating = Number(easeRating);
-  if (isNaN(rating) || rating < 1 || rating > 5) {
-    return res.status(400).json({
-      success: false,
-      error: 'INVALID_EASE_RATING',
-    });
-  }
+  const supabase = createClient(supabaseUrl, serviceRoleKey, {
+    auth: { persistSession: false, autoRefreshToken: false },
+  });
 
   try {
-    const supabase = createClient(supabaseUrl, supabaseKey);
+    const body = typeof req.body === 'string' ? JSON.parse(req.body) : req.body || {};
+    const {
+      visitorId,
+      sessionId,
+      productTypeId,
+      recommendationStatus,
+      recommendedSize,
+      alternateSize,
+      adequacyResponse,
+      easeRating,
+      comment,
+      configVersion,
+    } = body;
+
+    const rating = Number(easeRating);
+    if (!VALID_ADEQUACY.has(adequacyResponse) || isNaN(rating) || rating < 1 || rating > 5) {
+      return res.status(400).json({
+        success: false,
+        error: 'INVALID_PAYLOAD',
+        message: 'A resposta de adequação ou avaliação é inválida.',
+      });
+    }
 
     const payload = {
       visitor_id: cleanText(visitorId, 200),
@@ -106,6 +65,7 @@ export default async function handler(req: any, res: any) {
       ease_rating: rating,
       comment: cleanText(comment, 1000),
       config_version: typeof configVersion === 'number' ? configVersion : null,
+      is_test: Boolean(body.is_test),
       submitted_at: new Date().toISOString(),
     };
 

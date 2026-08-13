@@ -1,4 +1,5 @@
 import { createClient } from '@supabase/supabase-js';
+import { isValidServiceRoleKey } from '../../src/lib/supabaseKeyValidator.js';
 
 export default async function handler(req: any, res: any) {
   res.setHeader('Access-Control-Allow-Origin', '*');
@@ -47,13 +48,7 @@ export default async function handler(req: any, res: any) {
     let hasValidServiceRole = false;
     let isServiceRoleHealthy = false;
     if (serviceKey) {
-      const parts = serviceKey.split('.');
-      if (parts.length === 3) {
-        try {
-          const payload = JSON.parse(Buffer.from(parts[1], 'base64').toString('utf-8'));
-          hasValidServiceRole = payload.role === 'service_role';
-        } catch {}
-      }
+      hasValidServiceRole = isValidServiceRoleKey(serviceKey);
       if (hasValidServiceRole) {
         const adminClient = createClient(url, serviceKey, { auth: { persistSession: false, autoRefreshToken: false } });
         const { error: adminErr } = await adminClient.from('system_activity_status').select('id').limit(1);
@@ -132,11 +127,21 @@ export default async function handler(req: any, res: any) {
       (activity.lastStatus === 'healthy' || activity.lastStatus === 'success') &&
       isAnalyticsTableHealthy &&
       isFeedbackTableHealthy &&
-      isAnonHealthy;
+      isAnonHealthy &&
+      hasValidServiceRole &&
+      isServiceRoleHealthy;
+
+    const statusMessage = !hasValidServiceRole
+      ? 'Chave Service Role ausente ou inválida.'
+      : !isServiceRoleHealthy
+      ? 'Falha de comunicação usando Service Role Key.'
+      : isDbHealthy
+      ? 'Sistema saudável.'
+      : 'Banco de dados em estado não saudável.';
 
     return res.status(200).json({
       success: isDbHealthy,
-      status: isDbHealthy ? 'healthy' : (analyticsTableErr || feedbackTableErr ? 'database_error' : activity.lastStatus),
+      status: isDbHealthy ? 'healthy' : (!hasValidServiceRole || !isServiceRoleHealthy ? 'service_role_error' : (analyticsTableErr || feedbackTableErr ? 'database_error' : activity.lastStatus)),
       services: {
         api: 'healthy',
         database: isDbHealthy ? 'healthy' : 'unhealthy',
@@ -145,6 +150,7 @@ export default async function handler(req: any, res: any) {
         analyticsTable: isAnalyticsTableHealthy ? 'healthy' : 'unhealthy',
         feedbackTable: isFeedbackTableHealthy ? 'healthy' : 'unhealthy',
       },
+      message: statusMessage,
       activity,
       timestamp: new Date().toISOString(),
     });

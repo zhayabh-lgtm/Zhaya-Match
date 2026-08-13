@@ -143,12 +143,15 @@ export default async function handler(req: any, res: any) {
       .lte('submitted_at', endDate.toISOString())
       .order('submitted_at', { ascending: false });
 
+    const realRecords = (records || []).filter((r: any) => !r.is_test);
+    const realFeedback = (feedbackRecords || []).filter((f: any) => !f.is_test);
+
     const summary = computeAnalyticsSummary(
-      records || [],
+      realRecords,
       periodParam as PeriodType,
       startDate,
       endDate,
-      feedbackRecords || []
+      realFeedback
     );
     return res.status(200).json(summary);
   } catch (err: any) {

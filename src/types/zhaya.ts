@@ -288,12 +288,35 @@ export interface SystemActivityStatus {
 export interface DiagnosticContract {
   api: { status: 'healthy' | 'unhealthy' };
   supabase: { status: 'healthy' | 'unhealthy' | 'not_configured' };
-  serviceRole: { status: 'valid' | 'invalid_anon' | 'missing' };
+  serviceRole: {
+    status: 'valid' | 'invalid_anon' | 'missing' | string;
+    detectedFormat?: string;
+    isValid?: boolean;
+    message?: string;
+  };
+  anonKey?: {
+    status: 'valid' | 'missing' | string;
+    detectedFormat?: string;
+    isValid?: boolean;
+    message?: string;
+  };
+  tables?: Record<string, boolean>;
+  rpcPublication?: {
+    exists: boolean;
+    status: string;
+    message?: string;
+  };
+  verifiedEvent?: boolean;
+  verifiedFeedback?: boolean;
   lastEvents: {
     analytics: string | null;
     recommendation: string | null;
     feedback: string | null;
   };
+  apiStatus?: string;
+  supabaseStatus?: string;
+  serviceRoleStatus?: string;
+  timestamp?: string;
 }
 
 export interface AnalyticsEventInput {
@@ -395,5 +418,27 @@ export interface AnalyticsSummary {
     not_found: number;
     [key: string]: number;
   };
+}
+
+export interface LiveInvite {
+  id: string;
+  slug: string;
+  title: string;
+  description?: string | null;
+  startsAt: string; // ISO String
+  endsAt: string; // ISO String
+  timezone: string; // 'America/Sao_Paulo'
+  active: boolean;
+  createdAt: string;
+  createdBy?: string | null;
+}
+
+export interface PublicLiveInvite {
+  title: string;
+  description?: string | null;
+  startsAt: string;
+  endsAt: string;
+  timezone: string;
+  status: 'active' | 'ended' | 'not_found';
 }
 

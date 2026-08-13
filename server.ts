@@ -12,6 +12,9 @@ import publicAnalyticsHandler from './api/public/analytics.js';
 import publicFeedbackHandler from './api/public/feedback.js';
 import publicHealthHandler from './api/public/health.js';
 import publicConfigHandler from './api/public/config.js';
+import adminLiveInvitesHandler from './api/admin/live-invites.js';
+import publicLiveInviteHandler from './api/public/live-invite.js';
+import publicLiveIcsHandler from './api/public/live-ics.js';
 
 async function startServer() {
   const app = express();
@@ -167,6 +170,13 @@ async function startServer() {
 
   // 6b. Admin API - Diagnostics Status
   app.get('/api/admin/diagnostics', adminDiagnosticsHandler);
+
+  // 6c. Admin API - Live Invites (Management)
+  app.all('/api/admin/live-invites', adminLiveInvitesHandler);
+
+  // 6d. Public API - Live Invite Public Lookup & ICS Generation
+  app.all('/api/public/live-invite', publicLiveInviteHandler);
+  app.all('/api/public/live-ics', publicLiveIcsHandler);
 
   // 7. Admin API - System Activity Monitor
   app.get('/api/admin/activity-status', async (req, res) => {
