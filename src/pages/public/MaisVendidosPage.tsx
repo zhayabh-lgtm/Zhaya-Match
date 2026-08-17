@@ -72,18 +72,14 @@ export function calculateTimeRemaining(timerEndIso: string | null | undefined): 
     const totalSeconds = Math.floor(diffMs / 1000);
     const days = Math.floor(totalSeconds / 86400);
     const hours = Math.floor((totalSeconds % 86400) / 3600);
+    const totalHours = Math.floor(totalSeconds / 3600);
     const minutes = Math.floor((totalSeconds % 3600) / 60);
     const seconds = totalSeconds % 60;
 
-    const hh = String(hours).padStart(2, '0');
+    const hh = String(totalHours).padStart(2, '0');
     const mm = String(minutes).padStart(2, '0');
     const ss = String(seconds).padStart(2, '0');
-
-    let formattedString = `${hh}:${mm}:${ss}`;
-    if (days > 0) {
-      const dd = String(days).padStart(2, '0');
-      formattedString = `${dd}d ${hh}:${mm}:${ss}`;
-    }
+    const formattedString = `${hh}:${mm}:${ss}`;
 
     return {
       days,
@@ -140,88 +136,102 @@ const ProductImageGallery: React.FC<{
   images: string[];
   productName: string;
   isFirst: boolean;
+  rankLabel: string;
   badgeContent?: React.ReactNode;
-}> = ({ images, productName, isFirst, badgeContent }) => {
+}> = ({ images, productName, isFirst, rankLabel, badgeContent }) => {
   const [currentIndex, setCurrentIndex] = useState(0);
   const [failedImages, setFailedImages] = useState<Record<number, boolean>>({});
-  const touchStartX = useRef<number | null>(null);
-  const touchEndX = useRef<number | null>(null);
+  const [direction, setDirection] = useState(0);
 
   const totalImages = images.length;
 
+  const goToIndex = (nextIndex: number, nextDirection = 0) => {
+    if (totalImages <= 1) return;
+    const normalized = (nextIndex + totalImages) % totalImages;
+    setDirection(nextDirection);
+    setCurrentIndex(normalized);
+  };
+
   const handleNext = (e?: React.MouseEvent) => {
     if (e) e.stopPropagation();
-    if (currentIndex < totalImages - 1) {
-      setCurrentIndex((prev) => prev + 1);
-    } else {
-      setCurrentIndex(0);
-    }
+    goToIndex(currentIndex + 1, 1);
   };
 
   const handlePrev = (e?: React.MouseEvent) => {
     if (e) e.stopPropagation();
-    if (currentIndex > 0) {
-      setCurrentIndex((prev) => prev - 1);
-    } else {
-      setCurrentIndex(totalImages - 1);
-    }
+    goToIndex(currentIndex - 1, -1);
   };
 
-  const onTouchStart = (e: React.TouchEvent) => {
-    touchStartX.current = e.targetTouches[0].clientX;
-    touchEndX.current = null;
-  };
-
-  const onTouchMove = (e: React.TouchEvent) => {
-    touchEndX.current = e.targetTouches[0].clientX;
-  };
-
-  const onTouchEnd = () => {
-    if (!touchStartX.current || !touchEndX.current) return;
-    const distance = touchStartX.current - touchEndX.current;
-    const isSwipe = Math.abs(distance) > 40;
-    if (isSwipe) {
-      if (distance > 0) {
-        // Swipe para esquerda (próxima foto)
-        handleNext();
-      } else {
-        // Swipe para direita (foto anterior)
-        handlePrev();
-      }
-    }
-    touchStartX.current = null;
-    touchEndX.current = null;
+  const handleDragEnd = (_event: unknown, info: { offset: { x: number }; velocity: { x: number } }) => {
+    if (totalImages <= 1) return;
+    const swipeStrength = Math.abs(info.offset.x) + Math.abs(info.velocity.x) * 0.08;
+    if (swipeStrength < 55) return;
+    if (info.offset.x < 0) handleNext();
+    else handlePrev();
   };
 
   const currentImageUrl = images[currentIndex];
   const hasError = failedImages[currentIndex];
 
   return (
-    <div
-      className="relative w-full aspect-[4/5] bg-neutral-950 rounded-[4px] overflow-hidden border border-neutral-900 mb-5 select-none touch-pan-y group"
-      onTouchStart={onTouchStart}
-      onTouchMove={onTouchMove}
-      onTouchEnd={onTouchEnd}
-    >
-      {/* Imagem Atual */}
-      {currentImageUrl && !hasError ? (
-        <img
-          key={currentImageUrl}
-          src={currentImageUrl}
-          alt={`${productName} - Imagem ${currentIndex + 1}`}
-          loading={isFirst && currentIndex === 0 ? 'eager' : 'lazy'}
-          onError={() => setFailedImages((prev) => ({ ...prev, [currentIndex]: true }))}
-          className="w-full h-full object-cover object-center transition-opacity duration-300 pointer-events-none"
-          draggable={false}
-        />
-      ) : (
-        <div className="w-full h-full flex flex-col items-center justify-center bg-neutral-950 text-neutral-600 px-4 text-center">
-          <span className="text-xs tracking-widest uppercase font-light">Imagem indisponível</span>
-        </div>
-      )}
+    <div className="relative w-full aspect-[4/5] bg-neutral-950 rounded-xl overflow-hidden border border-white/[0.08] mb-5 select-none touch-pan-y group shadow-[0_18px_55px_rgba(0,0,0,0.38)]">
+      {/* A imagem acompanha o dedo no mobile; solte para trocar de foto. */}
+      <AnimatePresence initial={false} mode="popLayout" custom={direction}>
+        <motion.div
+          key={`${currentIndex}-${currentImageUrl || 'empty'}`}
+          className="absolute inset-0"
+          custom={direction}
+          initial={{ opacity: 0, x: direction === 0 ? 0 : direction * 26 }}
+          animate={{ opacity: 1, x: 0 }}
+          exit={{ opacity: 0, x: direction === 0 ? 0 : direction * -20 }}
+          transition={{ duration: 0.22, ease: 'easeOut' }}
+          drag={totalImages > 1 ? 'x' : false}
+          dragConstraints={{ left: 0, right: 0 }}
+          dragElastic={0.18}
+          onDragEnd={handleDragEnd}
+        >
+          {currentImageUrl && !hasError ? (
+            <img
+              src={currentImageUrl}
+              alt={`${productName} - Imagem ${currentIndex + 1}`}
+              loading={isFirst && currentIndex === 0 ? 'eager' : 'lazy'}
+              onError={() => setFailedImages((prev) => ({ ...prev, [currentIndex]: true }))}
+              className="w-full h-full object-cover object-center pointer-events-none"
+              draggable={false}
+            />
+          ) : (
+            <div className="w-full h-full flex flex-col items-center justify-center bg-neutral-950 text-neutral-600 px-4 text-center">
+              <span className="text-xs tracking-widest uppercase font-light">Imagem indisponível</span>
+            </div>
+          )}
+        </motion.div>
+      </AnimatePresence>
+
+      {/* Gradiente local só para legibilidade do ranking, sem escurecer o produto inteiro. */}
+      <div className="absolute inset-x-0 bottom-0 h-28 bg-gradient-to-t from-black/70 via-black/15 to-transparent z-10 pointer-events-none" />
 
       {/* Badge / Tag no Canto Superior Direito */}
       {badgeContent}
+
+      {/* Ranking editorial sobre a foto */}
+      {isFirst ? (
+        <div className="absolute left-3.5 bottom-3.5 z-20 flex flex-col items-start pointer-events-none">
+          <span className="mb-1 rounded-full bg-black/75 border border-white/20 px-2.5 py-1 text-[9px] font-bold tracking-[0.28em] text-white uppercase backdrop-blur-md">
+            Top
+          </span>
+          <div className="rounded-lg bg-white text-black px-3 py-2 shadow-xl leading-none">
+            <span className="font-mono text-[34px] sm:text-[40px] font-black tracking-[-0.08em]">
+              #{rankLabel}
+            </span>
+          </div>
+        </div>
+      ) : (
+        <div className="absolute left-3.5 bottom-3.5 z-20 rounded-md bg-black/65 border border-white/15 px-2.5 py-1.5 backdrop-blur-md pointer-events-none">
+          <span className="font-mono text-xl sm:text-2xl font-bold text-white tracking-[-0.05em]">
+            #{rankLabel}
+          </span>
+        </div>
+      )}
 
       {/* Navegação por Setas (Desktop / Hover) */}
       {totalImages > 1 && (
@@ -230,7 +240,7 @@ const ProductImageGallery: React.FC<{
             type="button"
             onClick={handlePrev}
             aria-label="Imagem anterior"
-            className="absolute left-2 top-1/2 -translate-y-1/2 w-8 h-8 rounded-full bg-black/60 text-white flex items-center justify-center backdrop-blur-sm opacity-0 group-hover:opacity-100 transition-opacity duration-200 hover:bg-black/80 z-20 cursor-pointer"
+            className="absolute left-2.5 top-1/2 -translate-y-1/2 w-9 h-9 rounded-full bg-black/55 border border-white/10 text-white hidden sm:flex items-center justify-center backdrop-blur-sm opacity-0 group-hover:opacity-100 transition-opacity duration-200 hover:bg-black/80 z-30 cursor-pointer"
           >
             ‹
           </button>
@@ -238,27 +248,32 @@ const ProductImageGallery: React.FC<{
             type="button"
             onClick={handleNext}
             aria-label="Próxima imagem"
-            className="absolute right-2 top-1/2 -translate-y-1/2 w-8 h-8 rounded-full bg-black/60 text-white flex items-center justify-center backdrop-blur-sm opacity-0 group-hover:opacity-100 transition-opacity duration-200 hover:bg-black/80 z-20 cursor-pointer"
+            className="absolute right-2.5 top-1/2 -translate-y-1/2 w-9 h-9 rounded-full bg-black/55 border border-white/10 text-white hidden sm:flex items-center justify-center backdrop-blur-sm opacity-0 group-hover:opacity-100 transition-opacity duration-200 hover:bg-black/80 z-30 cursor-pointer"
           >
             ›
           </button>
         </>
       )}
 
-      {/* Indicadores / Dots no Rodapé da Imagem */}
+      {/* Contador + indicador deixam claro no mobile que existem mais fotos */}
       {totalImages > 1 && (
-        <div className="absolute bottom-3 left-0 right-0 flex items-center justify-center gap-1.5 z-20 pointer-events-auto">
-          {images.map((_, i) => (
-            <button
-              key={i}
-              type="button"
-              onClick={() => setCurrentIndex(i)}
-              aria-label={`Ver foto ${i + 1}`}
-              className={`h-1.5 rounded-full transition-all duration-200 ${
-                i === currentIndex ? 'w-5 bg-white shadow-sm' : 'w-1.5 bg-white/40 hover:bg-white/70'
-              }`}
-            />
-          ))}
+        <div className="absolute right-3.5 bottom-3.5 z-20 flex items-center gap-2 pointer-events-auto">
+          <span className="rounded-full bg-black/60 border border-white/10 px-2 py-1 text-[10px] font-mono text-white/90 backdrop-blur-md">
+            {currentIndex + 1}/{totalImages}
+          </span>
+          <div className="flex items-center gap-1">
+            {images.map((_, i) => (
+              <button
+                key={i}
+                type="button"
+                onClick={() => goToIndex(i, i > currentIndex ? 1 : -1)}
+                aria-label={`Ver foto ${i + 1}`}
+                className={`h-1.5 rounded-full transition-all duration-200 ${
+                  i === currentIndex ? 'w-5 bg-white' : 'w-1.5 bg-white/40 hover:bg-white/70'
+                }`}
+              />
+            ))}
+          </div>
         </div>
       )}
     </div>
@@ -280,13 +295,10 @@ const ProductItem: React.FC<{
 
   // Tratamento da galeria de imagens
   const galleryImages = useMemo(() => {
-    if (Array.isArray(product.imageUrls) && product.imageUrls.length > 0) {
-      return product.imageUrls.filter(Boolean);
-    }
-    if (product.imageUrl) {
-      return [product.imageUrl];
-    }
-    return [];
+    const allImages = [product.imageUrl, ...(Array.isArray(product.imageUrls) ? product.imageUrls : [])]
+      .map((url) => (url || '').trim())
+      .filter(Boolean);
+    return Array.from(new Set(allImages));
   }, [product.imageUrls, product.imageUrl]);
 
   // Contraste automático da cor do badge
@@ -321,26 +333,20 @@ const ProductItem: React.FC<{
         images={galleryImages}
         productName={product.name}
         isFirst={isFirst}
+        rankLabel={formattedPos}
         badgeContent={badgeElement}
       />
 
       {/* Conteúdo Editorial do Produto */}
       <div className="flex flex-col space-y-3 px-0.5">
-        {/* Posição no Ranking & Categoria */}
-        <div className="flex items-center gap-2">
-          <span
-            className={`font-mono font-semibold tracking-tight ${
-              isFirst ? 'text-sm text-neutral-200' : 'text-xs text-neutral-400'
-            }`}
-          >
-            #{formattedPos}
-          </span>
-          {product.category && (
-            <span className="text-[11px] uppercase tracking-widest text-neutral-400 font-medium">
-              · {product.category}
+        {/* Categoria — o ranking agora vive sobre a fotografia */}
+        {product.category && (
+          <div className="flex items-center">
+            <span className="text-[10px] uppercase tracking-[0.2em] text-neutral-400 font-semibold">
+              {product.category}
             </span>
-          )}
-        </div>
+          </div>
+        )}
 
         {/* Nome do Produto */}
         <h2 className="text-base sm:text-lg font-medium text-white tracking-wide leading-snug break-words">
@@ -406,11 +412,11 @@ const ProductItem: React.FC<{
             <span className="text-[10px] uppercase tracking-widest text-neutral-400 font-medium block mb-1.5">
               Tamanhos
             </span>
-            <div className="flex flex-wrap gap-1.5">
+            <div className="flex flex-wrap gap-2">
               {product.sizes.map((size, sIdx) => (
                 <span
                   key={sIdx}
-                  className="min-w-[28px] text-center px-2 py-0.5 rounded-[2px] bg-neutral-900 text-neutral-300 border border-neutral-800 text-[11px] font-mono font-medium"
+                  className="h-9 min-w-9 inline-flex items-center justify-center rounded-full border border-white/[0.14] bg-white/[0.04] px-3 text-xs text-white font-medium tracking-wide shadow-sm"
                 >
                   {size}
                 </span>
@@ -615,7 +621,7 @@ export const MaisVendidosPage: React.FC = () => {
         {!loading && !errorMessage && listData && (
           <div className="w-full flex flex-col items-center">
             {/* Header Editorial */}
-            <header className="w-full text-center space-y-3 mb-8 sm:mb-10">
+            <header className="w-full text-center space-y-2.5 mb-6 sm:mb-8">
               {/* Logo customizada ou Logo padrão / Nome */}
               {listData.logoUrl ? (
                 <div className="w-full flex justify-center items-center pt-2 pb-2 overflow-hidden">
@@ -636,38 +642,39 @@ export const MaisVendidosPage: React.FC = () => {
                 </div>
               )}
 
-              {/* Data da Lista */}
-              {formattedDate && (
-                <p className="text-[11px] tracking-widest text-neutral-400 font-mono pt-0.5">
-                  {formattedDate}
-                </p>
-              )}
-
               {/* Subtítulo Opcional */}
               {listData.subtitle && (
-                <p className="text-xs sm:text-sm text-neutral-300 font-light tracking-wide pt-1 max-w-sm mx-auto">
+                <p className="text-xs sm:text-sm text-neutral-300 font-light tracking-wide pt-0.5 max-w-sm mx-auto">
                   {listData.subtitle}
                 </p>
               )}
 
-              {/* Timer de Encerramento Limpo (Formato TERMINA EM HH:MM:SS) */}
-              {listData.timerEnabled && timeRemaining && (
-                <div
-                  id="best-sellers-timer-container"
-                  className="mt-5 py-3 px-5 rounded-[4px] bg-neutral-950 border border-neutral-900 w-full max-w-xs mx-auto flex items-center justify-center space-x-2 text-center"
-                >
-                  <span className="text-[11px] tracking-[0.2em] text-neutral-400 uppercase font-semibold">
-                    {timeRemaining.isExpired ? 'ENCERRADO' : 'TERMINA EM'}
-                  </span>
-                  <span className="font-mono text-sm sm:text-base font-bold text-white tracking-widest">
-                    {timeRemaining.formattedString}
-                  </span>
+              {/* Data e timer formam um único bloco editorial, mais próximo e leve. */}
+              {(formattedDate || (listData.timerEnabled && timeRemaining)) && (
+                <div className="flex flex-col items-center pt-0.5">
+                  {formattedDate && (
+                    <p className="text-[10px] sm:text-[11px] tracking-[0.18em] text-neutral-400 font-mono leading-none">
+                      {formattedDate}
+                    </p>
+                  )}
+
+                  {listData.timerEnabled && timeRemaining && (
+                    <div id="best-sellers-timer-container" className="mt-1.5 flex flex-col items-center text-center">
+                      <span className="text-[8px] sm:text-[9px] tracking-[0.28em] text-neutral-500 uppercase font-semibold leading-none mb-1">
+                        {timeRemaining.isExpired ? 'ENCERRADO' : 'TERMINA EM'}
+                      </span>
+                      <span className="font-mono text-[25px] sm:text-[29px] leading-none font-medium text-white tracking-[0.08em] tabular-nums">
+                        {timeRemaining.formattedString}
+                      </span>
+                      <span className="mt-2 block h-px w-12 bg-white/15" aria-hidden="true" />
+                    </div>
+                  )}
                 </div>
               )}
             </header>
 
             {/* Divisória Editorial Discreta */}
-            <div className="w-full border-t border-neutral-900 mb-8" />
+            <div className="w-full border-t border-neutral-900 mb-6 sm:mb-8" />
 
             {/* Vitrine de Produtos */}
             {listData.products && listData.products.length > 0 ? (
