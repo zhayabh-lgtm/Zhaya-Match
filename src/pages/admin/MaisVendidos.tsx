@@ -37,8 +37,7 @@ const BEST_SELLERS_SQL = `-- ===================================================
 -- ZHAYA MATCH - SETUP DE MAIS VENDIDOS DO DIA (100% COMPLETO E IDEMPOTENTE)
 -- ==============================================================================
 -- Execute este script no SQL Editor do Supabase para habilitar o armazenamento
--- persistente das listas de Mais Vendidos, produtos, contagem de cliques e o
--- bucket de Storage para upload de logotipos e fotos.
+-- persistente das listas de Mais Vendidos e dos produtos cadastrados.
 -- ==============================================================================
 
 -- 1. Criação da tabela best_seller_lists
@@ -47,6 +46,7 @@ CREATE TABLE IF NOT EXISTS public.best_seller_lists (
   title TEXT NOT NULL DEFAULT 'Mais Vendidos do Dia',
   logo_url TEXT,
   subtitle TEXT,
+  cta_text TEXT,
   list_date DATE NOT NULL DEFAULT CURRENT_DATE,
   active BOOLEAN NOT NULL DEFAULT false,
   timer_enabled BOOLEAN NOT NULL DEFAULT false,
@@ -73,7 +73,10 @@ CREATE TABLE IF NOT EXISTS public.best_seller_products (
   show_sold_quantity BOOLEAN NOT NULL DEFAULT true,
   available_quantity INTEGER CHECK (available_quantity IS NULL OR available_quantity >= 0),
   sizes TEXT[] NOT NULL DEFAULT '{}'::text[],
+  out_of_stock_sizes TEXT[] NOT NULL DEFAULT '{}'::text[],
   colors TEXT[] NOT NULL DEFAULT '{}'::text[],
+  installments_count INTEGER CHECK (installments_count IS NULL OR installments_count > 0),
+  installment_value NUMERIC(10, 2) CHECK (installment_value IS NULL OR installment_value >= 0),
   badge_enabled BOOLEAN NOT NULL DEFAULT false,
   badge_text TEXT,
   badge_color TEXT NOT NULL DEFAULT '#FFFFFF',
@@ -82,9 +85,10 @@ CREATE TABLE IF NOT EXISTS public.best_seller_products (
   updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 
--- 3. Garante colunas adicionais caso as tabelas já tenham sido criadas em versões anteriores
+-- 3. Garante colunas adicionais caso a tabela já tenha sido criada em versão prévia
 ALTER TABLE public.best_seller_lists ADD COLUMN IF NOT EXISTS logo_url TEXT;
 ALTER TABLE public.best_seller_lists ADD COLUMN IF NOT EXISTS subtitle TEXT;
+ALTER TABLE public.best_seller_lists ADD COLUMN IF NOT EXISTS cta_text TEXT;
 ALTER TABLE public.best_seller_lists ADD COLUMN IF NOT EXISTS timer_enabled BOOLEAN NOT NULL DEFAULT false;
 ALTER TABLE public.best_seller_lists ADD COLUMN IF NOT EXISTS timer_end TIMESTAMPTZ;
 ALTER TABLE public.best_seller_lists ADD COLUMN IF NOT EXISTS timezone TEXT NOT NULL DEFAULT 'America/Sao_Paulo';
@@ -98,18 +102,36 @@ ALTER TABLE public.best_seller_products ADD COLUMN IF NOT EXISTS sold_quantity I
 ALTER TABLE public.best_seller_products ADD COLUMN IF NOT EXISTS show_sold_quantity BOOLEAN NOT NULL DEFAULT true;
 ALTER TABLE public.best_seller_products ADD COLUMN IF NOT EXISTS available_quantity INTEGER;
 ALTER TABLE public.best_seller_products ADD COLUMN IF NOT EXISTS sizes TEXT[] NOT NULL DEFAULT '{}'::text[];
+ALTER TABLE public.best_seller_products ADD COLUMN IF NOT EXISTS out_of_stock_sizes TEXT[] NOT NULL DEFAULT '{}'::text[];
 ALTER TABLE public.best_seller_products ADD COLUMN IF NOT EXISTS colors TEXT[] NOT NULL DEFAULT '{}'::text[];
+ALTER TABLE public.best_seller_products ADD COLUMN IF NOT EXISTS installments_count INTEGER;
+ALTER TABLE public.best_seller_products ADD COLUMN IF NOT EXISTS installment_value NUMERIC(10, 2);
 ALTER TABLE public.best_seller_products ADD COLUMN IF NOT EXISTS badge_enabled BOOLEAN NOT NULL DEFAULT false;
 ALTER TABLE public.best_seller_products ADD COLUMN IF NOT EXISTS badge_text TEXT;
 ALTER TABLE public.best_seller_products ADD COLUMN IF NOT EXISTS badge_color TEXT NOT NULL DEFAULT '#FFFFFF';
 ALTER TABLE public.best_seller_products ADD COLUMN IF NOT EXISTS clicks INTEGER NOT NULL DEFAULT 0;
 
--- 4. Índices de alta performance
+-- 3.1 Constraints adicionais para instalações existentes
+DO $$
+BEGIN
+  IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'best_seller_products_installments_count_check') THEN
+    ALTER TABLE public.best_seller_products
+      ADD CONSTRAINT best_seller_products_installments_count_check
+      CHECK (installments_count IS NULL OR installments_count > 0);
+  END IF;
+  IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'best_seller_products_installment_value_check') THEN
+    ALTER TABLE public.best_seller_products
+      ADD CONSTRAINT best_seller_products_installment_value_check
+      CHECK (installment_value IS NULL OR installment_value >= 0);
+  END IF;
+END $$;
+
+-- 4. Índices de performance
 CREATE INDEX IF NOT EXISTS idx_best_seller_lists_active ON public.best_seller_lists(active);
 CREATE INDEX IF NOT EXISTS idx_best_seller_lists_date ON public.best_seller_lists(list_date DESC);
 CREATE INDEX IF NOT EXISTS idx_best_seller_products_list_pos ON public.best_seller_products(list_id, position ASC);
 
--- 5. Habilitação de Segurança por Linha (Row Level Security - RLS)
+-- 5. Habilitação de Segurança por Linha (RLS)
 ALTER TABLE public.best_seller_lists ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.best_seller_products ENABLE ROW LEVEL SECURITY;
 
@@ -139,7 +161,7 @@ $$ LANGUAGE plpgsql SECURITY DEFINER;
 REVOKE ALL ON FUNCTION public.set_active_best_seller_list(UUID) FROM public, anon, authenticated;
 GRANT EXECUTE ON FUNCTION public.set_active_best_seller_list(UUID) TO service_role;
 
--- 8. Função atômica para registrar cliques de produtos de forma concorrente e segura
+-- 8. Função atômica para registrar cliques de produtos de forma segura
 CREATE OR REPLACE FUNCTION public.increment_best_seller_product_clicks(product_id UUID)
 RETURNS INTEGER AS $$
 DECLARE
@@ -207,6 +229,25 @@ END $$;
 NOTIFY pgrst, 'reload schema';`;
 
 
+function normalizeSizeValues(values: string[] | string): string[] {
+  const source = Array.isArray(values) ? values : [values];
+  const parsed = source
+    .flatMap((value) => String(value || '').split(/[,;\n]+/g))
+    .map((value) => value.trim())
+    .filter(Boolean);
+  return Array.from(new Set(parsed));
+}
+
+function parseAdminPrice(value: string): number | null {
+  const clean = String(value || '').trim();
+  if (!clean) return null;
+  const normalized = clean.includes(',') && clean.includes('.')
+    ? clean.replace(/\./g, '').replace(',', '.')
+    : clean.replace(',', '.');
+  const parsed = Number(normalized);
+  return Number.isFinite(parsed) && parsed >= 0 ? Math.round(parsed * 100) / 100 : null;
+}
+
 function formatDatePtBR(dateStr: string) {
   if (!dateStr) return '';
   const parts = dateStr.split('-');
@@ -239,6 +280,7 @@ export const MaisVendidos: React.FC = () => {
   const [listFormTitle, setListFormTitle] = useState('Mais Vendidos do Dia');
   const [listFormLogoUrl, setListFormLogoUrl] = useState('');
   const [listFormSubtitle, setListFormSubtitle] = useState('');
+  const [listFormCtaText, setListFormCtaText] = useState('');
   const [listFormDate, setListFormDate] = useState('');
   const [listFormActive, setListFormActive] = useState<boolean>(false);
   const [listFormTimerEnabled, setListFormTimerEnabled] = useState<boolean>(false);
@@ -266,10 +308,13 @@ export const MaisVendidos: React.FC = () => {
   const [prodFormProductUrl, setProdFormProductUrl] = useState('');
   const [prodFormOriginalPrice, setProdFormOriginalPrice] = useState('');
   const [prodFormPromotionalPrice, setProdFormPromotionalPrice] = useState('');
+  const [prodFormInstallmentsCount, setProdFormInstallmentsCount] = useState('');
+  const [prodFormInstallmentValue, setProdFormInstallmentValue] = useState('');
   const [prodFormSoldQty, setProdFormSoldQty] = useState('');
   const [prodFormShowSoldQty, setProdFormShowSoldQty] = useState<boolean>(true);
   const [prodFormAvailableQty, setProdFormAvailableQty] = useState('');
   const [prodFormSizes, setProdFormSizes] = useState<string[]>([]);
+  const [prodFormOutOfStockSizes, setProdFormOutOfStockSizes] = useState<string[]>([]);
   const [prodFormSizeInput, setProdFormSizeInput] = useState('');
   const [prodFormColors, setProdFormColors] = useState<string[]>([]);
   const [prodFormColorInput, setProdFormColorInput] = useState('');
@@ -343,6 +388,7 @@ export const MaisVendidos: React.FC = () => {
     setListFormTitle('Mais Vendidos do Dia');
     setListFormLogoUrl('');
     setListFormSubtitle('');
+    setListFormCtaText('');
     const today = new Date().toISOString().slice(0, 10);
     setListFormDate(today);
     setListFormActive(lists.length === 0); // Ativa por padrão se for a primeira
@@ -362,6 +408,7 @@ export const MaisVendidos: React.FC = () => {
     setListFormTitle(list.title);
     setListFormLogoUrl(list.logoUrl || '');
     setListFormSubtitle(list.subtitle || '');
+    setListFormCtaText(list.ctaText || '');
     setListFormDate(list.listDate);
     setListFormActive(list.active);
     setListFormTimerEnabled(list.timerEnabled);
@@ -560,6 +607,7 @@ export const MaisVendidos: React.FC = () => {
           title: listFormTitle.trim(),
           logoUrl: listFormLogoUrl.trim() || null,
           subtitle: listFormSubtitle.trim() || null,
+          ctaText: listFormCtaText.trim() || null,
           listDate: listFormDate,
           active: listFormActive,
           timerEnabled: listFormTimerEnabled,
@@ -579,6 +627,7 @@ export const MaisVendidos: React.FC = () => {
           title: listFormTitle.trim(),
           logoUrl: listFormLogoUrl.trim() || null,
           subtitle: listFormSubtitle.trim() || null,
+          ctaText: listFormCtaText.trim() || null,
           listDate: listFormDate,
           active: listFormActive,
           timerEnabled: listFormTimerEnabled,
@@ -657,10 +706,13 @@ export const MaisVendidos: React.FC = () => {
     setProdFormProductUrl('');
     setProdFormOriginalPrice('');
     setProdFormPromotionalPrice('');
+    setProdFormInstallmentsCount('');
+    setProdFormInstallmentValue('');
     setProdFormSoldQty('');
     setProdFormShowSoldQty(true);
     setProdFormAvailableQty('');
     setProdFormSizes([]);
+    setProdFormOutOfStockSizes([]);
     setProdFormSizeInput('');
     setProdFormColors([]);
     setProdFormColorInput('');
@@ -683,10 +735,13 @@ export const MaisVendidos: React.FC = () => {
     setProdFormProductUrl(prod.productUrl || '');
     setProdFormOriginalPrice(prod.originalPrice !== null && prod.originalPrice !== undefined ? String(prod.originalPrice) : '');
     setProdFormPromotionalPrice(prod.promotionalPrice !== null && prod.promotionalPrice !== undefined ? String(prod.promotionalPrice) : '');
+    setProdFormInstallmentsCount(prod.installmentsCount !== null && prod.installmentsCount !== undefined ? String(prod.installmentsCount) : '');
+    setProdFormInstallmentValue(prod.installmentValue !== null && prod.installmentValue !== undefined ? String(prod.installmentValue) : '');
     setProdFormSoldQty(prod.soldQuantity !== null && prod.soldQuantity !== undefined ? String(prod.soldQuantity) : '');
     setProdFormShowSoldQty(prod.showSoldQuantity);
     setProdFormAvailableQty(prod.availableQuantity !== null && prod.availableQuantity !== undefined ? String(prod.availableQuantity) : '');
-    setProdFormSizes([...(prod.sizes || [])]);
+    setProdFormSizes(normalizeSizeValues(prod.sizes || []));
+    setProdFormOutOfStockSizes(normalizeSizeValues(prod.outOfStockSizes || []));
     setProdFormSizeInput('');
     setProdFormColors([...(prod.colors || [])]);
     setProdFormColorInput('');
@@ -718,18 +773,23 @@ export const MaisVendidos: React.FC = () => {
     }
   };
 
-  // Add Size chip
+  // Adiciona tamanhos aceitando vírgulas, ponto e vírgula ou quebra de linha.
   const handleAddSize = () => {
-    const trimmed = prodFormSizeInput.trim();
-    if (trimmed && !prodFormSizes.includes(trimmed)) {
-      setProdFormSizes([...prodFormSizes, trimmed]);
-      setProdFormSizeInput('');
-    }
+    const incoming = normalizeSizeValues(prodFormSizeInput);
+    if (incoming.length === 0) return;
+    setProdFormSizes((prev) => normalizeSizeValues([...prev, ...incoming]));
+    setProdFormSizeInput('');
   };
 
-  // Remove Size chip
   const handleRemoveSize = (sizeToRemove: string) => {
-    setProdFormSizes(prodFormSizes.filter((s) => s !== sizeToRemove));
+    setProdFormSizes((prev) => prev.filter((s) => s !== sizeToRemove));
+    setProdFormOutOfStockSizes((prev) => prev.filter((s) => s !== sizeToRemove));
+  };
+
+  const handleToggleSizeStock = (size: string) => {
+    setProdFormOutOfStockSizes((prev) =>
+      prev.includes(size) ? prev.filter((s) => s !== size) : [...prev, size]
+    );
   };
 
   // Add Color chip
@@ -812,6 +872,22 @@ export const MaisVendidos: React.FC = () => {
       }
     }
 
+    if ((prodFormInstallmentsCount && !prodFormInstallmentValue) || (!prodFormInstallmentsCount && prodFormInstallmentValue)) {
+      setProductError('Para exibir parcelamento, informe a quantidade de parcelas e o valor de cada parcela.');
+      return;
+    }
+    if (prodFormInstallmentsCount) {
+      const count = Number(prodFormInstallmentsCount);
+      if (!Number.isInteger(count) || count < 1 || count > 36) {
+        setProductError('Quantidade de parcelas deve ser um número inteiro entre 1 e 36.');
+        return;
+      }
+    }
+    if (prodFormInstallmentValue && parseAdminPrice(prodFormInstallmentValue) === null) {
+      setProductError('Valor da parcela deve ser um número maior ou igual a zero.');
+      return;
+    }
+
     try {
       setSavingProduct(true);
       setProductError(null);
@@ -825,10 +901,13 @@ export const MaisVendidos: React.FC = () => {
         productUrl: prodFormProductUrl.trim() || null,
         originalPrice: origPriceParsed,
         promotionalPrice: promoPriceParsed,
+        installmentsCount: prodFormInstallmentsCount ? Number(prodFormInstallmentsCount) : null,
+        installmentValue: parseAdminPrice(prodFormInstallmentValue),
         soldQuantity: soldQtyParsed,
         showSoldQuantity: prodFormShowSoldQty,
         availableQuantity: availQtyParsed,
-        sizes: prodFormSizes,
+        sizes: normalizeSizeValues(prodFormSizes),
+        outOfStockSizes: normalizeSizeValues(prodFormOutOfStockSizes).filter((size) => normalizeSizeValues(prodFormSizes).includes(size)),
         colors: prodFormColors,
         badgeEnabled: prodFormBadgeEnabled,
         badgeText: prodFormBadgeEnabled ? prodFormBadgeText.trim() : null,
@@ -1338,12 +1417,6 @@ export const MaisVendidos: React.FC = () => {
                                 {prod.badgeText}
                               </div>
                             )}
-
-                            {prod.imageUrls && prod.imageUrls.length > 1 && (
-                              <div className="absolute bottom-0 right-0 bg-black/75 text-white text-[7px] font-mono font-bold px-1 rounded-tl">
-                                +{prod.imageUrls.length - 1}
-                              </div>
-                            )}
                           </div>
 
                           {/* Details */}
@@ -1714,6 +1787,19 @@ export const MaisVendidos: React.FC = () => {
               </div>
 
               <div className="space-y-1">
+                <label className="font-semibold text-neutral-700">Texto do botão dos produtos (Opcional)</label>
+                <input
+                  type="text"
+                  value={listFormCtaText}
+                  onChange={(e) => setListFormCtaText(e.target.value)}
+                  placeholder="VER PRODUTO"
+                  maxLength={40}
+                  className="w-full px-3 py-2 border border-neutral-300 rounded focus:ring-1 focus:ring-neutral-900 focus:outline-none text-xs"
+                />
+                <p className="text-[10px] text-neutral-500">Se ficar vazio, todos os produtos usam “VER PRODUTO”.</p>
+              </div>
+
+              <div className="space-y-1">
                 <label className="font-semibold text-neutral-700">Data da Lista *</label>
                 <input
                   type="date"
@@ -1918,9 +2004,6 @@ export const MaisVendidos: React.FC = () => {
                     <label className="font-semibold text-neutral-700">
                       Galeria de Fotos (Swipe no Mobile)
                     </label>
-                    <span className="text-[10px] text-neutral-500 font-mono">
-                      {prodFormImageUrls.length} {prodFormImageUrls.length === 1 ? 'foto' : 'fotos'}
-                    </span>
                   </div>
                   <p className="text-[11px] text-neutral-500">
                     Adicione fotos adicionais com ângulos, detalhes ou pés para enriquecer a experiência editorial.
@@ -2034,6 +2117,35 @@ export const MaisVendidos: React.FC = () => {
                     <span className="text-[10px] text-neutral-400">Preço promocional atual em destaque</span>
                   </div>
                 </div>
+
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-1">
+                  <div className="space-y-1">
+                    <label className="font-semibold text-neutral-700">Quantidade de parcelas</label>
+                    <input
+                      type="number"
+                      min="1"
+                      max="36"
+                      step="1"
+                      value={prodFormInstallmentsCount}
+                      onChange={(e) => setProdFormInstallmentsCount(e.target.value)}
+                      placeholder="Ex: 6"
+                      className="w-full px-3 py-2 border border-neutral-300 rounded focus:ring-1 focus:ring-neutral-900 focus:outline-none text-xs"
+                    />
+                  </div>
+                  <div className="space-y-1">
+                    <label className="font-semibold text-neutral-700">Valor de cada parcela (R$)</label>
+                    <input
+                      type="number"
+                      min="0"
+                      step="0.01"
+                      value={prodFormInstallmentValue}
+                      onChange={(e) => setProdFormInstallmentValue(e.target.value)}
+                      placeholder="Ex: 299.98"
+                      className="w-full px-3 py-2 border border-neutral-300 rounded focus:ring-1 focus:ring-neutral-900 focus:outline-none text-xs"
+                    />
+                  </div>
+                </div>
+                <p className="text-[10px] text-neutral-500">Exibido como “Parcele em 6x de R$ 299,98”. Preencha os dois campos para mostrar.</p>
               </div>
 
               {/* SEÇÃO 3: VENDAS E ESTOQUE */}
@@ -2115,23 +2227,40 @@ export const MaisVendidos: React.FC = () => {
                     </button>
                   </div>
 
+                  <p className="text-[10px] text-neutral-500">Você pode colar vários tamanhos separados por vírgula. Ex.: 33, 34, 35, 36.</p>
+
                   {prodFormSizes.length > 0 && (
-                    <div className="flex flex-wrap gap-1.5 pt-1">
-                      {prodFormSizes.map((size) => (
-                        <span
-                          key={size}
-                          className="inline-flex items-center gap-1 px-2 py-0.5 rounded bg-neutral-100 text-neutral-800 border border-neutral-300 font-mono text-[11px]"
-                        >
-                          {size}
-                          <button
-                            type="button"
-                            onClick={() => handleRemoveSize(size)}
-                            className="text-neutral-400 hover:text-red-600 ml-0.5 cursor-pointer"
-                          >
-                            ×
-                          </button>
-                        </span>
-                      ))}
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 pt-1">
+                      {prodFormSizes.map((size) => {
+                        const unavailable = prodFormOutOfStockSizes.includes(size);
+                        return (
+                          <div key={size} className="flex items-center justify-between gap-2 rounded border border-neutral-200 bg-neutral-50 px-2.5 py-2">
+                            <div className="flex items-center gap-2">
+                              <span className={`relative h-9 min-w-9 px-2 inline-flex items-center justify-center rounded-sm border text-xs font-semibold ${unavailable ? 'border-neutral-300 bg-neutral-100 text-neutral-400' : 'border-neutral-900 bg-white text-neutral-900'}`}>
+                                {size}
+                                {unavailable && <span className="absolute -top-1 -right-1 text-red-500 text-sm font-bold leading-none">×</span>}
+                              </span>
+                              <label className="flex items-center gap-1.5 text-[11px] text-neutral-600 cursor-pointer">
+                                <input
+                                  type="checkbox"
+                                  checked={unavailable}
+                                  onChange={() => handleToggleSizeStock(size)}
+                                  className="rounded border-neutral-300 text-neutral-900 focus:ring-neutral-900"
+                                />
+                                Fora de estoque
+                              </label>
+                            </div>
+                            <button
+                              type="button"
+                              onClick={() => handleRemoveSize(size)}
+                              className="text-neutral-400 hover:text-red-600 cursor-pointer p-1"
+                              aria-label={`Remover tamanho ${size}`}
+                            >
+                              ×
+                            </button>
+                          </div>
+                        );
+                      })}
                     </div>
                   )}
                 </div>
@@ -2308,29 +2437,51 @@ export const MaisVendidos: React.FC = () => {
                       </div>
                     )}
 
-                    {prodFormImageUrls.length > 1 && (
-                      <div className="absolute bottom-2 left-2 z-10 px-1.5 py-0.5 rounded bg-black/70 backdrop-blur-xs text-white text-[8px] font-mono">
-                        1/{prodFormImageUrls.length}
+                    <div className="absolute left-2.5 top-2.5 z-10 text-white mix-blend-difference text-2xl font-black tracking-[-0.06em] leading-none">
+                      #{String(editingProduct ? editingProduct.position : products.length + 1).padStart(2, '0')}
+                    </div>
+
+                    {prodFormSizes.length > 0 && (
+                      <div className="absolute left-2.5 bottom-2.5 z-10 max-w-[78%]">
+                        <div className="flex flex-wrap gap-1">
+                          {normalizeSizeValues(prodFormSizes).map((size) => {
+                            const unavailable = prodFormOutOfStockSizes.includes(size);
+                            return (
+                              <span key={size} className={`relative h-6 min-w-6 px-1.5 inline-flex items-center justify-center rounded-[2px] border text-[8px] font-semibold ${unavailable ? 'border-white/50 bg-white/80 text-neutral-400' : 'border-white bg-white text-black'}`}>
+                                {size}
+                                {unavailable && <span className="absolute -top-1.5 -right-1 text-red-500 text-xs font-black">×</span>}
+                              </span>
+                            );
+                          })}
+                        </div>
                       </div>
                     )}
                   </div>
 
                   {/* Info */}
-                  <div className="space-y-1.5">
-                    <div className="flex items-center gap-1.5">
-                      <span className="font-mono text-xs text-neutral-400 font-medium">
-                        #{editingProduct ? editingProduct.position : (products.length + 1)}
+                  <div className="space-y-1.5 text-center flex flex-col items-center">
+                    {prodFormCategory && (
+                      <span className="text-[9px] uppercase tracking-[0.18em] text-neutral-500 font-medium">
+                        {prodFormCategory}
                       </span>
-                      {prodFormCategory && (
-                        <span className="text-[10px] uppercase tracking-widest text-neutral-500 font-light">
-                          · {prodFormCategory}
-                        </span>
-                      )}
-                    </div>
+                    )}
 
-                    <h5 className="text-xs font-medium text-white tracking-wide line-clamp-2">
+                    <h5 className="text-sm font-semibold text-white tracking-tight line-clamp-2">
                       {prodFormName.trim() || 'Nome do produto aparecerá aqui'}
                     </h5>
+
+                    {(prodFormPromotionalPrice || prodFormOriginalPrice) && (
+                      <div className="flex flex-col items-center">
+                        {prodFormPromotionalPrice && prodFormOriginalPrice && Number(prodFormOriginalPrice) > Number(prodFormPromotionalPrice) && (
+                          <span className="text-[9px] text-neutral-500 line-through">R$ {prodFormOriginalPrice}</span>
+                        )}
+                        <span className="text-base font-bold text-white">R$ {prodFormPromotionalPrice || prodFormOriginalPrice}</span>
+                      </div>
+                    )}
+
+                    {prodFormInstallmentsCount && prodFormInstallmentValue && (
+                      <p className="text-[9px] text-neutral-400">Parcele em {prodFormInstallmentsCount}x de R$ {prodFormInstallmentValue}</p>
+                    )}
 
                     {/* Vendas */}
                     {prodFormShowSoldQty && prodFormSoldQty && Number(prodFormSoldQty) > 0 && (
@@ -2353,25 +2504,12 @@ export const MaisVendidos: React.FC = () => {
                       </div>
                     )}
 
-                    {/* Tamanhos */}
-                    {prodFormSizes.length > 0 && (
-                      <div className="flex flex-wrap gap-1 pt-0.5">
-                        {prodFormSizes.map((s, i) => (
-                          <span
-                            key={i}
-                            className="min-w-[20px] text-center px-1.5 py-0.5 rounded-[2px] bg-neutral-900 text-neutral-300 border border-neutral-800 text-[9px] font-mono"
-                          >
-                            {s}
-                          </span>
-                        ))}
-                      </div>
-                    )}
 
                     {/* Botão Ver Produto */}
                     {prodFormProductUrl && (
                       <div className="pt-2">
                         <div className="w-full py-2 px-3 rounded-[3px] bg-white text-black font-semibold text-[10px] tracking-wider uppercase text-center">
-                          Ver Produto →
+                          {(selectedList?.ctaText || '').trim() || 'VER PRODUTO'}
                         </div>
                       </div>
                     )}

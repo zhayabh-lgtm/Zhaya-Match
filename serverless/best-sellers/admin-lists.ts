@@ -95,11 +95,16 @@ export default async function handler(req: any, res: any) {
           imageUrl: p.image_url,
           imageUrls: Array.isArray(p.image_urls) ? p.image_urls : [],
           productUrl: p.product_url || null,
+          originalPrice: p.original_price !== null && p.original_price !== undefined ? Number(p.original_price) : null,
+          promotionalPrice: p.promotional_price !== null && p.promotional_price !== undefined ? Number(p.promotional_price) : null,
           soldQuantity: p.sold_quantity ?? null,
           showSoldQuantity: p.show_sold_quantity ?? true,
           availableQuantity: p.available_quantity ?? null,
           sizes: p.sizes || [],
+          outOfStockSizes: p.out_of_stock_sizes || [],
           colors: p.colors || [],
+          installmentsCount: p.installments_count ?? null,
+          installmentValue: p.installment_value !== null && p.installment_value !== undefined ? Number(p.installment_value) : null,
           badgeEnabled: Boolean(p.badge_enabled),
           badgeText: p.badge_text || null,
           badgeColor: p.badge_color || '#FFFFFF',
@@ -115,6 +120,7 @@ export default async function handler(req: any, res: any) {
           title: listData.title,
           logoUrl: listData.logo_url || null,
           subtitle: listData.subtitle || null,
+          ctaText: listData.cta_text || null,
           listDate: listData.list_date,
           active: Boolean(listData.active),
           timerEnabled: Boolean(listData.timer_enabled),
@@ -162,6 +168,7 @@ export default async function handler(req: any, res: any) {
           title: row.title,
           logoUrl: row.logo_url || null,
           subtitle: row.subtitle || null,
+          ctaText: row.cta_text || null,
           listDate: row.list_date,
           active: Boolean(row.active),
           timerEnabled: Boolean(row.timer_enabled),
@@ -230,6 +237,7 @@ export default async function handler(req: any, res: any) {
             title: targetTitle,
             logo_url: srcList.logo_url || null,
             subtitle: srcList.subtitle || null,
+            cta_text: srcList.cta_text || null,
             list_date: targetDate,
             active: false,
             timer_enabled: false,
@@ -254,11 +262,16 @@ export default async function handler(req: any, res: any) {
             image_url: p.image_url,
             image_urls: Array.isArray(p.image_urls) ? p.image_urls : [],
             product_url: p.product_url || null,
+            original_price: p.original_price ?? null,
+            promotional_price: p.promotional_price ?? null,
             sold_quantity: p.sold_quantity ?? null,
             show_sold_quantity: p.show_sold_quantity ?? true,
             available_quantity: p.available_quantity ?? null,
             sizes: p.sizes || [],
+            out_of_stock_sizes: p.out_of_stock_sizes || [],
             colors: p.colors || [],
+            installments_count: p.installments_count ?? null,
+            installment_value: p.installment_value ?? null,
             badge_enabled: Boolean(p.badge_enabled),
             badge_text: p.badge_text || null,
             badge_color: p.badge_color || '#FFFFFF',
@@ -279,6 +292,7 @@ export default async function handler(req: any, res: any) {
           title: newListData.title,
           logoUrl: newListData.logo_url || null,
           subtitle: newListData.subtitle || null,
+          ctaText: newListData.cta_text || null,
           listDate: newListData.list_date,
           active: false,
           timerEnabled: false,
@@ -302,6 +316,7 @@ export default async function handler(req: any, res: any) {
       const title = (body.title || 'Mais Vendidos do Dia').trim();
       const logoUrl = body.logoUrl ? String(body.logoUrl).trim() : null;
       const subtitle = body.subtitle ? String(body.subtitle).trim() : null;
+      const ctaText = body.ctaText ? String(body.ctaText).trim() : null;
       const listDate = body.listDate || new Date().toISOString().slice(0, 10);
       const active = Boolean(body.active);
       const timerEnabled = Boolean(body.timerEnabled);
@@ -329,6 +344,7 @@ export default async function handler(req: any, res: any) {
           title,
           logo_url: logoUrl,
           subtitle,
+          cta_text: ctaText,
           list_date: listDate,
           active,
           timer_enabled: timerEnabled,
@@ -356,6 +372,7 @@ export default async function handler(req: any, res: any) {
         title: data.title,
         logoUrl: data.logo_url || null,
         subtitle: data.subtitle || null,
+        ctaText: data.cta_text || null,
         listDate: data.list_date,
         active: Boolean(data.active),
         timerEnabled: Boolean(data.timer_enabled),
@@ -395,6 +412,7 @@ export default async function handler(req: any, res: any) {
       if (body.title !== undefined) updates.title = String(body.title).trim();
       if (body.logoUrl !== undefined) updates.logo_url = body.logoUrl ? String(body.logoUrl).trim() : null;
       if (body.subtitle !== undefined) updates.subtitle = body.subtitle ? String(body.subtitle).trim() : null;
+      if (body.ctaText !== undefined) updates.cta_text = body.ctaText ? String(body.ctaText).trim() : null;
       if (body.listDate !== undefined) updates.list_date = body.listDate;
       if (body.timezone !== undefined) updates.timezone = body.timezone;
       if (body.timerEnabled !== undefined) {
@@ -441,6 +459,7 @@ export default async function handler(req: any, res: any) {
         title: data.title,
         logoUrl: data.logo_url || null,
         subtitle: data.subtitle || null,
+        ctaText: data.cta_text || null,
         listDate: data.list_date,
         active: Boolean(data.active),
         timerEnabled: Boolean(data.timer_enabled),

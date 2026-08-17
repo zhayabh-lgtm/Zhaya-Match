@@ -543,6 +543,7 @@ CREATE TABLE IF NOT EXISTS public.best_seller_lists (
   title TEXT NOT NULL DEFAULT 'Mais Vendidos do Dia',
   logo_url TEXT,
   subtitle TEXT,
+  cta_text TEXT,
   list_date DATE NOT NULL DEFAULT CURRENT_DATE,
   active BOOLEAN NOT NULL DEFAULT false,
   timer_enabled BOOLEAN NOT NULL DEFAULT false,
@@ -571,7 +572,10 @@ CREATE TABLE IF NOT EXISTS public.best_seller_products (
   show_sold_quantity BOOLEAN NOT NULL DEFAULT true,
   available_quantity INTEGER CHECK (available_quantity IS NULL OR available_quantity >= 0),
   sizes TEXT[] NOT NULL DEFAULT '{}'::text[],
+  out_of_stock_sizes TEXT[] NOT NULL DEFAULT '{}'::text[],
   colors TEXT[] NOT NULL DEFAULT '{}'::text[],
+  installments_count INTEGER CHECK (installments_count IS NULL OR installments_count > 0),
+  installment_value NUMERIC(10, 2) CHECK (installment_value IS NULL OR installment_value >= 0),
   badge_enabled BOOLEAN NOT NULL DEFAULT false,
   badge_text TEXT,
   badge_color TEXT NOT NULL DEFAULT '#FFFFFF',
@@ -580,11 +584,19 @@ CREATE TABLE IF NOT EXISTS public.best_seller_products (
   updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 
--- Compatibilidade com instalações existentes: adiciona os campos de preço sem apagar dados.
+-- Compatibilidade com instalações existentes: adiciona campos sem apagar dados.
+ALTER TABLE public.best_seller_lists
+  ADD COLUMN IF NOT EXISTS cta_text TEXT;
 ALTER TABLE public.best_seller_products
   ADD COLUMN IF NOT EXISTS original_price NUMERIC(10, 2);
 ALTER TABLE public.best_seller_products
   ADD COLUMN IF NOT EXISTS promotional_price NUMERIC(10, 2);
+ALTER TABLE public.best_seller_products
+  ADD COLUMN IF NOT EXISTS out_of_stock_sizes TEXT[] NOT NULL DEFAULT '{}'::text[];
+ALTER TABLE public.best_seller_products
+  ADD COLUMN IF NOT EXISTS installments_count INTEGER;
+ALTER TABLE public.best_seller_products
+  ADD COLUMN IF NOT EXISTS installment_value NUMERIC(10, 2);
 
 CREATE INDEX IF NOT EXISTS idx_best_seller_lists_active ON public.best_seller_lists(active);
 CREATE INDEX IF NOT EXISTS idx_best_seller_lists_date ON public.best_seller_lists(list_date DESC);

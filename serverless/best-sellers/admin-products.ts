@@ -54,6 +54,22 @@ function parsePriceInput(val: any): number | null {
   return Math.round(parsed * 100) / 100;
 }
 
+function normalizeSizeList(input: any): string[] {
+  const source = Array.isArray(input) ? input : input === undefined || input === null ? [] : [input];
+  const items = source
+    .flatMap((value: any) => String(value).split(/[,;\n]+/g))
+    .map((value: string) => sanitizeText(value))
+    .filter(Boolean);
+  return Array.from(new Set(items));
+}
+
+function parseInstallmentsCount(val: any): number | null {
+  if (val === undefined || val === null || val === '') return null;
+  const parsed = Number(val);
+  if (!Number.isInteger(parsed) || parsed < 1 || parsed > 36) return null;
+  return parsed;
+}
+
 // Validação de URL segura (rejeita javascript:, data:, etc.)
 function isValidSafeUrl(urlStr: any): boolean {
   if (!urlStr || typeof urlStr !== 'string') return false;
@@ -137,8 +153,11 @@ export default async function handler(req: any, res: any) {
         soldQuantity: p.sold_quantity ?? null,
         showSoldQuantity: p.show_sold_quantity ?? true,
         availableQuantity: p.available_quantity ?? null,
-        sizes: Array.isArray(p.sizes) ? p.sizes : [],
+        sizes: normalizeSizeList(p.sizes),
+        outOfStockSizes: normalizeSizeList(p.out_of_stock_sizes),
         colors: Array.isArray(p.colors) ? p.colors : [],
+        installmentsCount: p.installments_count ?? null,
+        installmentValue: p.installment_value !== null && p.installment_value !== undefined ? Number(p.installment_value) : null,
         badgeEnabled: Boolean(p.badge_enabled),
         badgeText: p.badge_text || null,
         badgeColor: p.badge_color || '#FFFFFF',
@@ -202,7 +221,10 @@ export default async function handler(req: any, res: any) {
         showSoldQuantity,
         availableQuantity,
         sizes,
+        outOfStockSizes,
         colors,
+        installmentsCount,
+        installmentValue,
         badgeEnabled,
         badgeText,
         badgeColor,
@@ -212,6 +234,19 @@ export default async function handler(req: any, res: any) {
       const cleanCategory = sanitizeText(category);
       const parsedOriginalPrice = parsePriceInput(originalPrice !== undefined ? originalPrice : body.original_price);
       const parsedPromotionalPrice = parsePriceInput(promotionalPrice !== undefined ? promotionalPrice : body.promotional_price);
+      const rawInstallmentsCount = installmentsCount !== undefined ? installmentsCount : body.installments_count;
+      const rawInstallmentValue = installmentValue !== undefined ? installmentValue : body.installment_value;
+      const parsedInstallmentsCount = parseInstallmentsCount(rawInstallmentsCount);
+      const parsedInstallmentValue = parsePriceInput(rawInstallmentValue);
+      if ((rawInstallmentsCount !== undefined && rawInstallmentsCount !== null && rawInstallmentsCount !== '') && parsedInstallmentsCount === null) {
+        return res.status(400).json({ success: false, message: 'Quantidade de parcelas deve ser um inteiro entre 1 e 36.' });
+      }
+      if ((rawInstallmentValue !== undefined && rawInstallmentValue !== null && rawInstallmentValue !== '') && parsedInstallmentValue === null) {
+        return res.status(400).json({ success: false, message: 'Valor da parcela deve ser um número maior ou igual a zero.' });
+      }
+      if ((parsedInstallmentsCount === null) !== (parsedInstallmentValue === null)) {
+        return res.status(400).json({ success: false, message: 'Informe quantidade de parcelas e valor da parcela juntos.' });
+      }
       
       // Processa lista de imagens
       let validImageUrls: string[] = [];
@@ -275,9 +310,8 @@ export default async function handler(req: any, res: any) {
         position = maxPos + 1;
       }
 
-      const cleanSizes = Array.isArray(sizes)
-        ? sizes.map((s) => sanitizeText(String(s))).filter(Boolean)
-        : [];
+      const cleanSizes = normalizeSizeList(sizes);
+      const cleanOutOfStockSizes = normalizeSizeList(outOfStockSizes).filter((size) => cleanSizes.includes(size));
       const cleanColors = Array.isArray(colors)
         ? colors.map((c) => sanitizeText(String(c))).filter(Boolean)
         : [];
@@ -301,7 +335,10 @@ export default async function handler(req: any, res: any) {
           show_sold_quantity: showSoldQuantity !== undefined ? Boolean(showSoldQuantity) : true,
           available_quantity: parsedAvailable,
           sizes: cleanSizes,
+          out_of_stock_sizes: cleanOutOfStockSizes,
           colors: cleanColors,
+          installments_count: parsedInstallmentsCount,
+          installment_value: parsedInstallmentValue,
           badge_enabled: isBadgeActive,
           badge_text: cleanBadgeText,
           badge_color: cleanBadgeColor,
@@ -336,8 +373,11 @@ export default async function handler(req: any, res: any) {
         soldQuantity: data.sold_quantity ?? null,
         showSoldQuantity: data.show_sold_quantity ?? true,
         availableQuantity: data.available_quantity ?? null,
-        sizes: data.sizes || [],
+        sizes: normalizeSizeList(data.sizes),
+        outOfStockSizes: normalizeSizeList(data.out_of_stock_sizes),
         colors: data.colors || [],
+        installmentsCount: data.installments_count ?? null,
+        installmentValue: data.installment_value !== null && data.installment_value !== undefined ? Number(data.installment_value) : null,
         badgeEnabled: Boolean(data.badge_enabled),
         badgeText: data.badge_text || null,
         badgeColor: data.badge_color || '#FFFFFF',
@@ -459,9 +499,28 @@ export default async function handler(req: any, res: any) {
       }
 
       if (body.sizes !== undefined) {
-        updates.sizes = Array.isArray(body.sizes)
-          ? body.sizes.map((s: any) => sanitizeText(String(s))).filter(Boolean)
-          : [];
+        updates.sizes = normalizeSizeList(body.sizes);
+      }
+
+      if (body.outOfStockSizes !== undefined) {
+        const knownSizes = body.sizes !== undefined ? normalizeSizeList(body.sizes) : null;
+        const out = normalizeSizeList(body.outOfStockSizes);
+        updates.out_of_stock_sizes = knownSizes ? out.filter((size) => knownSizes.includes(size)) : out;
+      }
+
+      if (body.installmentsCount !== undefined || body.installments_count !== undefined) {
+        const raw = body.installmentsCount !== undefined ? body.installmentsCount : body.installments_count;
+        if (raw === null || raw === '') updates.installments_count = null;
+        else {
+          const parsed = parseInstallmentsCount(raw);
+          if (parsed === null) return res.status(400).json({ success: false, message: 'Quantidade de parcelas deve ser um inteiro entre 1 e 36.' });
+          updates.installments_count = parsed;
+        }
+      }
+
+      if (body.installmentValue !== undefined || body.installment_value !== undefined) {
+        const raw = body.installmentValue !== undefined ? body.installmentValue : body.installment_value;
+        updates.installment_value = parsePriceInput(raw);
       }
 
       if (body.colors !== undefined) {
@@ -514,8 +573,11 @@ export default async function handler(req: any, res: any) {
         soldQuantity: data.sold_quantity ?? null,
         showSoldQuantity: data.show_sold_quantity ?? true,
         availableQuantity: data.available_quantity ?? null,
-        sizes: data.sizes || [],
+        sizes: normalizeSizeList(data.sizes),
+        outOfStockSizes: normalizeSizeList(data.out_of_stock_sizes),
         colors: data.colors || [],
+        installmentsCount: data.installments_count ?? null,
+        installmentValue: data.installment_value !== null && data.installment_value !== undefined ? Number(data.installment_value) : null,
         badgeEnabled: Boolean(data.badge_enabled),
         badgeText: data.badge_text || null,
         badgeColor: data.badge_color || '#FFFFFF',

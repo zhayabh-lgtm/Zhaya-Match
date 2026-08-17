@@ -130,7 +130,20 @@ export function formatPriceBRL(price: number | null | undefined): string | null 
 }
 
 /**
- * Carrossel / Galeria de Imagens de Produto com suporte a Swipe Mobile
+ * Normaliza tamanhos legados que possam ter sido salvos em uma única string
+ * (ex.: "33,34,35") e remove duplicatas.
+ */
+function normalizePublicSizes(values: string[] | undefined): string[] {
+  const source = Array.isArray(values) ? values : [];
+  const parsed = source
+    .flatMap((value) => String(value || '').split(/[,;\n]+/g))
+    .map((value) => value.trim())
+    .filter(Boolean);
+  return Array.from(new Set(parsed));
+}
+
+/**
+ * Galeria de imagens com drag/swipe real no mobile.
  */
 const ProductImageGallery: React.FC<{
   images: string[];
@@ -138,12 +151,17 @@ const ProductImageGallery: React.FC<{
   isFirst: boolean;
   rankLabel: string;
   badgeContent?: React.ReactNode;
-}> = ({ images, productName, isFirst, rankLabel, badgeContent }) => {
+  sizes: string[];
+  outOfStockSizes: string[];
+}> = ({ images, productName, isFirst, rankLabel, badgeContent, sizes, outOfStockSizes }) => {
   const [currentIndex, setCurrentIndex] = useState(0);
   const [failedImages, setFailedImages] = useState<Record<number, boolean>>({});
   const [direction, setDirection] = useState(0);
-
   const totalImages = images.length;
+
+  useEffect(() => {
+    if (currentIndex >= totalImages) setCurrentIndex(0);
+  }, [currentIndex, totalImages]);
 
   const goToIndex = (nextIndex: number, nextDirection = 0) => {
     if (totalImages <= 1) return;
@@ -153,94 +171,110 @@ const ProductImageGallery: React.FC<{
   };
 
   const handleNext = (e?: React.MouseEvent) => {
-    if (e) e.stopPropagation();
+    e?.stopPropagation();
     goToIndex(currentIndex + 1, 1);
   };
 
   const handlePrev = (e?: React.MouseEvent) => {
-    if (e) e.stopPropagation();
+    e?.stopPropagation();
     goToIndex(currentIndex - 1, -1);
   };
 
   const handleDragEnd = (_event: unknown, info: { offset: { x: number }; velocity: { x: number } }) => {
     if (totalImages <= 1) return;
     const swipeStrength = Math.abs(info.offset.x) + Math.abs(info.velocity.x) * 0.08;
-    if (swipeStrength < 55) return;
+    if (swipeStrength < 48) return;
     if (info.offset.x < 0) handleNext();
     else handlePrev();
   };
 
   const currentImageUrl = images[currentIndex];
   const hasError = failedImages[currentIndex];
+  const unavailableSet = new Set(outOfStockSizes);
 
   return (
-    <div className="relative w-full aspect-[4/5] bg-neutral-950 rounded-xl overflow-hidden border border-white/[0.08] mb-5 select-none touch-pan-y group shadow-[0_18px_55px_rgba(0,0,0,0.38)]">
-      {/* A imagem acompanha o dedo no mobile; solte para trocar de foto. */}
+    <div className="relative w-full aspect-[4/5] bg-neutral-950 rounded-xl overflow-hidden border border-white/[0.08] mb-5 select-none touch-pan-y group shadow-[0_16px_45px_rgba(0,0,0,0.34)]">
       <AnimatePresence initial={false} mode="popLayout" custom={direction}>
         <motion.div
           key={`${currentIndex}-${currentImageUrl || 'empty'}`}
           className="absolute inset-0"
           custom={direction}
-          initial={{ opacity: 0, x: direction === 0 ? 0 : direction * 26 }}
+          initial={{ opacity: 0, x: direction === 0 ? 0 : direction * 28 }}
           animate={{ opacity: 1, x: 0 }}
-          exit={{ opacity: 0, x: direction === 0 ? 0 : direction * -20 }}
-          transition={{ duration: 0.22, ease: 'easeOut' }}
+          exit={{ opacity: 0, x: direction === 0 ? 0 : direction * -22 }}
+          transition={{ duration: 0.2, ease: 'easeOut' }}
           drag={totalImages > 1 ? 'x' : false}
           dragConstraints={{ left: 0, right: 0 }}
-          dragElastic={0.18}
+          dragElastic={0.22}
           onDragEnd={handleDragEnd}
         >
           {currentImageUrl && !hasError ? (
             <img
               src={currentImageUrl}
-              alt={`${productName} - Imagem ${currentIndex + 1}`}
+              alt={`${productName} - imagem ${currentIndex + 1}`}
               loading={isFirst && currentIndex === 0 ? 'eager' : 'lazy'}
               onError={() => setFailedImages((prev) => ({ ...prev, [currentIndex]: true }))}
               className="w-full h-full object-cover object-center pointer-events-none"
               draggable={false}
             />
           ) : (
-            <div className="w-full h-full flex flex-col items-center justify-center bg-neutral-950 text-neutral-600 px-4 text-center">
-              <span className="text-xs tracking-widest uppercase font-light">Imagem indisponível</span>
+            <div className="w-full h-full flex items-center justify-center bg-neutral-950 text-neutral-600 px-4 text-center">
+              <span className="text-xs tracking-[0.14em] uppercase">Imagem indisponível</span>
             </div>
           )}
         </motion.div>
       </AnimatePresence>
 
-      {/* Gradiente local só para legibilidade do ranking, sem escurecer o produto inteiro. */}
-      <div className="absolute inset-x-0 bottom-0 h-28 bg-gradient-to-t from-black/70 via-black/15 to-transparent z-10 pointer-events-none" />
-
-      {/* Badge / Tag no Canto Superior Direito */}
       {badgeContent}
 
-      {/* Ranking editorial sobre a foto */}
-      {isFirst ? (
-        <div className="absolute left-3.5 bottom-3.5 z-20 flex flex-col items-start pointer-events-none">
-          <span className="mb-1 rounded-full bg-black/75 border border-white/20 px-2.5 py-1 text-[9px] font-bold tracking-[0.28em] text-white uppercase backdrop-blur-md">
-            Top
+      {/* Ranking: sem fundo e sem selo TOP. O primeiro recebe apenas escala maior. */}
+      <div
+        className={`absolute left-3.5 top-3 z-20 pointer-events-none text-white mix-blend-difference leading-none font-black tracking-[-0.07em] ${
+          isFirst ? 'text-[38px] sm:text-[44px]' : 'text-[28px] sm:text-[32px]'
+        }`}
+        aria-label={`Posição ${rankLabel}`}
+      >
+        #{rankLabel}
+      </div>
+
+      {/* Tamanhos ficam sobre a foto, no canto inferior esquerdo. */}
+      {sizes.length > 0 && (
+        <div className="absolute left-3 bottom-3 z-20 max-w-[78%] pointer-events-none">
+          <span className="mb-1.5 block text-[8px] font-semibold uppercase tracking-[0.16em] text-white drop-shadow-[0_1px_2px_rgba(0,0,0,0.8)]">
+            Tamanhos
           </span>
-          <div className="rounded-lg bg-white text-black px-3 py-2 shadow-xl leading-none">
-            <span className="font-mono text-[34px] sm:text-[40px] font-black tracking-[-0.08em]">
-              #{rankLabel}
-            </span>
+          <div className="flex flex-wrap gap-1.5">
+            {sizes.map((size) => {
+              const unavailable = unavailableSet.has(size);
+              return (
+                <span
+                  key={size}
+                  className={`relative h-8 min-w-8 px-2 inline-flex items-center justify-center rounded-[3px] border text-[11px] font-semibold shadow-sm ${
+                    unavailable
+                      ? 'border-white/45 bg-white/80 text-neutral-400'
+                      : 'border-white/80 bg-white/95 text-black'
+                  }`}
+                >
+                  {size}
+                  {unavailable && (
+                    <span className="absolute -top-1.5 -right-1 text-[15px] leading-none font-black text-red-500 drop-shadow-sm" aria-label="Fora de estoque">
+                      ×
+                    </span>
+                  )}
+                </span>
+              );
+            })}
           </div>
-        </div>
-      ) : (
-        <div className="absolute left-3.5 bottom-3.5 z-20 rounded-md bg-black/65 border border-white/15 px-2.5 py-1.5 backdrop-blur-md pointer-events-none">
-          <span className="font-mono text-xl sm:text-2xl font-bold text-white tracking-[-0.05em]">
-            #{rankLabel}
-          </span>
         </div>
       )}
 
-      {/* Navegação por Setas (Desktop / Hover) */}
       {totalImages > 1 && (
         <>
           <button
             type="button"
             onClick={handlePrev}
             aria-label="Imagem anterior"
-            className="absolute left-2.5 top-1/2 -translate-y-1/2 w-9 h-9 rounded-full bg-black/55 border border-white/10 text-white hidden sm:flex items-center justify-center backdrop-blur-sm opacity-0 group-hover:opacity-100 transition-opacity duration-200 hover:bg-black/80 z-30 cursor-pointer"
+            className="absolute left-2.5 top-1/2 -translate-y-1/2 w-9 h-9 rounded-full bg-black/45 border border-white/10 text-white hidden sm:flex items-center justify-center backdrop-blur-sm opacity-0 group-hover:opacity-100 transition-opacity duration-200 hover:bg-black/70 z-30 cursor-pointer"
           >
             ‹
           </button>
@@ -248,52 +282,50 @@ const ProductImageGallery: React.FC<{
             type="button"
             onClick={handleNext}
             aria-label="Próxima imagem"
-            className="absolute right-2.5 top-1/2 -translate-y-1/2 w-9 h-9 rounded-full bg-black/55 border border-white/10 text-white hidden sm:flex items-center justify-center backdrop-blur-sm opacity-0 group-hover:opacity-100 transition-opacity duration-200 hover:bg-black/80 z-30 cursor-pointer"
+            className="absolute right-2.5 top-1/2 -translate-y-1/2 w-9 h-9 rounded-full bg-black/45 border border-white/10 text-white hidden sm:flex items-center justify-center backdrop-blur-sm opacity-0 group-hover:opacity-100 transition-opacity duration-200 hover:bg-black/70 z-30 cursor-pointer"
           >
             ›
           </button>
-        </>
-      )}
 
-      {/* Contador + indicador deixam claro no mobile que existem mais fotos */}
-      {totalImages > 1 && (
-        <div className="absolute right-3.5 bottom-3.5 z-20 flex items-center gap-2 pointer-events-auto">
-          <span className="rounded-full bg-black/60 border border-white/10 px-2 py-1 text-[10px] font-mono text-white/90 backdrop-blur-md">
-            {currentIndex + 1}/{totalImages}
-          </span>
-          <div className="flex items-center gap-1">
-            {images.map((_, i) => (
+          {/* Sem contador numérico: apenas pontos discretos. */}
+          <div className="absolute right-3.5 bottom-3.5 z-20 flex items-center gap-1.5" aria-label="Galeria de imagens">
+            {images.map((_, dotIndex) => (
               <button
-                key={i}
+                key={dotIndex}
                 type="button"
-                onClick={() => goToIndex(i, i > currentIndex ? 1 : -1)}
-                aria-label={`Ver foto ${i + 1}`}
+                onClick={(e) => {
+                  e.stopPropagation();
+                  goToIndex(dotIndex, dotIndex > currentIndex ? 1 : -1);
+                }}
+                aria-label={`Ver imagem ${dotIndex + 1}`}
                 className={`h-1.5 rounded-full transition-all duration-200 ${
-                  i === currentIndex ? 'w-5 bg-white' : 'w-1.5 bg-white/40 hover:bg-white/70'
+                  dotIndex === currentIndex ? 'w-5 bg-white' : 'w-1.5 bg-white/45 hover:bg-white/70'
                 }`}
               />
             ))}
           </div>
-        </div>
+        </>
       )}
     </div>
   );
 };
 
 /**
- * Componente do Card Editorial de Produto
+ * Card editorial minimalista do produto.
  */
 const ProductItem: React.FC<{
   product: PublicBestSellerProduct;
   index: number;
   isFirst: boolean;
-}> = ({ product, index, isFirst }) => {
+  ctaText: string;
+}> = ({ product, index, isFirst, ctaText }) => {
   const formattedPos = String(product.position || index + 1).padStart(2, '0');
   const soldText = product.showSoldQuantity ? formatSoldQuantityText(product.soldQuantity) : null;
   const availableText = formatAvailableQuantityText(product.availableQuantity);
   const hasBadge = Boolean(product.badgeEnabled && product.badgeText && product.badgeText.trim());
+  const sizes = useMemo(() => normalizePublicSizes(product.sizes), [product.sizes]);
+  const outOfStockSizes = useMemo(() => normalizePublicSizes(product.outOfStockSizes), [product.outOfStockSizes]);
 
-  // Tratamento da galeria de imagens
   const galleryImages = useMemo(() => {
     const allImages = [product.imageUrl, ...(Array.isArray(product.imageUrls) ? product.imageUrls : [])]
       .map((url) => (url || '').trim())
@@ -301,11 +333,9 @@ const ProductItem: React.FC<{
     return Array.from(new Set(allImages));
   }, [product.imageUrls, product.imageUrl]);
 
-  // Contraste automático da cor do badge
   const badgeBgColor = product.badgeColor || '#FFFFFF';
   const badgeTextColor = useMemo(() => getReadableTextColor(badgeBgColor), [badgeBgColor]);
 
-  // Dispara evento de clique e abre URL da loja
   const handleProductClick = () => {
     Repository.trackBestSellerProductClick(product.id);
   };
@@ -313,91 +343,96 @@ const ProductItem: React.FC<{
   const badgeElement = hasBadge ? (
     <div
       id={`product-badge-${product.id}`}
-      style={{
-        backgroundColor: badgeBgColor,
-        color: badgeTextColor,
-      }}
-      className="absolute top-3 right-3 z-10 text-[10px] sm:text-[11px] font-bold tracking-widest uppercase px-2.5 py-1 rounded-[2px] shadow-md select-none pointer-events-none"
+      style={{ backgroundColor: badgeBgColor, color: badgeTextColor }}
+      className="absolute top-3 right-3 z-30 text-[9px] sm:text-[10px] font-bold tracking-[0.12em] uppercase px-2.5 py-1 rounded-[2px] shadow-md select-none pointer-events-none"
     >
       {product.badgeText}
     </div>
   ) : undefined;
 
+  const hasInstallment = Boolean(
+    product.installmentsCount &&
+      product.installmentsCount > 0 &&
+      product.installmentValue !== null &&
+      product.installmentValue !== undefined
+  );
+
   return (
-    <article
+    <motion.article
       id={`best-seller-product-${product.id}`}
-      className="w-full flex flex-col pt-2 pb-10 border-b border-neutral-900 last:border-b-0"
+      initial={{ opacity: 0, y: 12 }}
+      whileInView={{ opacity: 1, y: 0 }}
+      viewport={{ once: true, amount: 0.08 }}
+      transition={{ duration: 0.32, ease: 'easeOut' }}
+      className="w-full flex flex-col pb-12 last:pb-4"
     >
-      {/* Galeria de Fotos / Imagem */}
       <ProductImageGallery
         images={galleryImages}
         productName={product.name}
         isFirst={isFirst}
         rankLabel={formattedPos}
         badgeContent={badgeElement}
+        sizes={sizes}
+        outOfStockSizes={outOfStockSizes}
       />
 
-      {/* Conteúdo Editorial do Produto */}
-      <div className="flex flex-col space-y-3 px-0.5">
-        {/* Categoria — o ranking agora vive sobre a fotografia */}
+      <div className="flex flex-col items-center text-center px-2 sm:px-4">
         {product.category && (
-          <div className="flex items-center">
-            <span className="text-[10px] uppercase tracking-[0.2em] text-neutral-400 font-semibold">
-              {product.category}
-            </span>
-          </div>
+          <span className="text-[9px] uppercase tracking-[0.22em] text-neutral-500 font-semibold mb-2">
+            {product.category}
+          </span>
         )}
 
-        {/* Nome do Produto */}
-        <h2 className="text-base sm:text-lg font-medium text-white tracking-wide leading-snug break-words">
+        <h2 className="max-w-md text-[18px] sm:text-[21px] font-semibold text-white tracking-[-0.01em] leading-[1.22] break-words">
           {product.name}
         </h2>
 
-        {/* Preço (Original e Promocional) */}
         {((product.promotionalPrice !== null && product.promotionalPrice !== undefined) ||
           (product.originalPrice !== null && product.originalPrice !== undefined)) && (
-          <div className="flex items-baseline gap-2.5 pt-0.5">
+          <div className="mt-3 flex flex-col items-center gap-0.5">
             {product.promotionalPrice !== null && product.promotionalPrice !== undefined ? (
               <>
-                <span className="text-lg sm:text-xl font-bold text-white tracking-tight">
-                  {formatPriceBRL(product.promotionalPrice)}
-                </span>
                 {product.originalPrice !== null &&
                   product.originalPrice !== undefined &&
                   product.originalPrice > product.promotionalPrice && (
-                    <span className="text-xs sm:text-sm text-neutral-400 line-through font-light">
+                    <span className="text-[12px] text-neutral-500 line-through font-normal">
                       {formatPriceBRL(product.originalPrice)}
                     </span>
                   )}
+                <span className="text-[23px] sm:text-[26px] font-bold text-white tracking-[-0.03em] leading-none">
+                  {formatPriceBRL(product.promotionalPrice)}
+                </span>
               </>
             ) : (
-              <span className="text-lg sm:text-xl font-bold text-white tracking-tight">
+              <span className="text-[23px] sm:text-[26px] font-bold text-white tracking-[-0.03em] leading-none">
                 {formatPriceBRL(product.originalPrice)}
               </span>
             )}
           </div>
         )}
 
-        {/* Informações de Vendas & Estoque */}
+        {hasInstallment && (
+          <p className="mt-2 text-[12px] text-neutral-400 font-normal">
+            Parcele em {product.installmentsCount}x de {formatPriceBRL(product.installmentValue)}
+          </p>
+        )}
+
         {(soldText || availableText) && (
-          <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-neutral-400 font-light pt-0.5">
+          <div className="mt-3 flex flex-wrap justify-center items-center gap-x-2 gap-y-1 text-[11px] text-neutral-500">
             {soldText && <span className="text-neutral-300 font-medium">{soldText}</span>}
             {soldText && availableText && <span className="text-neutral-700">·</span>}
-            {availableText && <span className="text-neutral-400">{availableText}</span>}
+            {availableText && <span>{availableText}</span>}
           </div>
         )}
 
-        {/* Cores Disponíveis */}
         {product.colors && product.colors.length > 0 && (
-          <div className="pt-1">
-            <span className="text-[10px] uppercase tracking-widest text-neutral-400 font-medium block mb-1.5">
-              Cores
-            </span>
-            <div className="flex flex-wrap gap-1.5">
+          <div className="mt-5 flex flex-col items-center">
+            <span className="text-[9px] uppercase tracking-[0.18em] text-neutral-500 font-semibold mb-2">Cores</span>
+            <div className="flex flex-wrap justify-center gap-1.5">
               {product.colors.map((color, cIdx) => (
                 <span
-                  key={cIdx}
-                  className="px-2.5 py-0.5 rounded-[2px] bg-neutral-900 text-neutral-300 border border-neutral-800 text-[11px] font-light"
+                  key={`${color}-${cIdx}`}
+                  className="px-2.5 py-1 rounded-[3px] bg-transparent text-neutral-300 border border-white/[0.12] text-[11px]"
                 >
                   {color}
                 </span>
@@ -406,42 +441,22 @@ const ProductItem: React.FC<{
           </div>
         )}
 
-        {/* Tamanhos Disponíveis */}
-        {product.sizes && product.sizes.length > 0 && (
-          <div className="pt-1">
-            <span className="text-[10px] uppercase tracking-widest text-neutral-400 font-medium block mb-1.5">
-              Tamanhos
-            </span>
-            <div className="flex flex-wrap gap-2">
-              {product.sizes.map((size, sIdx) => (
-                <span
-                  key={sIdx}
-                  className="h-9 min-w-9 inline-flex items-center justify-center rounded-full border border-white/[0.14] bg-white/[0.04] px-3 text-xs text-white font-medium tracking-wide shadow-sm"
-                >
-                  {size}
-                </span>
-              ))}
-            </div>
-          </div>
-        )}
-
-        {/* CTA: Botão Ver Produto na Loja */}
         {product.productUrl && (
-          <div className="pt-3">
+          <div className="w-full pt-6">
             <a
               id={`btn-ver-produto-${product.id}`}
               href={product.productUrl}
               target="_blank"
               rel="noopener noreferrer"
               onClick={handleProductClick}
-              className="inline-flex items-center justify-center w-full py-3.5 px-6 rounded-[4px] bg-white text-black font-semibold text-xs tracking-widest uppercase hover:bg-neutral-200 active:scale-[0.99] transition-all duration-150 shadow-sm text-center cursor-pointer"
+              className="inline-flex min-h-12 items-center justify-center w-full py-3 px-6 rounded-[3px] bg-white text-black font-bold text-[11px] tracking-[0.14em] uppercase hover:bg-neutral-200 active:scale-[0.995] transition-all duration-150 text-center cursor-pointer"
             >
-              Ver Produto →
+              {ctaText}
             </a>
           </div>
         )}
       </div>
-    </article>
+    </motion.article>
   );
 };
 
@@ -564,7 +579,7 @@ export const MaisVendidosPage: React.FC = () => {
       className="min-h-screen w-full bg-black text-white selection:bg-neutral-800 selection:text-white flex flex-col items-center antialiased"
       style={{
         backgroundColor: '#000000',
-        fontFamily: 'var(--font-zhaya, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif)',
+        fontFamily: '"Neue Einstellung", "Helvetica Neue", Helvetica, Arial, sans-serif',
       }}
     >
       <main className="w-full max-w-xl px-4 sm:px-6 py-8 sm:py-12 flex flex-col items-center">
@@ -620,61 +635,47 @@ export const MaisVendidosPage: React.FC = () => {
         {/* ========================================================================= */}
         {!loading && !errorMessage && listData && (
           <div className="w-full flex flex-col items-center">
-            {/* Header Editorial */}
-            <header className="w-full text-center space-y-2.5 mb-6 sm:mb-8">
-              {/* Logo customizada ou Logo padrão / Nome */}
+            {/* Header Editorial: data primeiro, depois logo e timer. */}
+            <header className="w-full text-center mb-7 sm:mb-9">
+              {formattedDate && (
+                <p className="mb-4 text-[10px] sm:text-[11px] tracking-[0.20em] text-neutral-500 font-medium leading-none">
+                  {formattedDate}
+                </p>
+              )}
+
               {listData.logoUrl ? (
-                <div className="w-full flex justify-center items-center pt-2 pb-2 overflow-hidden">
+                <div className="w-full flex justify-center items-center overflow-hidden">
                   <img
                     src={listData.logoUrl}
                     alt={listData.title || 'Zhaya'}
-                    className="w-full h-auto max-h-60 sm:max-h-80 object-contain block mx-auto"
+                    className="w-auto max-w-[230px] sm:max-w-[280px] max-h-32 sm:max-h-40 object-contain block mx-auto"
                   />
                 </div>
               ) : (
-                <div className="space-y-1">
-                  <span className="text-[11px] tracking-[0.28em] text-neutral-400 uppercase font-medium block">
-                    ZHAYA
-                  </span>
-                  <h1 className="text-2xl sm:text-3xl font-medium tracking-tight text-white uppercase leading-tight pt-0.5">
+                <div>
+                  <h1 className="text-2xl sm:text-3xl font-semibold tracking-[-0.02em] text-white uppercase leading-tight">
                     {listData.title || 'Mais Vendidos do Dia'}
                   </h1>
                 </div>
               )}
 
-              {/* Subtítulo Opcional */}
               {listData.subtitle && (
-                <p className="text-xs sm:text-sm text-neutral-300 font-light tracking-wide pt-0.5 max-w-sm mx-auto">
+                <p className="mt-3 text-xs sm:text-sm text-neutral-400 font-normal tracking-wide max-w-sm mx-auto">
                   {listData.subtitle}
                 </p>
               )}
 
-              {/* Data e timer formam um único bloco editorial, mais próximo e leve. */}
-              {(formattedDate || (listData.timerEnabled && timeRemaining)) && (
-                <div className="flex flex-col items-center pt-0.5">
-                  {formattedDate && (
-                    <p className="text-[10px] sm:text-[11px] tracking-[0.18em] text-neutral-400 font-mono leading-none">
-                      {formattedDate}
-                    </p>
-                  )}
-
-                  {listData.timerEnabled && timeRemaining && (
-                    <div id="best-sellers-timer-container" className="mt-1.5 flex flex-col items-center text-center">
-                      <span className="text-[8px] sm:text-[9px] tracking-[0.28em] text-neutral-500 uppercase font-semibold leading-none mb-1">
-                        {timeRemaining.isExpired ? 'ENCERRADO' : 'TERMINA EM'}
-                      </span>
-                      <span className="font-mono text-[25px] sm:text-[29px] leading-none font-medium text-white tracking-[0.08em] tabular-nums">
-                        {timeRemaining.formattedString}
-                      </span>
-                      <span className="mt-2 block h-px w-12 bg-white/15" aria-hidden="true" />
-                    </div>
-                  )}
+              {listData.timerEnabled && timeRemaining && (
+                <div id="best-sellers-timer-container" className="mt-4 flex flex-col items-center text-center">
+                  <span className="text-[8px] sm:text-[9px] tracking-[0.24em] text-neutral-500 uppercase font-semibold leading-none mb-1.5">
+                    {timeRemaining.isExpired ? 'ENCERRADO' : 'TERMINA EM'}
+                  </span>
+                  <span className="text-[25px] sm:text-[29px] leading-none font-semibold text-white tracking-[0.06em] tabular-nums">
+                    {timeRemaining.formattedString}
+                  </span>
                 </div>
               )}
             </header>
-
-            {/* Divisória Editorial Discreta */}
-            <div className="w-full border-t border-neutral-900 mb-6 sm:mb-8" />
 
             {/* Vitrine de Produtos */}
             {listData.products && listData.products.length > 0 ? (
@@ -685,6 +686,7 @@ export const MaisVendidosPage: React.FC = () => {
                     product={prod}
                     index={idx}
                     isFirst={idx === 0}
+                    ctaText={(listData.ctaText || '').trim() || 'VER PRODUTO'}
                   />
                 ))}
               </div>

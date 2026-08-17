@@ -28,6 +28,15 @@ function isTableMissingError(error: any): boolean {
   );
 }
 
+function normalizeSizeList(input: any): string[] {
+  const source = Array.isArray(input) ? input : input === undefined || input === null ? [] : [input];
+  const items = source
+    .flatMap((value: any) => String(value).split(/[,;\n]+/g))
+    .map((value: string) => value.trim())
+    .filter(Boolean);
+  return Array.from(new Set(items));
+}
+
 export default async function handler(req: any, res: any) {
   const requestOrigin = typeof req.headers?.origin === 'string' ? req.headers.origin : '*';
   res.setHeader('Access-Control-Allow-Origin', requestOrigin);
@@ -110,8 +119,11 @@ export default async function handler(req: any, res: any) {
         soldQuantity: p.show_sold_quantity ? p.sold_quantity ?? null : null,
         showSoldQuantity: Boolean(p.show_sold_quantity),
         availableQuantity: p.available_quantity ?? null,
-        sizes: Array.isArray(p.sizes) ? p.sizes : [],
+        sizes: normalizeSizeList(p.sizes),
+        outOfStockSizes: normalizeSizeList(p.out_of_stock_sizes),
         colors: Array.isArray(p.colors) ? p.colors : [],
+        installmentsCount: p.installments_count ?? null,
+        installmentValue: p.installment_value !== null && p.installment_value !== undefined ? Number(p.installment_value) : null,
         badgeEnabled: Boolean(p.badge_enabled),
         badgeText: p.badge_enabled ? p.badge_text || null : null,
         badgeColor: p.badge_color || '#FFFFFF',
@@ -123,6 +135,7 @@ export default async function handler(req: any, res: any) {
       title: activeList.title,
       logoUrl: activeList.logo_url || null,
       subtitle: activeList.subtitle || null,
+      ctaText: activeList.cta_text || null,
       listDate: activeList.list_date,
       timerEnabled: Boolean(activeList.timer_enabled),
       timerEnd: activeList.timer_enabled ? activeList.timer_end || null : null,

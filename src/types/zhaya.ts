@@ -454,6 +454,7 @@ export interface BestSellerList {
   title: string;
   logoUrl?: string | null;
   subtitle?: string | null;
+  ctaText?: string | null;
   listDate: string; // YYYY-MM-DD
   active: boolean;
   timerEnabled: boolean;
@@ -482,7 +483,10 @@ export interface BestSellerProduct {
   showSoldQuantity: boolean;
   availableQuantity?: number | null;
   sizes: string[];
+  outOfStockSizes?: string[];
   colors: string[];
+  installmentsCount?: number | null;
+  installmentValue?: number | null;
   badgeEnabled: boolean;
   badgeText?: string | null;
   badgeColor?: string;
@@ -505,7 +509,10 @@ export interface PublicBestSellerProduct {
   showSoldQuantity: boolean;
   availableQuantity?: number | null;
   sizes: string[];
+  outOfStockSizes?: string[];
   colors: string[];
+  installmentsCount?: number | null;
+  installmentValue?: number | null;
   badgeEnabled: boolean;
   badgeText?: string | null;
   badgeColor?: string;
@@ -516,6 +523,7 @@ export interface PublicBestSellerList {
   title: string;
   logoUrl?: string | null;
   subtitle?: string | null;
+  ctaText?: string | null;
   listDate: string;
   timerEnabled: boolean;
   timerEnd?: string | null;
