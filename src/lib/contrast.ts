@@ -47,3 +47,13 @@ export function checkContrastWarning(bgColor: string, textColor: string, minRati
   }
   return null;
 }
+
+/**
+ * Retorna '#000000' ou '#FFFFFF' para garantir o maior contraste contra a cor de fundo fornecida.
+ */
+export function getReadableTextColor(bgColor: string): '#000000' | '#FFFFFF' {
+  if (!bgColor) return '#000000';
+  const ratioBlack = getContrastRatio(bgColor, '#000000');
+  const ratioWhite = getContrastRatio(bgColor, '#FFFFFF');
+  return ratioBlack >= ratioWhite ? '#000000' : '#FFFFFF';
+}

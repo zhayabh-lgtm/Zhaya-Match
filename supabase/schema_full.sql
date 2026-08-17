@@ -534,3 +534,103 @@ $;
 
 REVOKE EXECUTE ON FUNCTION public.publish_all_config(jsonb, jsonb, jsonb, jsonb, jsonb) FROM PUBLIC, anon;
 GRANT EXECUTE ON FUNCTION public.publish_all_config(jsonb, jsonb, jsonb, jsonb, jsonb) TO authenticated, service_role;
+
+-- ------------------------------------------------------------------------------
+-- TABELA 9: best_seller_lists (Listas de Mais Vendidos do Dia)
+-- ------------------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS public.best_seller_lists (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  title TEXT NOT NULL DEFAULT 'Mais Vendidos do Dia',
+  logo_url TEXT,
+  subtitle TEXT,
+  list_date DATE NOT NULL DEFAULT CURRENT_DATE,
+  active BOOLEAN NOT NULL DEFAULT false,
+  timer_enabled BOOLEAN NOT NULL DEFAULT false,
+  timer_end TIMESTAMPTZ,
+  timezone TEXT NOT NULL DEFAULT 'America/Sao_Paulo',
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  created_by TEXT
+);
+
+-- ------------------------------------------------------------------------------
+-- TABELA 10: best_seller_products (Produtos dos Mais Vendidos)
+-- ------------------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS public.best_seller_products (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  list_id UUID NOT NULL REFERENCES public.best_seller_lists(id) ON DELETE CASCADE,
+  position INTEGER NOT NULL DEFAULT 1,
+  name TEXT NOT NULL,
+  category TEXT NOT NULL DEFAULT 'Calçado',
+  image_url TEXT NOT NULL,
+  image_urls TEXT[] NOT NULL DEFAULT '{}'::text[],
+  product_url TEXT,
+  original_price NUMERIC(10, 2) CHECK (original_price IS NULL OR original_price >= 0),
+  promotional_price NUMERIC(10, 2) CHECK (promotional_price IS NULL OR promotional_price >= 0),
+  sold_quantity INTEGER CHECK (sold_quantity IS NULL OR sold_quantity >= 0),
+  show_sold_quantity BOOLEAN NOT NULL DEFAULT true,
+  available_quantity INTEGER CHECK (available_quantity IS NULL OR available_quantity >= 0),
+  sizes TEXT[] NOT NULL DEFAULT '{}'::text[],
+  colors TEXT[] NOT NULL DEFAULT '{}'::text[],
+  badge_enabled BOOLEAN NOT NULL DEFAULT false,
+  badge_text TEXT,
+  badge_color TEXT NOT NULL DEFAULT '#FFFFFF',
+  clicks INTEGER NOT NULL DEFAULT 0 CHECK (clicks >= 0),
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+-- Compatibilidade com instalações existentes: adiciona os campos de preço sem apagar dados.
+ALTER TABLE public.best_seller_products
+  ADD COLUMN IF NOT EXISTS original_price NUMERIC(10, 2);
+ALTER TABLE public.best_seller_products
+  ADD COLUMN IF NOT EXISTS promotional_price NUMERIC(10, 2);
+
+CREATE INDEX IF NOT EXISTS idx_best_seller_lists_active ON public.best_seller_lists(active);
+CREATE INDEX IF NOT EXISTS idx_best_seller_lists_date ON public.best_seller_lists(list_date DESC);
+CREATE INDEX IF NOT EXISTS idx_best_seller_products_list_pos ON public.best_seller_products(list_id, position ASC);
+
+ALTER TABLE public.best_seller_lists ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.best_seller_products ENABLE ROW LEVEL SECURITY;
+
+REVOKE ALL ON public.best_seller_lists FROM anon, authenticated;
+GRANT ALL ON public.best_seller_lists TO service_role;
+
+REVOKE ALL ON public.best_seller_products FROM anon, authenticated;
+GRANT ALL ON public.best_seller_products TO service_role;
+
+-- Função atômica para ativar uma lista desativando todas as outras
+CREATE OR REPLACE FUNCTION public.set_active_best_seller_list(target_list_id UUID)
+RETURNS VOID AS $$
+BEGIN
+  UPDATE public.best_seller_lists
+  SET active = false
+  WHERE active = true;
+
+  UPDATE public.best_seller_lists
+  SET active = true, updated_at = now()
+  WHERE id = target_list_id;
+END;
+$$ LANGUAGE plpgsql SECURITY DEFINER;
+
+REVOKE ALL ON FUNCTION public.set_active_best_seller_list(UUID) FROM public, anon, authenticated;
+GRANT EXECUTE ON FUNCTION public.set_active_best_seller_list(UUID) TO service_role;
+
+-- Função atômica para registrar cliques de produtos de forma segura
+CREATE OR REPLACE FUNCTION public.increment_best_seller_product_clicks(product_id UUID)
+RETURNS INTEGER AS $$
+DECLARE
+  new_clicks INTEGER;
+BEGIN
+  UPDATE public.best_seller_products
+  SET clicks = clicks + 1
+  WHERE id = product_id
+  RETURNING clicks INTO new_clicks;
+  
+  RETURN COALESCE(new_clicks, 0);
+END;
+$$ LANGUAGE plpgsql SECURITY DEFINER;
+
+REVOKE ALL ON FUNCTION public.increment_best_seller_product_clicks(UUID) FROM public, anon, authenticated;
+GRANT EXECUTE ON FUNCTION public.increment_best_seller_product_clicks(UUID) TO service_role;
+

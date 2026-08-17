@@ -13,9 +13,11 @@ import { TextosEImagens } from './pages/admin/TextosEImagens';
 import { Visualizacao } from './pages/admin/Visualizacao';
 import { AnalyticsPage } from './pages/admin/Analytics';
 import { ConviteLive } from './pages/admin/ConviteLive';
+import { MaisVendidos } from './pages/admin/MaisVendidos';
 import { Configuracoes } from './pages/admin/Configuracoes';
 import { Preview } from './pages/Preview';
 import { LiveInvitePage } from './pages/public/LiveInvitePage';
+import { MaisVendidosPage } from './pages/public/MaisVendidosPage';
 
 export default function App() {
   return (
@@ -23,8 +25,9 @@ export default function App() {
       <ConfigDraftProvider>
         <BrowserRouter>
           <Routes>
-            {/* 1. Fully Isolated Public Live Invite Route (No AdminLayout, No Zhaya Match chrome) */}
+            {/* 1. Fully Isolated Public Routes (No AdminLayout, No Zhaya Match chrome) */}
             <Route path="/live/:slug" element={<LiveInvitePage />} />
+            <Route path="/mais-vendidos" element={<MaisVendidosPage />} />
 
             {/* 2. Internal / App Routes protected by VisitorLockGuard */}
             <Route
@@ -122,6 +125,18 @@ export default function App() {
                   <ProtectedRoute>
                     <AdminLayout>
                       <ConviteLive />
+                    </AdminLayout>
+                  </ProtectedRoute>
+                </VisitorLockGuard>
+              }
+            />
+            <Route
+              path="/admin/mais-vendidos"
+              element={
+                <VisitorLockGuard>
+                  <ProtectedRoute>
+                    <AdminLayout>
+                      <MaisVendidos />
                     </AdminLayout>
                   </ProtectedRoute>
                 </VisitorLockGuard>

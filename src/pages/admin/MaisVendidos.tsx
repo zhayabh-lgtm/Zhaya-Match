@@ -1,0 +1,2442 @@
+import React, { useState, useEffect, useRef } from 'react';
+import {
+  TrendingUp,
+  Plus,
+  Calendar,
+  Clock,
+  ExternalLink,
+  Copy,
+  Check,
+  Trash2,
+  AlertCircle,
+  Database,
+  Pencil,
+  X,
+  Eye,
+  EyeOff,
+  ArrowUp,
+  ArrowDown,
+  Tag,
+  ShoppingBag,
+  Package,
+  Layers,
+  ChevronLeft,
+  Image as ImageIcon,
+  CheckCircle2,
+  RefreshCw,
+  MousePointerClick,
+  Upload,
+  Loader2,
+} from 'lucide-react';
+import { Repository } from '../../lib/repository';
+import { getReadableTextColor } from '../../lib/contrast';
+import { supabase, isSupabaseConfigured } from '../../lib/supabase';
+import type { BestSellerList, BestSellerProduct } from '../../types/zhaya';
+
+const BEST_SELLERS_SQL = `-- ==============================================================================
+-- ZHAYA MATCH - SETUP DE MAIS VENDIDOS DO DIA (100% COMPLETO E IDEMPOTENTE)
+-- ==============================================================================
+-- Execute este script no SQL Editor do Supabase para habilitar o armazenamento
+-- persistente das listas de Mais Vendidos, produtos, contagem de cliques e o
+-- bucket de Storage para upload de logotipos e fotos.
+-- ==============================================================================
+
+-- 1. Criação da tabela best_seller_lists
+CREATE TABLE IF NOT EXISTS public.best_seller_lists (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  title TEXT NOT NULL DEFAULT 'Mais Vendidos do Dia',
+  logo_url TEXT,
+  subtitle TEXT,
+  list_date DATE NOT NULL DEFAULT CURRENT_DATE,
+  active BOOLEAN NOT NULL DEFAULT false,
+  timer_enabled BOOLEAN NOT NULL DEFAULT false,
+  timer_end TIMESTAMPTZ,
+  timezone TEXT NOT NULL DEFAULT 'America/Sao_Paulo',
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  created_by TEXT
+);
+
+-- 2. Criação da tabela best_seller_products
+CREATE TABLE IF NOT EXISTS public.best_seller_products (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  list_id UUID NOT NULL REFERENCES public.best_seller_lists(id) ON DELETE CASCADE,
+  position INTEGER NOT NULL DEFAULT 1,
+  name TEXT NOT NULL,
+  category TEXT NOT NULL DEFAULT 'Calçado',
+  image_url TEXT NOT NULL,
+  image_urls TEXT[] NOT NULL DEFAULT '{}'::text[],
+  product_url TEXT,
+  original_price NUMERIC(10, 2) CHECK (original_price IS NULL OR original_price >= 0),
+  promotional_price NUMERIC(10, 2) CHECK (promotional_price IS NULL OR promotional_price >= 0),
+  sold_quantity INTEGER CHECK (sold_quantity IS NULL OR sold_quantity >= 0),
+  show_sold_quantity BOOLEAN NOT NULL DEFAULT true,
+  available_quantity INTEGER CHECK (available_quantity IS NULL OR available_quantity >= 0),
+  sizes TEXT[] NOT NULL DEFAULT '{}'::text[],
+  colors TEXT[] NOT NULL DEFAULT '{}'::text[],
+  badge_enabled BOOLEAN NOT NULL DEFAULT false,
+  badge_text TEXT,
+  badge_color TEXT NOT NULL DEFAULT '#FFFFFF',
+  clicks INTEGER NOT NULL DEFAULT 0 CHECK (clicks >= 0),
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+-- 3. Garante colunas adicionais caso as tabelas já tenham sido criadas em versões anteriores
+ALTER TABLE public.best_seller_lists ADD COLUMN IF NOT EXISTS logo_url TEXT;
+ALTER TABLE public.best_seller_lists ADD COLUMN IF NOT EXISTS subtitle TEXT;
+ALTER TABLE public.best_seller_lists ADD COLUMN IF NOT EXISTS timer_enabled BOOLEAN NOT NULL DEFAULT false;
+ALTER TABLE public.best_seller_lists ADD COLUMN IF NOT EXISTS timer_end TIMESTAMPTZ;
+ALTER TABLE public.best_seller_lists ADD COLUMN IF NOT EXISTS timezone TEXT NOT NULL DEFAULT 'America/Sao_Paulo';
+ALTER TABLE public.best_seller_lists ADD COLUMN IF NOT EXISTS created_by TEXT;
+
+ALTER TABLE public.best_seller_products ADD COLUMN IF NOT EXISTS image_urls TEXT[] NOT NULL DEFAULT '{}'::text[];
+ALTER TABLE public.best_seller_products ADD COLUMN IF NOT EXISTS product_url TEXT;
+ALTER TABLE public.best_seller_products ADD COLUMN IF NOT EXISTS original_price NUMERIC(10, 2);
+ALTER TABLE public.best_seller_products ADD COLUMN IF NOT EXISTS promotional_price NUMERIC(10, 2);
+ALTER TABLE public.best_seller_products ADD COLUMN IF NOT EXISTS sold_quantity INTEGER;
+ALTER TABLE public.best_seller_products ADD COLUMN IF NOT EXISTS show_sold_quantity BOOLEAN NOT NULL DEFAULT true;
+ALTER TABLE public.best_seller_products ADD COLUMN IF NOT EXISTS available_quantity INTEGER;
+ALTER TABLE public.best_seller_products ADD COLUMN IF NOT EXISTS sizes TEXT[] NOT NULL DEFAULT '{}'::text[];
+ALTER TABLE public.best_seller_products ADD COLUMN IF NOT EXISTS colors TEXT[] NOT NULL DEFAULT '{}'::text[];
+ALTER TABLE public.best_seller_products ADD COLUMN IF NOT EXISTS badge_enabled BOOLEAN NOT NULL DEFAULT false;
+ALTER TABLE public.best_seller_products ADD COLUMN IF NOT EXISTS badge_text TEXT;
+ALTER TABLE public.best_seller_products ADD COLUMN IF NOT EXISTS badge_color TEXT NOT NULL DEFAULT '#FFFFFF';
+ALTER TABLE public.best_seller_products ADD COLUMN IF NOT EXISTS clicks INTEGER NOT NULL DEFAULT 0;
+
+-- 4. Índices de alta performance
+CREATE INDEX IF NOT EXISTS idx_best_seller_lists_active ON public.best_seller_lists(active);
+CREATE INDEX IF NOT EXISTS idx_best_seller_lists_date ON public.best_seller_lists(list_date DESC);
+CREATE INDEX IF NOT EXISTS idx_best_seller_products_list_pos ON public.best_seller_products(list_id, position ASC);
+
+-- 5. Habilitação de Segurança por Linha (Row Level Security - RLS)
+ALTER TABLE public.best_seller_lists ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.best_seller_products ENABLE ROW LEVEL SECURITY;
+
+-- 6. Permissões de isolamento estrito (Gerenciamento via Service Role do Backend)
+REVOKE ALL ON public.best_seller_lists FROM anon, authenticated;
+GRANT ALL ON public.best_seller_lists TO service_role;
+
+REVOKE ALL ON public.best_seller_products FROM anon, authenticated;
+GRANT ALL ON public.best_seller_products TO service_role;
+
+-- 7. Função atômica para ativar uma lista desativando todas as outras
+CREATE OR REPLACE FUNCTION public.set_active_best_seller_list(target_list_id UUID)
+RETURNS VOID AS $$
+BEGIN
+  -- Desativa todas as listas
+  UPDATE public.best_seller_lists
+  SET active = false
+  WHERE active = true;
+
+  -- Ativa a lista alvo
+  UPDATE public.best_seller_lists
+  SET active = true, updated_at = now()
+  WHERE id = target_list_id;
+END;
+$$ LANGUAGE plpgsql SECURITY DEFINER;
+
+REVOKE ALL ON FUNCTION public.set_active_best_seller_list(UUID) FROM public, anon, authenticated;
+GRANT EXECUTE ON FUNCTION public.set_active_best_seller_list(UUID) TO service_role;
+
+-- 8. Função atômica para registrar cliques de produtos de forma concorrente e segura
+CREATE OR REPLACE FUNCTION public.increment_best_seller_product_clicks(product_id UUID)
+RETURNS INTEGER AS $$
+DECLARE
+  new_clicks INTEGER;
+BEGIN
+  UPDATE public.best_seller_products
+  SET clicks = COALESCE(clicks, 0) + 1,
+      updated_at = now()
+  WHERE id = product_id
+  RETURNING clicks INTO new_clicks;
+  
+  RETURN COALESCE(new_clicks, 0);
+END;
+$$ LANGUAGE plpgsql SECURITY DEFINER;
+
+REVOKE ALL ON FUNCTION public.increment_best_seller_product_clicks(UUID) FROM public, anon, authenticated;
+GRANT EXECUTE ON FUNCTION public.increment_best_seller_product_clicks(UUID) TO service_role;
+
+-- 9. Configuração do Storage (Bucket Público para Mídias e Logotipos)
+INSERT INTO storage.buckets (id, name, public, file_size_limit, allowed_mime_types)
+VALUES (
+  'zhaya-match-media',
+  'zhaya-match-media',
+  true,
+  10485760, -- 10MB
+  ARRAY['image/png', 'image/jpeg', 'image/jpg', 'image/webp', 'image/svg+xml', 'image/gif']
+)
+ON CONFLICT (id) DO UPDATE SET
+  public = true,
+  file_size_limit = 10485760,
+  allowed_mime_types = ARRAY['image/png', 'image/jpeg', 'image/jpg', 'image/webp', 'image/svg+xml', 'image/gif'];
+
+-- Políticas de acesso para o Storage do Supabase (Leitura e Upload)
+DO $$
+BEGIN
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_policies 
+    WHERE schemaname = 'storage' AND tablename = 'objects' AND policyname = 'Public Access zhaya-match-media'
+  ) THEN
+    CREATE POLICY "Public Access zhaya-match-media"
+    ON storage.objects FOR SELECT
+    USING (bucket_id = 'zhaya-match-media');
+  END IF;
+
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_policies 
+    WHERE schemaname = 'storage' AND tablename = 'objects' AND policyname = 'Allow Uploads zhaya-match-media'
+  ) THEN
+    CREATE POLICY "Allow Uploads zhaya-match-media"
+    ON storage.objects FOR INSERT
+    WITH CHECK (bucket_id = 'zhaya-match-media');
+  END IF;
+
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_policies 
+    WHERE schemaname = 'storage' AND tablename = 'objects' AND policyname = 'Allow Updates zhaya-match-media'
+  ) THEN
+    CREATE POLICY "Allow Updates zhaya-match-media"
+    ON storage.objects FOR UPDATE
+    USING (bucket_id = 'zhaya-match-media');
+  END IF;
+END $$;
+
+-- 10. Recarga do schema cache do PostgREST / Supabase API
+NOTIFY pgrst, 'reload schema';`;
+
+
+function formatDatePtBR(dateStr: string) {
+  if (!dateStr) return '';
+  const parts = dateStr.split('-');
+  if (parts.length === 3) {
+    return `${parts[2]}/${parts[1]}/${parts[0]}`;
+  }
+  try {
+    return new Intl.DateTimeFormat('pt-BR', { timeZone: 'America/Sao_Paulo' }).format(new Date(dateStr));
+  } catch {
+    return dateStr;
+  }
+}
+
+export const MaisVendidos: React.FC = () => {
+  // State: Lists & Supabase Status
+  const [lists, setLists] = useState<BestSellerList[]>([]);
+  const [tableConfigured, setTableConfigured] = useState<boolean>(true);
+  const [loading, setLoading] = useState<boolean>(true);
+  const [copiedSql, setCopiedSql] = useState<boolean>(false);
+  const [showSqlGuide, setShowSqlGuide] = useState<boolean>(false);
+
+  // State: Selected List for Product Management
+  const [selectedList, setSelectedList] = useState<BestSellerList | null>(null);
+  const [products, setProducts] = useState<BestSellerProduct[]>([]);
+  const [loadingProducts, setLoadingProducts] = useState<boolean>(false);
+
+  // State: List Modal (Create / Edit)
+  const [isListModalOpen, setIsListModalOpen] = useState<boolean>(false);
+  const [editingList, setEditingList] = useState<BestSellerList | null>(null);
+  const [listFormTitle, setListFormTitle] = useState('Mais Vendidos do Dia');
+  const [listFormLogoUrl, setListFormLogoUrl] = useState('');
+  const [listFormSubtitle, setListFormSubtitle] = useState('');
+  const [listFormDate, setListFormDate] = useState('');
+  const [listFormActive, setListFormActive] = useState<boolean>(false);
+  const [listFormTimerEnabled, setListFormTimerEnabled] = useState<boolean>(false);
+  const [listFormTimerDate, setListFormTimerDate] = useState('');
+  const [listFormTimerTime, setListFormTimerTime] = useState('23:59');
+  const [savingList, setSavingList] = useState<boolean>(false);
+  const [listError, setListError] = useState<string | null>(null);
+
+  // Logo Upload State
+  const [logoInputMode, setLogoInputMode] = useState<'upload' | 'url'>('upload');
+  const [uploadingLogo, setUploadingLogo] = useState<boolean>(false);
+  const [logoUploadProgress, setLogoUploadProgress] = useState<number>(0);
+  const [logoUploadError, setLogoUploadError] = useState<string | null>(null);
+  const [isDraggingLogo, setIsDraggingLogo] = useState<boolean>(false);
+  const logoFileInputRef = useRef<HTMLInputElement>(null);
+
+  // State: Product Modal (Create / Edit)
+  const [isProductModalOpen, setIsProductModalOpen] = useState<boolean>(false);
+  const [editingProduct, setEditingProduct] = useState<BestSellerProduct | null>(null);
+  const [prodFormName, setProdFormName] = useState('');
+  const [prodFormCategory, setProdFormCategory] = useState<string>('Calçado');
+  const [prodFormImageUrl, setProdFormImageUrl] = useState('');
+  const [prodFormImageUrls, setProdFormImageUrls] = useState<string[]>([]);
+  const [prodFormImageUrlInput, setProdFormImageUrlInput] = useState('');
+  const [prodFormProductUrl, setProdFormProductUrl] = useState('');
+  const [prodFormOriginalPrice, setProdFormOriginalPrice] = useState('');
+  const [prodFormPromotionalPrice, setProdFormPromotionalPrice] = useState('');
+  const [prodFormSoldQty, setProdFormSoldQty] = useState('');
+  const [prodFormShowSoldQty, setProdFormShowSoldQty] = useState<boolean>(true);
+  const [prodFormAvailableQty, setProdFormAvailableQty] = useState('');
+  const [prodFormSizes, setProdFormSizes] = useState<string[]>([]);
+  const [prodFormSizeInput, setProdFormSizeInput] = useState('');
+  const [prodFormColors, setProdFormColors] = useState<string[]>([]);
+  const [prodFormColorInput, setProdFormColorInput] = useState('');
+  const [prodFormBadgeEnabled, setProdFormBadgeEnabled] = useState<boolean>(false);
+  const [prodFormBadgeText, setProdFormBadgeText] = useState('50% OFF');
+  const [prodFormBadgeColor, setProdFormBadgeColor] = useState('#FFFFFF');
+  const [savingProduct, setSavingProduct] = useState<boolean>(false);
+  const [productError, setProductError] = useState<string | null>(null);
+  const [uploadingProdImage, setUploadingProdImage] = useState<boolean>(false);
+  const prodFileInputRef = useRef<HTMLInputElement>(null);
+
+  // State: Delete Confirmation
+  const [deleteConfirm, setDeleteConfirm] = useState<{
+    type: 'list' | 'product';
+    id: string;
+    name: string;
+  } | null>(null);
+
+  // State: Duplicate List Status
+  const [duplicatingId, setDuplicatingId] = useState<string | null>(null);
+
+  // Load Lists
+  const loadLists = async (keepSelectedId?: string) => {
+    try {
+      setLoading(true);
+      const info = await Repository.getBestSellerListsInfo();
+      setLists(info.lists);
+      setTableConfigured(info.tableConfigured);
+
+      if (keepSelectedId) {
+        const found = info.lists.find((l) => l.id === keepSelectedId);
+        if (found) {
+          setSelectedList(found);
+          await loadProducts(found.id);
+        }
+      }
+    } catch (err: any) {
+      console.error('Erro ao carregar listas de mais vendidos:', err);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  // Load Products for a specific list
+  const loadProducts = async (listId: string) => {
+    try {
+      setLoadingProducts(true);
+      const prods = await Repository.getBestSellerProducts(listId);
+      setProducts(prods);
+    } catch (err: any) {
+      console.error('Erro ao carregar produtos:', err);
+    } finally {
+      setLoadingProducts(false);
+    }
+  };
+
+  useEffect(() => {
+    loadLists();
+  }, []);
+
+  // Copy SQL
+  const handleCopySql = () => {
+    navigator.clipboard.writeText(BEST_SELLERS_SQL);
+    setCopiedSql(true);
+    setTimeout(() => setCopiedSql(false), 2500);
+  };
+
+  // Open Create List Modal
+  const handleOpenCreateList = () => {
+    setEditingList(null);
+    setListFormTitle('Mais Vendidos do Dia');
+    setListFormLogoUrl('');
+    setListFormSubtitle('');
+    const today = new Date().toISOString().slice(0, 10);
+    setListFormDate(today);
+    setListFormActive(lists.length === 0); // Ativa por padrão se for a primeira
+    setListFormTimerEnabled(false);
+    setListFormTimerDate(today);
+    setListFormTimerTime('23:59');
+    setListError(null);
+    setLogoUploadError(null);
+    setLogoInputMode('upload');
+    setIsListModalOpen(true);
+  };
+
+  // Open Edit List Modal
+  const handleOpenEditList = (list: BestSellerList, e?: React.MouseEvent) => {
+    if (e) e.stopPropagation();
+    setEditingList(list);
+    setListFormTitle(list.title);
+    setListFormLogoUrl(list.logoUrl || '');
+    setListFormSubtitle(list.subtitle || '');
+    setListFormDate(list.listDate);
+    setListFormActive(list.active);
+    setListFormTimerEnabled(list.timerEnabled);
+    setLogoUploadError(null);
+    setLogoInputMode(list.logoUrl ? 'url' : 'upload');
+    if (list.timerEnd) {
+      try {
+        const d = new Date(list.timerEnd);
+        const dateStr = new Intl.DateTimeFormat('en-CA', {
+          timeZone: 'America/Sao_Paulo',
+          year: 'numeric',
+          month: '2-digit',
+          day: '2-digit',
+        }).format(d);
+        const timeStr = new Intl.DateTimeFormat('pt-BR', {
+          timeZone: 'America/Sao_Paulo',
+          hour: '2-digit',
+          minute: '2-digit',
+          hour12: false,
+        }).format(d);
+        setListFormTimerDate(dateStr);
+        setListFormTimerTime(timeStr);
+      } catch {
+        setListFormTimerDate(list.listDate);
+        setListFormTimerTime('23:59');
+      }
+    } else {
+      setListFormTimerDate(list.listDate);
+      setListFormTimerTime('23:59');
+    }
+    setListError(null);
+    setIsListModalOpen(true);
+  };
+
+  // Upload Logo to Supabase Storage
+  const handleLogoFileUpload = async (file: File) => {
+    if (!file) return;
+
+    const validTypes = ['image/svg+xml', 'image/png', 'image/jpeg', 'image/jpg', 'image/webp'];
+    if (!validTypes.includes(file.type) && !file.name.match(/\.(svg|png|jpe?g|webp)$/i)) {
+      setLogoUploadError('Formato inválido. Selecione um arquivo SVG, PNG, JPG ou WebP.');
+      return;
+    }
+
+    if (file.size > 5 * 1024 * 1024) {
+      setLogoUploadError('O logotipo excede o limite máximo de 5MB.');
+      return;
+    }
+
+    try {
+      setUploadingLogo(true);
+      setLogoUploadProgress(20);
+      setLogoUploadError(null);
+
+      const timestamp = Date.now();
+      const sanitizedName = file.name.replace(/[^a-zA-Z0-9.-]/g, '_');
+      const storagePath = `logos/${timestamp}_${sanitizedName}`;
+
+      if (isSupabaseConfigured && supabase) {
+        setLogoUploadProgress(50);
+        const { error } = await supabase.storage
+          .from('zhaya-match-media')
+          .upload(storagePath, file, {
+            cacheControl: '3600',
+            upsert: true,
+          });
+
+        if (error) {
+          throw new Error(`Falha no upload para Supabase Storage: ${error.message}`);
+        }
+
+        setLogoUploadProgress(85);
+        const { data: publicUrlData } = supabase.storage
+          .from('zhaya-match-media')
+          .getPublicUrl(storagePath);
+
+        setListFormLogoUrl(publicUrlData.publicUrl);
+      } else {
+        // Fallback local caso Supabase não esteja conectado no client
+        const objectUrl = URL.createObjectURL(file);
+        setListFormLogoUrl(objectUrl);
+      }
+
+      setLogoUploadProgress(100);
+    } catch (err: any) {
+      console.error('Erro no upload do logotipo:', err);
+      setLogoUploadError(err?.message || 'Erro ao carregar arquivo de logotipo.');
+    } finally {
+      setUploadingLogo(false);
+      setTimeout(() => setLogoUploadProgress(0), 400);
+    }
+  };
+
+  // Upload Product Image to Supabase Storage
+  const handleProdImageFileUpload = async (file: File, isMain: boolean = false) => {
+    if (!file) return;
+
+    const validTypes = ['image/svg+xml', 'image/png', 'image/jpeg', 'image/jpg', 'image/webp'];
+    if (!validTypes.includes(file.type) && !file.name.match(/\.(svg|png|jpe?g|webp)$/i)) {
+      setProductError('Formato de imagem inválido. Use PNG, JPG ou WebP.');
+      return;
+    }
+
+    if (file.size > 10 * 1024 * 1024) {
+      setProductError('A imagem excede o tamanho máximo de 10MB.');
+      return;
+    }
+
+    try {
+      setUploadingProdImage(true);
+      setProductError(null);
+
+      const timestamp = Date.now();
+      const sanitizedName = file.name.replace(/[^a-zA-Z0-9.-]/g, '_');
+      const storagePath = `bestsellers/${timestamp}_${sanitizedName}`;
+
+      let publicUrl = '';
+      if (isSupabaseConfigured && supabase) {
+        const { error } = await supabase.storage
+          .from('zhaya-match-media')
+          .upload(storagePath, file, {
+            cacheControl: '3600',
+            upsert: true,
+          });
+
+        if (error) {
+          throw new Error(`Falha no upload: ${error.message}`);
+        }
+
+        const { data: publicUrlData } = supabase.storage
+          .from('zhaya-match-media')
+          .getPublicUrl(storagePath);
+
+        publicUrl = publicUrlData.publicUrl;
+      } else {
+        publicUrl = URL.createObjectURL(file);
+      }
+
+      if (publicUrl) {
+        if (isMain || !prodFormImageUrl) {
+          setProdFormImageUrl(publicUrl);
+        }
+        if (!prodFormImageUrls.includes(publicUrl)) {
+          setProdFormImageUrls((prev) => [...prev, publicUrl]);
+        }
+      }
+    } catch (err: any) {
+      console.error('Erro no upload de foto de produto:', err);
+      setProductError(err?.message || 'Erro ao enviar foto para o Supabase Storage.');
+    } finally {
+      setUploadingProdImage(false);
+    }
+  };
+
+  // Save List (Create or Update)
+  const handleSaveList = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!listFormTitle.trim()) {
+      setListError('O título da lista é obrigatório.');
+      return;
+    }
+    if (!listFormDate) {
+      setListError('A data da lista é obrigatória.');
+      return;
+    }
+
+    let timerEndIso: string | null = null;
+    if (listFormTimerEnabled) {
+      if (!listFormTimerDate) {
+        setListError('Informe a data de encerramento do timer.');
+        return;
+      }
+      try {
+        const [yyyy, mm, dd] = listFormTimerDate.split('-').map((s) => s.padStart(2, '0'));
+        const [hh, min] = (listFormTimerTime || '23:59').split(':').map((s) => s.padStart(2, '0'));
+        // Converte com offset estrito de Brasília (America/Sao_Paulo UTC-3)
+        const isoWithOffset = `${yyyy}-${mm}-${dd}T${hh}:${min}:00-03:00`;
+        const timerDateObj = new Date(isoWithOffset);
+        if (isNaN(timerDateObj.getTime())) {
+          throw new Error('Invalid Date');
+        }
+        timerEndIso = timerDateObj.toISOString();
+      } catch {
+        setListError('Data/hora do timer inválida.');
+        return;
+      }
+    }
+
+    try {
+      setSavingList(true);
+      setListError(null);
+
+      if (editingList) {
+        // Update
+        const res = await Repository.updateBestSellerList(editingList.id, {
+          title: listFormTitle.trim(),
+          logoUrl: listFormLogoUrl.trim() || null,
+          subtitle: listFormSubtitle.trim() || null,
+          listDate: listFormDate,
+          active: listFormActive,
+          timerEnabled: listFormTimerEnabled,
+          timerEnd: timerEndIso,
+        });
+
+        if (!res.success) {
+          setListError(res.error || 'Erro ao atualizar lista.');
+          return;
+        }
+
+        setIsListModalOpen(false);
+        await loadLists(selectedList?.id === editingList.id ? editingList.id : undefined);
+      } else {
+        // Create
+        const res = await Repository.createBestSellerList({
+          title: listFormTitle.trim(),
+          logoUrl: listFormLogoUrl.trim() || null,
+          subtitle: listFormSubtitle.trim() || null,
+          listDate: listFormDate,
+          active: listFormActive,
+          timerEnabled: listFormTimerEnabled,
+          timerEnd: timerEndIso,
+          timezone: 'America/Sao_Paulo',
+        });
+
+        if (!res.success) {
+          setListError(res.error || 'Erro ao criar lista.');
+          if (res.tableConfigured === false) {
+            setTableConfigured(false);
+          }
+          return;
+        }
+
+        setIsListModalOpen(false);
+        await loadLists(res.list?.id);
+      }
+    } catch (err: any) {
+      setListError(err?.message || 'Erro inesperado ao salvar lista.');
+    } finally {
+      setSavingList(false);
+    }
+  };
+
+  // Toggle List Active Status directly
+  const handleToggleListActive = async (list: BestSellerList, e: React.MouseEvent) => {
+    e.stopPropagation();
+    try {
+      const newActive = !list.active;
+      const res = await Repository.updateBestSellerList(list.id, { active: newActive });
+      if (res.success) {
+        await loadLists(selectedList?.id);
+      }
+    } catch (err) {
+      console.error('Erro ao alternar status da lista:', err);
+    }
+  };
+
+  // Duplicate List with products (Item 30)
+  const handleDuplicateList = async (list: BestSellerList, e: React.MouseEvent) => {
+    e.stopPropagation();
+    if (duplicatingId) return;
+
+    try {
+      setDuplicatingId(list.id);
+      const today = new Date().toISOString().slice(0, 10);
+      const res = await Repository.duplicateBestSellerList(list.id, today, `${list.title} (Cópia)`);
+      if (res.success && res.list) {
+        await loadLists();
+      } else {
+        alert(res.error || 'Erro ao duplicar lista.');
+      }
+    } catch (err: any) {
+      console.error('Erro ao duplicar lista:', err);
+    } finally {
+      setDuplicatingId(null);
+    }
+  };
+
+  // Open List to manage products
+  const handleSelectList = async (list: BestSellerList) => {
+    setSelectedList(list);
+    await loadProducts(list.id);
+  };
+
+  // Open Product Modal (Create)
+  const handleOpenCreateProduct = () => {
+    if (!selectedList) return;
+    setEditingProduct(null);
+    setProdFormName('');
+    setProdFormCategory('');
+    setProdFormImageUrl('');
+    setProdFormImageUrls([]);
+    setProdFormImageUrlInput('');
+    setProdFormProductUrl('');
+    setProdFormOriginalPrice('');
+    setProdFormPromotionalPrice('');
+    setProdFormSoldQty('');
+    setProdFormShowSoldQty(true);
+    setProdFormAvailableQty('');
+    setProdFormSizes([]);
+    setProdFormSizeInput('');
+    setProdFormColors([]);
+    setProdFormColorInput('');
+    setProdFormBadgeEnabled(false);
+    setProdFormBadgeText('50% OFF');
+    setProdFormBadgeColor('#FFFFFF');
+    setProductError(null);
+    setIsProductModalOpen(true);
+  };
+
+  // Open Product Modal (Edit)
+  const handleOpenEditProduct = (prod: BestSellerProduct) => {
+    setEditingProduct(prod);
+    setProdFormName(prod.name);
+    setProdFormCategory(prod.category || '');
+    setProdFormImageUrl(prod.imageUrl);
+    const existingImgs = Array.isArray(prod.imageUrls) && prod.imageUrls.length > 0 ? prod.imageUrls : (prod.imageUrl ? [prod.imageUrl] : []);
+    setProdFormImageUrls(existingImgs);
+    setProdFormImageUrlInput('');
+    setProdFormProductUrl(prod.productUrl || '');
+    setProdFormOriginalPrice(prod.originalPrice !== null && prod.originalPrice !== undefined ? String(prod.originalPrice) : '');
+    setProdFormPromotionalPrice(prod.promotionalPrice !== null && prod.promotionalPrice !== undefined ? String(prod.promotionalPrice) : '');
+    setProdFormSoldQty(prod.soldQuantity !== null && prod.soldQuantity !== undefined ? String(prod.soldQuantity) : '');
+    setProdFormShowSoldQty(prod.showSoldQuantity);
+    setProdFormAvailableQty(prod.availableQuantity !== null && prod.availableQuantity !== undefined ? String(prod.availableQuantity) : '');
+    setProdFormSizes([...(prod.sizes || [])]);
+    setProdFormSizeInput('');
+    setProdFormColors([...(prod.colors || [])]);
+    setProdFormColorInput('');
+    setProdFormBadgeEnabled(prod.badgeEnabled);
+    setProdFormBadgeText(prod.badgeText || '50% OFF');
+    setProdFormBadgeColor(prod.badgeColor || '#FFFFFF');
+    setProductError(null);
+    setIsProductModalOpen(true);
+  };
+
+  // Add Additional Image URL
+  const handleAddImageUrl = () => {
+    const trimmed = prodFormImageUrlInput.trim();
+    if (trimmed && !prodFormImageUrls.includes(trimmed)) {
+      setProdFormImageUrls([...prodFormImageUrls, trimmed]);
+      setProdFormImageUrlInput('');
+      if (!prodFormImageUrl) {
+        setProdFormImageUrl(trimmed);
+      }
+    }
+  };
+
+  // Remove Image URL
+  const handleRemoveImageUrl = (urlToRemove: string) => {
+    const updated = prodFormImageUrls.filter((u) => u !== urlToRemove);
+    setProdFormImageUrls(updated);
+    if (prodFormImageUrl === urlToRemove) {
+      setProdFormImageUrl(updated[0] || '');
+    }
+  };
+
+  // Add Size chip
+  const handleAddSize = () => {
+    const trimmed = prodFormSizeInput.trim();
+    if (trimmed && !prodFormSizes.includes(trimmed)) {
+      setProdFormSizes([...prodFormSizes, trimmed]);
+      setProdFormSizeInput('');
+    }
+  };
+
+  // Remove Size chip
+  const handleRemoveSize = (sizeToRemove: string) => {
+    setProdFormSizes(prodFormSizes.filter((s) => s !== sizeToRemove));
+  };
+
+  // Add Color chip
+  const handleAddColor = () => {
+    const trimmed = prodFormColorInput.trim();
+    if (trimmed && !prodFormColors.includes(trimmed)) {
+      setProdFormColors([...prodFormColors, trimmed]);
+      setProdFormColorInput('');
+    }
+  };
+
+  // Remove Color chip
+  const handleRemoveColor = (colorToRemove: string) => {
+    setProdFormColors(prodFormColors.filter((c) => c !== colorToRemove));
+  };
+
+  // Save Product (Create or Update)
+  const handleSaveProduct = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!selectedList) return;
+
+    if (!prodFormName.trim()) {
+      setProductError('Nome do produto é obrigatório.');
+      return;
+    }
+    if (!prodFormCategory.trim()) {
+      setProductError('Categoria é obrigatória.');
+      return;
+    }
+
+    const finalMainImage = prodFormImageUrl.trim() || (prodFormImageUrls[0] || '').trim();
+    if (!finalMainImage) {
+      setProductError('URL da imagem é obrigatória.');
+      return;
+    }
+
+    // Garante que a lista de imagens contenha ao menos a imagem principal
+    let finalImageUrls = prodFormImageUrls.filter(Boolean);
+    if (finalImageUrls.length === 0 && finalMainImage) {
+      finalImageUrls = [finalMainImage];
+    } else if (finalMainImage && !finalImageUrls.includes(finalMainImage)) {
+      finalImageUrls = [finalMainImage, ...finalImageUrls];
+    }
+
+    let soldQtyParsed: number | null = null;
+    if (prodFormSoldQty !== '') {
+      soldQtyParsed = Number(prodFormSoldQty);
+      if (isNaN(soldQtyParsed) || soldQtyParsed < 0) {
+        setProductError('Quantidade vendida deve ser zero ou maior.');
+        return;
+      }
+    }
+
+    let availQtyParsed: number | null = null;
+    if (prodFormAvailableQty !== '') {
+      availQtyParsed = Number(prodFormAvailableQty);
+      if (isNaN(availQtyParsed) || availQtyParsed < 0) {
+        setProductError('Quantidade disponível deve ser zero ou maior.');
+        return;
+      }
+    }
+
+    let origPriceParsed: number | null = null;
+    if (prodFormOriginalPrice !== '') {
+      const clean = prodFormOriginalPrice.replace('R$', '').trim().replace(',', '.');
+      origPriceParsed = Number(clean);
+      if (isNaN(origPriceParsed) || origPriceParsed < 0) {
+        setProductError('Valor original deve ser um número maior ou igual a zero.');
+        return;
+      }
+    }
+
+    let promoPriceParsed: number | null = null;
+    if (prodFormPromotionalPrice !== '') {
+      const clean = prodFormPromotionalPrice.replace('R$', '').trim().replace(',', '.');
+      promoPriceParsed = Number(clean);
+      if (isNaN(promoPriceParsed) || promoPriceParsed < 0) {
+        setProductError('Valor promocional deve ser um número maior ou igual a zero.');
+        return;
+      }
+    }
+
+    try {
+      setSavingProduct(true);
+      setProductError(null);
+
+      const payload = {
+        listId: selectedList.id,
+        name: prodFormName.trim(),
+        category: prodFormCategory.trim(),
+        imageUrl: finalMainImage,
+        imageUrls: finalImageUrls,
+        productUrl: prodFormProductUrl.trim() || null,
+        originalPrice: origPriceParsed,
+        promotionalPrice: promoPriceParsed,
+        soldQuantity: soldQtyParsed,
+        showSoldQuantity: prodFormShowSoldQty,
+        availableQuantity: availQtyParsed,
+        sizes: prodFormSizes,
+        colors: prodFormColors,
+        badgeEnabled: prodFormBadgeEnabled,
+        badgeText: prodFormBadgeEnabled ? prodFormBadgeText.trim() : null,
+        badgeColor: prodFormBadgeColor || '#FFFFFF',
+      };
+
+      if (editingProduct) {
+        const res = await Repository.updateBestSellerProduct(editingProduct.id, payload);
+        if (!res.success) {
+          setProductError(res.error || 'Erro ao atualizar produto.');
+          return;
+        }
+      } else {
+        const res = await Repository.createBestSellerProduct(payload);
+        if (!res.success) {
+          setProductError(res.error || 'Erro ao adicionar produto.');
+          return;
+        }
+      }
+
+      setIsProductModalOpen(false);
+      await loadProducts(selectedList.id);
+      await loadLists(selectedList.id);
+    } catch (err: any) {
+      setProductError(err?.message || 'Erro inesperado ao salvar produto.');
+    } finally {
+      setSavingProduct(false);
+    }
+  };
+
+  // Reorder product position (Move Up / Move Down)
+  const handleMoveProduct = async (index: number, direction: 'up' | 'down') => {
+    if (!selectedList) return;
+    const targetIndex = direction === 'up' ? index - 1 : index + 1;
+    if (targetIndex < 0 || targetIndex >= products.length) return;
+
+    const newProducts = [...products];
+    const [moved] = newProducts.splice(index, 1);
+    newProducts.splice(targetIndex, 0, moved);
+
+    // Optimistic UI update
+    setProducts(newProducts);
+
+    const orderedIds = newProducts.map((p) => p.id);
+    const success = await Repository.reorderBestSellerProducts(selectedList.id, orderedIds);
+    if (!success) {
+      // Revert if failed
+      await loadProducts(selectedList.id);
+    }
+  };
+
+  // Delete Action Execution
+  const handleExecuteDelete = async () => {
+    if (!deleteConfirm) return;
+
+    if (deleteConfirm.type === 'list') {
+      const success = await Repository.deleteBestSellerList(deleteConfirm.id);
+      if (success) {
+        if (selectedList?.id === deleteConfirm.id) {
+          setSelectedList(null);
+          setProducts([]);
+        }
+        await loadLists();
+      }
+    } else if (deleteConfirm.type === 'product' && selectedList) {
+      const success = await Repository.deleteBestSellerProduct(deleteConfirm.id);
+      if (success) {
+        await loadProducts(selectedList.id);
+        await loadLists(selectedList.id);
+      }
+    }
+
+    setDeleteConfirm(null);
+  };
+
+  return (
+    <div className="space-y-6 max-w-6xl mx-auto pb-16">
+      {/* Header */}
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 border-b border-neutral-200 pb-5">
+        <div>
+          <div className="flex items-center gap-3">
+            <h1 className="text-xl font-bold text-neutral-900 tracking-tight flex items-center gap-2">
+              <TrendingUp className="w-5 h-5 text-neutral-900" />
+              Mais Vendidos do Dia
+            </h1>
+            {tableConfigured ? (
+              <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[11px] font-medium bg-emerald-50 text-emerald-700 border border-emerald-200">
+                <CheckCircle2 className="w-3 h-3" />
+                Supabase Conectado
+              </span>
+            ) : (
+              <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[11px] font-medium bg-amber-50 text-amber-700 border border-amber-200">
+                <AlertCircle className="w-3 h-3" />
+                Configuração Pendente
+              </span>
+            )}
+          </div>
+          <p className="text-xs text-neutral-500 mt-1">
+            Crie listas de produtos mais vendidos com rankings manuais, variações e timers diários.
+          </p>
+        </div>
+
+        <div className="flex items-center gap-2">
+          <a
+            href="/mais-vendidos"
+            target="_blank"
+            rel="noopener noreferrer"
+            className="inline-flex items-center gap-1.5 px-3 py-2 text-xs font-semibold text-neutral-700 bg-white border border-neutral-300 rounded-md hover:bg-neutral-50 transition-colors shadow-sm"
+            title="Abrir página pública /mais-vendidos em nova aba"
+          >
+            <ExternalLink className="w-3.5 h-3.5 text-neutral-500" />
+            <span>Ver Vitrine Pública</span>
+          </a>
+
+          {selectedList ? (
+            <>
+              <button
+                type="button"
+                onClick={() => setSelectedList(null)}
+                className="inline-flex items-center gap-2 px-3 py-2 text-xs font-semibold text-neutral-700 bg-white border border-neutral-300 rounded-md hover:bg-neutral-50 transition-colors shadow-sm cursor-pointer"
+              >
+                <ChevronLeft className="w-4 h-4" />
+                Ver todas as listas
+              </button>
+              <button
+                type="button"
+                onClick={handleOpenCreateProduct}
+                className="inline-flex items-center gap-2 px-3.5 py-2 text-xs font-semibold text-white bg-neutral-900 rounded-md hover:bg-neutral-800 transition-colors shadow-sm cursor-pointer"
+              >
+                <Plus className="w-4 h-4" />
+                Adicionar Produto
+              </button>
+            </>
+          ) : (
+            <button
+              type="button"
+              onClick={handleOpenCreateList}
+              className="inline-flex items-center gap-2 px-3.5 py-2 text-xs font-semibold text-white bg-neutral-900 rounded-md hover:bg-neutral-800 transition-colors shadow-sm cursor-pointer"
+            >
+              <Plus className="w-4 h-4" />
+              Nova Lista
+            </button>
+          )}
+        </div>
+      </div>
+
+      {/* Supabase Missing Tables Warning Card */}
+      {!tableConfigured && (
+        <div className="bg-amber-50/80 border border-amber-300/80 rounded-lg p-5 text-amber-900 shadow-sm">
+          <div className="flex items-start gap-3.5">
+            <Database className="w-5 h-5 text-amber-600 shrink-0 mt-0.5" />
+            <div className="flex-1 min-w-0">
+              <h3 className="text-sm font-bold text-amber-900">Configuração necessária no Supabase</h3>
+              <p className="text-xs text-amber-800 mt-1 leading-relaxed">
+                As tabelas <code className="bg-amber-100/80 px-1 py-0.5 rounded text-[11px] font-mono">best_seller_lists</code> e{' '}
+                <code className="bg-amber-100/80 px-1 py-0.5 rounded text-[11px] font-mono">best_seller_products</code> ainda não foram criadas no seu banco Supabase.
+                Execute o script SQL abaixo no <strong>SQL Editor</strong> do Supabase para habilitar o salvamento persistente.
+              </p>
+
+              <div className="mt-3.5 flex flex-wrap items-center gap-2.5">
+                <button
+                  type="button"
+                  onClick={handleCopySql}
+                  className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-amber-900 text-white rounded text-xs font-semibold hover:bg-amber-950 transition-colors shadow-sm cursor-pointer"
+                >
+                  {copiedSql ? <Check className="w-3.5 h-3.5 text-emerald-300" /> : <Copy className="w-3.5 h-3.5" />}
+                  <span>{copiedSql ? 'SQL Copiado com Sucesso!' : 'Copiar Script SQL'}</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setShowSqlGuide(!showSqlGuide)}
+                  className="px-2.5 py-1.5 bg-amber-100 text-amber-900 border border-amber-300 rounded text-xs font-medium hover:bg-amber-200 transition-colors cursor-pointer"
+                >
+                  {showSqlGuide ? 'Ocultar código' : 'Ver código SQL'}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => loadLists(selectedList?.id)}
+                  className="inline-flex items-center gap-1 px-2.5 py-1.5 bg-white text-neutral-700 border border-neutral-300 rounded text-xs font-medium hover:bg-neutral-50 transition-colors cursor-pointer ml-auto"
+                >
+                  <RefreshCw className="w-3 h-3" />
+                  Verificar novamente
+                </button>
+              </div>
+
+              {showSqlGuide && (
+                <div className="mt-3.5 bg-neutral-900 text-neutral-200 p-4 rounded-md text-xs font-mono overflow-x-auto max-h-64 border border-neutral-800">
+                  <pre>{BEST_SELLERS_SQL}</pre>
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* VIEW 1: History of Lists (When no list is open) */}
+      {!selectedList ? (
+        <div className="space-y-4">
+          <div className="flex items-center justify-between">
+            <h2 className="text-xs font-bold uppercase tracking-wider text-neutral-500 font-mono">
+              Histórico de Listas ({lists.length})
+            </h2>
+            <span className="text-[11px] text-neutral-400">
+              Apenas 1 lista fica ativa publicamente por vez
+            </span>
+          </div>
+
+          {loading ? (
+            <div className="bg-white border border-neutral-200 rounded-lg p-12 text-center text-xs text-neutral-500 animate-pulse">
+              Carregando listas...
+            </div>
+          ) : lists.length === 0 ? (
+            <div className="bg-white border border-neutral-200 rounded-lg p-12 text-center space-y-3">
+              <div className="w-10 h-10 rounded-full bg-neutral-100 text-neutral-400 mx-auto flex items-center justify-center">
+                <TrendingUp className="w-5 h-5" />
+              </div>
+              <h3 className="text-sm font-semibold text-neutral-800">Nenhuma lista cadastrada</h3>
+              <p className="text-xs text-neutral-500 max-w-sm mx-auto">
+                Crie a primeira lista de Mais Vendidos para começar a organizar os produtos e seu ranking diário.
+              </p>
+              <button
+                type="button"
+                onClick={handleOpenCreateList}
+                className="inline-flex items-center gap-1.5 px-3.5 py-2 text-xs font-semibold text-white bg-neutral-900 rounded-md hover:bg-neutral-800 transition-colors shadow-sm cursor-pointer mt-2"
+              >
+                <Plus className="w-4 h-4" />
+                Criar primeira lista
+              </button>
+            </div>
+          ) : (
+            <div className="space-y-3">
+              {lists.map((list) => {
+                return (
+                  <div
+                    key={list.id}
+                    onClick={() => handleSelectList(list)}
+                    className={`bg-white border rounded-lg p-4 transition-all duration-150 flex flex-col sm:flex-row sm:items-center justify-between gap-4 cursor-pointer hover:border-neutral-400 hover:shadow-sm ${
+                      list.active
+                        ? 'border-emerald-300 ring-1 ring-emerald-200/60 bg-emerald-50/10'
+                        : 'border-neutral-200'
+                    }`}
+                  >
+                    <div className="space-y-1.5 min-w-0 flex-1">
+                      <div className="flex flex-wrap items-center gap-2">
+                        <span className="text-xs font-bold font-mono px-2 py-0.5 rounded bg-neutral-100 text-neutral-800 border border-neutral-200">
+                          {formatDatePtBR(list.listDate)}
+                        </span>
+
+                        {list.active ? (
+                          <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[10px] font-bold uppercase tracking-wider bg-emerald-600 text-white">
+                            <span className="w-1.5 h-1.5 rounded-full bg-white animate-pulse" />
+                            Ativa Publicamente
+                          </span>
+                        ) : (
+                          <span className="inline-flex items-center px-2 py-0.5 rounded text-[10px] font-bold uppercase tracking-wider bg-neutral-200 text-neutral-700">
+                            Encerrada
+                          </span>
+                        )}
+
+                        <span className="text-xs text-neutral-500 font-medium flex items-center gap-1">
+                          <Package className="w-3.5 h-3.5 text-neutral-400" />
+                          {list.productsCount ?? 0} {list.productsCount === 1 ? 'produto' : 'produtos'}
+                        </span>
+
+                        {list.timerEnabled && (
+                          <span className="inline-flex items-center gap-1 text-[11px] text-neutral-500 font-mono bg-neutral-50 border border-neutral-200 px-2 py-0.5 rounded">
+                            <Clock className="w-3 h-3 text-neutral-400" />
+                            Timer ativado
+                          </span>
+                        )}
+                      </div>
+
+                      <div className="flex items-baseline gap-2">
+                        <h3 className="text-sm font-semibold text-neutral-900">{list.title}</h3>
+                        {list.subtitle && (
+                          <span className="text-xs text-neutral-500 italic">
+                            — {list.subtitle}
+                          </span>
+                        )}
+                      </div>
+                    </div>
+
+                    <div className="flex items-center gap-2 shrink-0 border-t sm:border-t-0 pt-3 sm:pt-0 border-neutral-100" onClick={(e) => e.stopPropagation()}>
+                      <button
+                        type="button"
+                        onClick={(e) => handleToggleListActive(list, e)}
+                        className={`px-2.5 py-1.5 text-xs font-semibold rounded border transition-colors cursor-pointer ${
+                          list.active
+                            ? 'bg-neutral-100 text-neutral-700 border-neutral-300 hover:bg-neutral-200'
+                            : 'bg-emerald-50 text-emerald-800 border-emerald-200 hover:bg-emerald-100'
+                        }`}
+                      >
+                        {list.active ? 'Desativar' : 'Definir como Ativa'}
+                      </button>
+
+                      <button
+                        type="button"
+                        onClick={() => handleSelectList(list)}
+                        className="px-3 py-1.5 text-xs font-semibold rounded bg-neutral-900 text-white hover:bg-neutral-800 transition-colors cursor-pointer"
+                      >
+                        Gerenciar Produtos
+                      </button>
+
+                      <button
+                        type="button"
+                        onClick={(e) => handleOpenEditList(list, e)}
+                        title="Editar Informações da Lista"
+                        className="p-1.5 text-neutral-500 hover:text-neutral-900 hover:bg-neutral-100 rounded border border-neutral-200 transition-colors cursor-pointer"
+                      >
+                        <Pencil className="w-4 h-4" />
+                      </button>
+
+                      <button
+                        type="button"
+                        disabled={duplicatingId === list.id}
+                        onClick={(e) => handleDuplicateList(list, e)}
+                        title="Duplicar esta Lista com todos os Produtos"
+                        className="p-1.5 text-neutral-500 hover:text-neutral-900 hover:bg-neutral-100 disabled:opacity-40 rounded border border-neutral-200 transition-colors cursor-pointer"
+                      >
+                        <Copy className="w-4 h-4" />
+                      </button>
+
+                      <button
+                        type="button"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          setDeleteConfirm({
+                            type: 'list',
+                            id: list.id,
+                            name: `Lista de ${formatDatePtBR(list.listDate)} (${list.title})`,
+                          });
+                        }}
+                        title="Excluir Lista"
+                        className="p-1.5 text-neutral-400 hover:text-red-600 hover:bg-red-50 rounded border border-neutral-200 transition-colors cursor-pointer"
+                      >
+                        <Trash2 className="w-4 h-4" />
+                      </button>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+        </div>
+      ) : (
+        /* VIEW 2: Selected List & Products Management */
+        <div className="space-y-6">
+          {/* Selected List Summary Card */}
+          <div className="bg-white border border-neutral-200 rounded-lg p-5 space-y-4 shadow-sm">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-neutral-100 pb-4">
+              <div className="space-y-1">
+                <div className="flex items-center gap-2">
+                  <span className="text-xs font-bold font-mono px-2 py-0.5 rounded bg-neutral-100 text-neutral-800 border border-neutral-200">
+                    {formatDatePtBR(selectedList.listDate)}
+                  </span>
+                  {selectedList.active ? (
+                    <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[10px] font-bold uppercase tracking-wider bg-emerald-600 text-white">
+                      <span className="w-1.5 h-1.5 rounded-full bg-white animate-pulse" />
+                      Ativa no Momento
+                    </span>
+                  ) : (
+                    <span className="inline-flex items-center px-2 py-0.5 rounded text-[10px] font-bold uppercase tracking-wider bg-neutral-200 text-neutral-700">
+                      Encerrada
+                    </span>
+                  )}
+                  {selectedList.timerEnabled && (
+                    <span className="inline-flex items-center gap-1 text-[11px] text-neutral-500 font-mono bg-neutral-50 border border-neutral-200 px-2 py-0.5 rounded">
+                      <Clock className="w-3 h-3 text-neutral-400" />
+                      Timer ativo
+                    </span>
+                  )}
+                </div>
+                <h2 className="text-base font-bold text-neutral-900">{selectedList.title}</h2>
+                {selectedList.subtitle && (
+                  <p className="text-xs text-neutral-500 italic">{selectedList.subtitle}</p>
+                )}
+              </div>
+
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={(e) => handleToggleListActive(selectedList, e)}
+                  className={`px-3 py-1.5 text-xs font-semibold rounded border transition-colors cursor-pointer ${
+                    selectedList.active
+                      ? 'bg-neutral-100 text-neutral-700 border-neutral-300 hover:bg-neutral-200'
+                      : 'bg-emerald-50 text-emerald-800 border-emerald-200 hover:bg-emerald-100'
+                  }`}
+                >
+                  {selectedList.active ? 'Desativar Lista' : 'Ativar esta Lista'}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => handleOpenEditList(selectedList)}
+                  className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold text-neutral-700 bg-white border border-neutral-300 rounded hover:bg-neutral-50 transition-colors cursor-pointer"
+                >
+                  <Pencil className="w-3.5 h-3.5" />
+                  Editar Dados da Lista
+                </button>
+              </div>
+            </div>
+
+            {/* Products Sub-section */}
+            <div className="space-y-3">
+              <div className="flex items-center justify-between">
+                <div>
+                  <h3 className="text-xs font-bold uppercase tracking-wider text-neutral-500 font-mono flex items-center gap-1.5">
+                    <ShoppingBag className="w-4 h-4 text-neutral-400" />
+                    Produtos no Ranking ({products.length})
+                  </h3>
+                  <p className="text-[11px] text-neutral-400">
+                    A posição (#1, #2, #3...) é controlada manualmente através das setas de ordenação.
+                  </p>
+                </div>
+                <button
+                  type="button"
+                  onClick={handleOpenCreateProduct}
+                  className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold text-white bg-neutral-900 rounded hover:bg-neutral-800 transition-colors cursor-pointer shadow-sm"
+                >
+                  <Plus className="w-3.5 h-3.5" />
+                  Novo Produto
+                </button>
+              </div>
+
+              {loadingProducts ? (
+                <div className="bg-neutral-50 border border-neutral-200 rounded p-8 text-center text-xs text-neutral-500 animate-pulse">
+                  Carregando produtos...
+                </div>
+              ) : products.length === 0 ? (
+                <div className="bg-neutral-50 border border-dashed border-neutral-300 rounded-lg p-10 text-center space-y-2">
+                  <Package className="w-8 h-8 text-neutral-300 mx-auto" />
+                  <p className="text-xs font-semibold text-neutral-700">Nenhum produto cadastrado nesta lista</p>
+                  <p className="text-[11px] text-neutral-500">
+                    Adicione os produtos para montar o ranking desta lista.
+                  </p>
+                  <button
+                    type="button"
+                    onClick={handleOpenCreateProduct}
+                    className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold text-white bg-neutral-900 rounded hover:bg-neutral-800 transition-colors cursor-pointer mt-2"
+                  >
+                    <Plus className="w-3.5 h-3.5" />
+                    Adicionar Produto #1
+                  </button>
+                </div>
+              ) : (
+                <div className="space-y-2.5">
+                  {products.map((prod, idx) => {
+                    const posNumber = idx + 1;
+                    return (
+                      <div
+                        key={prod.id}
+                        className="bg-white border border-neutral-200 rounded-lg p-3.5 flex flex-col md:flex-row md:items-center justify-between gap-3 hover:border-neutral-300 transition-colors"
+                      >
+                        {/* Position & Image Thumbnail & Main Info */}
+                        <div className="flex items-center gap-3.5 min-w-0 flex-1">
+                          {/* Reorder Buttons & Position */}
+                          <div className="flex items-center gap-1 shrink-0">
+                            <div className="flex flex-col gap-0.5">
+                              <button
+                                type="button"
+                                disabled={idx === 0}
+                                onClick={() => handleMoveProduct(idx, 'up')}
+                                title="Mover para cima no ranking"
+                                className="p-1 text-neutral-400 hover:text-neutral-900 disabled:opacity-20 disabled:hover:text-neutral-400 rounded hover:bg-neutral-100 transition-colors cursor-pointer"
+                              >
+                                <ArrowUp className="w-3.5 h-3.5" />
+                              </button>
+                              <button
+                                type="button"
+                                disabled={idx === products.length - 1}
+                                onClick={() => handleMoveProduct(idx, 'down')}
+                                title="Mover para baixo no ranking"
+                                className="p-1 text-neutral-400 hover:text-neutral-900 disabled:opacity-20 disabled:hover:text-neutral-400 rounded hover:bg-neutral-100 transition-colors cursor-pointer"
+                              >
+                                <ArrowDown className="w-3.5 h-3.5" />
+                              </button>
+                            </div>
+                            <div className="w-8 h-8 rounded bg-neutral-900 text-white font-mono font-bold text-xs flex items-center justify-center shadow-xs">
+                              #{posNumber}
+                            </div>
+                          </div>
+
+                          {/* Image Thumbnail */}
+                          <div className="relative w-12 h-12 rounded bg-neutral-100 border border-neutral-200 overflow-hidden shrink-0">
+                            {prod.imageUrl ? (
+                              <img
+                                src={prod.imageUrl}
+                                alt={prod.name}
+                                className="w-full h-full object-cover"
+                                onError={(e) => {
+                                  (e.target as HTMLElement).style.display = 'none';
+                                }}
+                              />
+                            ) : (
+                              <div className="w-full h-full flex items-center justify-center text-neutral-400">
+                                <ImageIcon className="w-5 h-5" />
+                              </div>
+                            )}
+
+                            {prod.badgeEnabled && prod.badgeText && (
+                              <div
+                                className="absolute top-0 right-0 text-[8px] font-bold px-1 rounded-bl leading-tight shadow-xs"
+                                style={{
+                                  backgroundColor: prod.badgeColor || '#DC2626',
+                                  color: getReadableTextColor(prod.badgeColor || '#DC2626'),
+                                }}
+                              >
+                                {prod.badgeText}
+                              </div>
+                            )}
+
+                            {prod.imageUrls && prod.imageUrls.length > 1 && (
+                              <div className="absolute bottom-0 right-0 bg-black/75 text-white text-[7px] font-mono font-bold px-1 rounded-tl">
+                                +{prod.imageUrls.length - 1}
+                              </div>
+                            )}
+                          </div>
+
+                          {/* Details */}
+                          <div className="min-w-0 space-y-1">
+                            <div className="flex flex-wrap items-center gap-2">
+                              <span className="text-xs font-bold text-neutral-900 truncate">
+                                {prod.name}
+                              </span>
+                              <span className="px-1.5 py-0.5 rounded bg-neutral-100 text-neutral-600 text-[10px] font-medium border border-neutral-200">
+                                {prod.category}
+                              </span>
+
+                              {prod.badgeEnabled && prod.badgeText && (
+                                <span
+                                  className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-bold border border-neutral-200"
+                                  style={{
+                                    backgroundColor: prod.badgeColor || '#DC2626',
+                                    color: getReadableTextColor(prod.badgeColor || '#DC2626'),
+                                  }}
+                                >
+                                  <Tag className="w-2.5 h-2.5" />
+                                  {prod.badgeText}
+                                </span>
+                              )}
+
+                              {/* Clicks metric */}
+                              <span
+                                className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-medium bg-neutral-100 text-neutral-700 border border-neutral-200"
+                                title="Total de cliques registrados no link da loja"
+                              >
+                                <MousePointerClick className="w-2.5 h-2.5 text-neutral-500" />
+                                <strong>{prod.clicks || 0}</strong> cliques
+                              </span>
+
+                              {/* Preços */}
+                              {((prod.promotionalPrice !== null && prod.promotionalPrice !== undefined) ||
+                                (prod.originalPrice !== null && prod.originalPrice !== undefined)) && (
+                                <span className="inline-flex items-center gap-1 text-[11px]">
+                                  {prod.promotionalPrice !== null && prod.promotionalPrice !== undefined ? (
+                                    <>
+                                      <strong className="text-emerald-700 font-bold">
+                                        {new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(prod.promotionalPrice)}
+                                      </strong>
+                                      {prod.originalPrice !== null && prod.originalPrice !== undefined && prod.originalPrice > prod.promotionalPrice && (
+                                        <span className="text-neutral-400 line-through text-[10px]">
+                                          {new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(prod.originalPrice)}
+                                        </span>
+                                      )}
+                                    </>
+                                  ) : (
+                                    <strong className="text-neutral-900 font-semibold">
+                                      {new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(prod.originalPrice!)}
+                                    </strong>
+                                  )}
+                                </span>
+                              )}
+                            </div>
+
+                            <div className="flex flex-wrap items-center gap-3 text-[11px] text-neutral-500">
+                              {prod.soldQuantity !== null && prod.soldQuantity !== undefined ? (
+                                <span className="inline-flex items-center gap-1">
+                                  <strong>{prod.soldQuantity}</strong> vendidos
+                                  {prod.showSoldQuantity ? (
+                                    <span title="Visível publicamente">
+                                      <Eye className="w-3 h-3 text-emerald-600" />
+                                    </span>
+                                  ) : (
+                                    <span title="Oculto publicamente">
+                                      <EyeOff className="w-3 h-3 text-neutral-400" />
+                                    </span>
+                                  )}
+                                </span>
+                              ) : null}
+
+                              {prod.availableQuantity !== null && prod.availableQuantity !== undefined ? (
+                                <span>
+                                  Disponível: <strong>{prod.availableQuantity}</strong> un.
+                                </span>
+                              ) : null}
+
+                              {prod.sizes && prod.sizes.length > 0 && (
+                                <span className="inline-flex items-center gap-1">
+                                  Tam:{' '}
+                                  <span className="font-mono text-neutral-700">
+                                    {prod.sizes.join(', ')}
+                                  </span>
+                                </span>
+                              )}
+
+                              {prod.colors && prod.colors.length > 0 && (
+                                <span className="inline-flex items-center gap-1">
+                                  Cores:{' '}
+                                  <span className="text-neutral-700">
+                                    {prod.colors.join(', ')}
+                                  </span>
+                                </span>
+                              )}
+
+                              {prod.productUrl && (
+                                <a
+                                  href={prod.productUrl}
+                                  target="_blank"
+                                  rel="noopener noreferrer"
+                                  className="text-neutral-400 hover:text-neutral-700 inline-flex items-center gap-0.5"
+                                  title="Ver na loja"
+                                >
+                                  <ExternalLink className="w-3 h-3" />
+                                </a>
+                              )}
+                            </div>
+                          </div>
+                        </div>
+
+                        {/* Actions */}
+                        <div className="flex items-center gap-2 self-end md:self-center shrink-0 border-t md:border-t-0 pt-2 md:pt-0 border-neutral-100">
+                          <button
+                            type="button"
+                            onClick={() => handleOpenEditProduct(prod)}
+                            className="inline-flex items-center gap-1 px-2.5 py-1.5 text-xs font-semibold text-neutral-700 bg-neutral-50 hover:bg-neutral-100 rounded border border-neutral-200 transition-colors cursor-pointer"
+                          >
+                            <Pencil className="w-3.5 h-3.5" />
+                            Editar
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() =>
+                              setDeleteConfirm({
+                                type: 'product',
+                                id: prod.id,
+                                name: `Produto #${posNumber} - ${prod.name}`,
+                              })
+                            }
+                            className="p-1.5 text-neutral-400 hover:text-red-600 hover:bg-red-50 rounded border border-neutral-200 transition-colors cursor-pointer"
+                            title="Excluir produto"
+                          >
+                            <Trash2 className="w-3.5 h-3.5" />
+                          </button>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ========================================================================= */}
+      {/* MODAL 1: Nova Lista / Editar Lista                                        */}
+      {/* ========================================================================= */}
+      {isListModalOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50 backdrop-blur-xs">
+          <div className="bg-white rounded-lg border border-neutral-200 shadow-xl max-w-lg w-full overflow-hidden animate-in fade-in zoom-in-95 duration-150">
+            <div className="px-5 py-4 border-b border-neutral-200 flex items-center justify-between">
+              <h3 className="text-sm font-bold text-neutral-900">
+                {editingList ? 'Editar Lista de Mais Vendidos' : 'Criar Nova Lista de Mais Vendidos'}
+              </h3>
+              <button
+                type="button"
+                onClick={() => setIsListModalOpen(false)}
+                className="text-neutral-400 hover:text-neutral-700 p-1 rounded transition-colors cursor-pointer"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            <form onSubmit={handleSaveList} className="p-5 space-y-4 text-xs">
+              {listError && (
+                <div className="p-3 rounded bg-red-50 text-red-800 border border-red-200 text-xs">
+                  {listError}
+                </div>
+              )}
+
+              <div className="space-y-1">
+                <label className="font-semibold text-neutral-700">Título da Lista *</label>
+                <input
+                  type="text"
+                  value={listFormTitle}
+                  onChange={(e) => setListFormTitle(e.target.value)}
+                  placeholder="Ex: Mais Vendidos do Dia"
+                  required
+                  className="w-full px-3 py-2 border border-neutral-300 rounded focus:ring-1 focus:ring-neutral-900 focus:outline-none text-xs"
+                />
+              </div>
+
+              {/* Logotipo da Marca com Suporte a Upload para Supabase Storage */}
+              <div className="space-y-2 p-3 rounded-lg bg-neutral-50 border border-neutral-200">
+                <div className="flex items-center justify-between">
+                  <label className="font-semibold text-neutral-800 flex items-center gap-1.5">
+                    <span>Logotipo da Marca (Opcional)</span>
+                  </label>
+                  <div className="flex items-center bg-neutral-200/80 p-0.5 rounded text-[10px]">
+                    <button
+                      type="button"
+                      onClick={() => setLogoInputMode('upload')}
+                      className={`px-2 py-0.5 rounded font-medium transition-colors cursor-pointer ${
+                        logoInputMode === 'upload'
+                          ? 'bg-white text-neutral-900 shadow-xs'
+                          : 'text-neutral-600 hover:text-neutral-900'
+                      }`}
+                    >
+                      Fazer Upload
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setLogoInputMode('url')}
+                      className={`px-2 py-0.5 rounded font-medium transition-colors cursor-pointer ${
+                        logoInputMode === 'url'
+                          ? 'bg-white text-neutral-900 shadow-xs'
+                          : 'text-neutral-600 hover:text-neutral-900'
+                      }`}
+                    >
+                      Digitar URL
+                    </button>
+                  </div>
+                </div>
+
+                {logoUploadError && (
+                  <div className="p-2 rounded bg-red-50 border border-red-200 text-red-700 text-[11px] flex items-start gap-1.5">
+                    <AlertCircle className="w-3.5 h-3.5 text-red-500 shrink-0 mt-0.5" />
+                    <span>{logoUploadError}</span>
+                  </div>
+                )}
+
+                {logoInputMode === 'upload' ? (
+                  <div>
+                    <input
+                      ref={logoFileInputRef}
+                      type="file"
+                      accept="image/svg+xml,image/png,image/jpeg,image/webp"
+                      className="hidden"
+                      onChange={(e) => {
+                        const file = e.target.files?.[0];
+                        if (file) handleLogoFileUpload(file);
+                        e.target.value = '';
+                      }}
+                    />
+
+                    {listFormLogoUrl ? (
+                      <div className="space-y-2">
+                        {/* Prévia do Logo em Fundo Escuro */}
+                        <div className="relative flex items-center justify-between p-3 bg-neutral-950 rounded-lg border border-neutral-800">
+                          <div className="flex items-center gap-3">
+                            <img
+                              src={listFormLogoUrl}
+                              alt="Logo Zhaya"
+                              className="h-7 max-w-[140px] object-contain"
+                              onError={(e) => {
+                                (e.target as HTMLElement).style.display = 'none';
+                              }}
+                            />
+                            <div className="text-[10px] text-neutral-400">
+                              <span className="text-emerald-400 font-semibold flex items-center gap-1">
+                                <CheckCircle2 className="w-3 h-3" /> Logo pronto para a vitrine
+                              </span>
+                              <p className="truncate max-w-[200px] text-neutral-500 font-mono mt-0.5">{listFormLogoUrl}</p>
+                            </div>
+                          </div>
+
+                          <div className="flex items-center gap-1.5">
+                            <button
+                              type="button"
+                              onClick={() => logoFileInputRef.current?.click()}
+                              disabled={uploadingLogo}
+                              className="px-2 py-1 bg-neutral-800 hover:bg-neutral-700 text-neutral-200 text-[10px] rounded cursor-pointer transition-colors"
+                            >
+                              Trocar
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setListFormLogoUrl('');
+                                setLogoUploadError(null);
+                              }}
+                              className="p-1 text-neutral-400 hover:text-red-400 cursor-pointer"
+                              title="Remover logotipo"
+                            >
+                              <X className="w-4 h-4" />
+                            </button>
+                          </div>
+                        </div>
+                      </div>
+                    ) : (
+                      <div
+                        onDragOver={(e) => {
+                          e.preventDefault();
+                          setIsDraggingLogo(true);
+                        }}
+                        onDragLeave={() => setIsDraggingLogo(false)}
+                        onDrop={(e) => {
+                          e.preventDefault();
+                          setIsDraggingLogo(false);
+                          const file = e.dataTransfer.files?.[0];
+                          if (file) handleLogoFileUpload(file);
+                        }}
+                        onClick={() => logoFileInputRef.current?.click()}
+                        className={`flex flex-col items-center justify-center p-4 border-2 border-dashed rounded-lg cursor-pointer transition-all ${
+                          isDraggingLogo
+                            ? 'border-neutral-900 bg-neutral-100'
+                            : 'border-neutral-300 hover:border-neutral-400 bg-white'
+                        }`}
+                      >
+                        {uploadingLogo ? (
+                          <div className="flex flex-col items-center gap-2 py-2">
+                            <Loader2 className="w-5 h-5 text-neutral-900 animate-spin" />
+                            <span className="text-xs font-medium text-neutral-700">Enviando para o Supabase Storage...</span>
+                            <div className="w-36 h-1.5 bg-neutral-200 rounded-full overflow-hidden">
+                              <div
+                                className="h-full bg-neutral-900 transition-all duration-300"
+                                style={{ width: `${logoUploadProgress}%` }}
+                              />
+                            </div>
+                          </div>
+                        ) : (
+                          <div className="flex flex-col items-center gap-1.5 text-center">
+                            <div className="p-2 bg-neutral-100 rounded-full text-neutral-700">
+                              <Upload className="w-4 h-4" />
+                            </div>
+                            <div>
+                              <p className="text-xs font-semibold text-neutral-800">
+                                Clique para selecionar ou arraste o logotipo aqui
+                              </p>
+                              <p className="text-[10px] text-neutral-500 mt-0.5">
+                                Suporta SVG transparente, PNG, JPG ou WebP (máx. 5MB)
+                              </p>
+                            </div>
+                          </div>
+                        )}
+                      </div>
+                    )}
+                  </div>
+                ) : (
+                  <div className="space-y-2">
+                    <input
+                      type="url"
+                      value={listFormLogoUrl}
+                      onChange={(e) => setListFormLogoUrl(e.target.value)}
+                      placeholder="https://exemplo.com/logo-zhaya.svg"
+                      className="w-full px-3 py-2 border border-neutral-300 rounded focus:ring-1 focus:ring-neutral-900 focus:outline-none text-xs bg-white"
+                    />
+                    {listFormLogoUrl && (
+                      <div className="flex items-center gap-3 p-2.5 bg-neutral-950 rounded-lg border border-neutral-800">
+                        <img
+                          src={listFormLogoUrl}
+                          alt="Logo Preview"
+                          className="h-6 max-w-[120px] object-contain"
+                          onError={(e) => {
+                            (e.target as HTMLElement).style.display = 'none';
+                          }}
+                        />
+                        <span className="text-[10px] text-neutral-400">Prévia no cabeçalho escuro</span>
+                      </div>
+                    )}
+                  </div>
+                )}
+              </div>
+
+              <div className="space-y-1">
+                <label className="font-semibold text-neutral-700">Subtítulo (Opcional)</label>
+                <input
+                  type="text"
+                  value={listFormSubtitle}
+                  onChange={(e) => setListFormSubtitle(e.target.value)}
+                  placeholder="Ex: As peças mais desejadas de hoje"
+                  className="w-full px-3 py-2 border border-neutral-300 rounded focus:ring-1 focus:ring-neutral-900 focus:outline-none text-xs"
+                />
+              </div>
+
+              <div className="space-y-1">
+                <label className="font-semibold text-neutral-700">Data da Lista *</label>
+                <input
+                  type="date"
+                  value={listFormDate}
+                  onChange={(e) => setListFormDate(e.target.value)}
+                  required
+                  className="w-full px-3 py-2 border border-neutral-300 rounded focus:ring-1 focus:ring-neutral-900 focus:outline-none text-xs"
+                />
+              </div>
+
+              {/* Status Ativa */}
+              <div className="pt-2 border-t border-neutral-100">
+                <label className="flex items-start gap-2.5 cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={listFormActive}
+                    onChange={(e) => setListFormActive(e.target.checked)}
+                    className="mt-0.5 rounded border-neutral-300 text-neutral-900 focus:ring-neutral-900"
+                  />
+                  <div>
+                    <span className="font-semibold text-neutral-900">Definir como lista ativa publicamente</span>
+                    <p className="text-[11px] text-neutral-500">
+                      Ao ativar esta lista, qualquer outra lista ativa anterior será desativada automaticamente.
+                    </p>
+                  </div>
+                </label>
+              </div>
+
+              {/* Timer de Encerramento */}
+              <div className="pt-2 border-t border-neutral-100 space-y-2.5">
+                <label className="flex items-start gap-2.5 cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={listFormTimerEnabled}
+                    onChange={(e) => setListFormTimerEnabled(e.target.checked)}
+                    className="mt-0.5 rounded border-neutral-300 text-neutral-900 focus:ring-neutral-900"
+                  />
+                  <div>
+                    <span className="font-semibold text-neutral-900">Ativar timer de encerramento</span>
+                    <p className="text-[11px] text-neutral-500">
+                      Define uma data e horário limite para o countdown desta lista.
+                    </p>
+                  </div>
+                </label>
+
+                {listFormTimerEnabled && (
+                  <div className="grid grid-cols-2 gap-2 pl-6 pt-1">
+                    <div>
+                      <label className="text-[11px] font-medium text-neutral-600">Data de Término</label>
+                      <input
+                        type="date"
+                        value={listFormTimerDate}
+                        onChange={(e) => setListFormTimerDate(e.target.value)}
+                        className="w-full px-2.5 py-1.5 border border-neutral-300 rounded text-xs focus:ring-1 focus:ring-neutral-900 focus:outline-none mt-0.5"
+                      />
+                    </div>
+                    <div>
+                      <label className="text-[11px] font-medium text-neutral-600">Horário (America/Sao_Paulo)</label>
+                      <input
+                        type="time"
+                        value={listFormTimerTime}
+                        onChange={(e) => setListFormTimerTime(e.target.value)}
+                        className="w-full px-2.5 py-1.5 border border-neutral-300 rounded text-xs focus:ring-1 focus:ring-neutral-900 focus:outline-none mt-0.5"
+                      />
+                    </div>
+                  </div>
+                )}
+              </div>
+
+              <div className="pt-4 border-t border-neutral-200 flex items-center justify-end gap-2">
+                <button
+                  type="button"
+                  onClick={() => setIsListModalOpen(false)}
+                  className="px-3.5 py-2 rounded text-xs font-semibold text-neutral-700 bg-white border border-neutral-300 hover:bg-neutral-50 transition-colors cursor-pointer"
+                >
+                  Cancelar
+                </button>
+                <button
+                  type="submit"
+                  disabled={savingList}
+                  className="px-4 py-2 rounded text-xs font-semibold text-white bg-neutral-900 hover:bg-neutral-800 disabled:opacity-50 transition-colors cursor-pointer shadow-sm"
+                >
+                  {savingList ? 'Salvando...' : editingList ? 'Salvar Alterações' : 'Criar Lista'}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* ========================================================================= */}
+      {/* MODAL 2: Adicionar / Editar Produto                                       */}
+      {/* ========================================================================= */}
+      {isProductModalOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50 backdrop-blur-xs">
+          <div className="bg-white rounded-lg border border-neutral-200 shadow-xl max-w-xl w-full max-h-[90vh] flex flex-col overflow-hidden animate-in fade-in zoom-in-95 duration-150">
+            <div className="px-5 py-4 border-b border-neutral-200 flex items-center justify-between shrink-0">
+              <h3 className="text-sm font-bold text-neutral-900">
+                {editingProduct ? 'Editar Produto do Ranking' : 'Adicionar Produto ao Ranking'}
+              </h3>
+              <button
+                type="button"
+                onClick={() => setIsProductModalOpen(false)}
+                className="text-neutral-400 hover:text-neutral-700 p-1 rounded transition-colors cursor-pointer"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            <form onSubmit={handleSaveProduct} className="p-5 space-y-4 text-xs overflow-y-auto flex-1">
+              {productError && (
+                <div className="p-3 rounded bg-red-50 text-red-800 border border-red-200 text-xs">
+                  {productError}
+                </div>
+              )}
+
+              {/* SEÇÃO 1: PRODUTO */}
+              <div className="space-y-3">
+                <h4 className="font-bold text-neutral-800 uppercase tracking-wider text-[10px] font-mono border-b border-neutral-100 pb-1">
+                  1. Informações do Produto
+                </h4>
+
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                  <div className="sm:col-span-2 space-y-1">
+                    <label className="font-semibold text-neutral-700">Nome do Produto *</label>
+                    <input
+                      type="text"
+                      value={prodFormName}
+                      onChange={(e) => setProdFormName(e.target.value)}
+                      placeholder="Ex: Scarpin Couro Preto Salto Fino"
+                      required
+                      className="w-full px-3 py-2 border border-neutral-300 rounded focus:ring-1 focus:ring-neutral-900 focus:outline-none text-xs"
+                    />
+                  </div>
+
+                  <div className="space-y-1">
+                    <label className="font-semibold text-neutral-700">Categoria *</label>
+                    <input
+                      type="text"
+                      value={prodFormCategory}
+                      onChange={(e) => setProdFormCategory(e.target.value)}
+                      placeholder="Ex: Sandália, Scarpin, Bolsa..."
+                      required
+                      maxLength={80}
+                      className="w-full px-3 py-2 border border-neutral-300 rounded focus:ring-1 focus:ring-neutral-900 focus:outline-none text-xs bg-white"
+                    />
+                  </div>
+                </div>
+
+                <div className="space-y-2">
+                  <div className="flex items-center justify-between">
+                    <label className="font-semibold text-neutral-700">URL da Imagem Principal (Capa) *</label>
+                    <button
+                      type="button"
+                      onClick={() => prodFileInputRef.current?.click()}
+                      disabled={uploadingProdImage}
+                      className="text-[11px] font-medium text-neutral-700 hover:text-neutral-900 flex items-center gap-1 cursor-pointer"
+                    >
+                      {uploadingProdImage ? (
+                        <>
+                          <Loader2 className="w-3 h-3 animate-spin text-neutral-900" />
+                          <span>Enviando foto...</span>
+                        </>
+                      ) : (
+                        <>
+                          <Upload className="w-3 h-3" />
+                          <span>Upload p/ Supabase</span>
+                        </>
+                      )}
+                    </button>
+                  </div>
+                  <input
+                    ref={prodFileInputRef}
+                    type="file"
+                    accept="image/png,image/jpeg,image/webp,image/jpg"
+                    className="hidden"
+                    onChange={(e) => {
+                      const file = e.target.files?.[0];
+                      if (file) handleProdImageFileUpload(file, true);
+                      e.target.value = '';
+                    }}
+                  />
+                  <input
+                    type="url"
+                    value={prodFormImageUrl}
+                    onChange={(e) => {
+                      const val = e.target.value;
+                      setProdFormImageUrl(val);
+                      if (val && !prodFormImageUrls.includes(val)) {
+                        setProdFormImageUrls([val, ...prodFormImageUrls.filter((u) => u !== prodFormImageUrl)]);
+                      }
+                    }}
+                    placeholder="https://... (ou use o botão Upload p/ Supabase acima)"
+                    required
+                    className="w-full px-3 py-2 border border-neutral-300 rounded focus:ring-1 focus:ring-neutral-900 focus:outline-none text-xs bg-white"
+                  />
+                </div>
+
+                {/* Galeria de Fotos Adicionais (Carrossel / Swipe) */}
+                <div className="space-y-1.5 p-3 rounded bg-neutral-50 border border-neutral-200">
+                  <div className="flex items-center justify-between">
+                    <label className="font-semibold text-neutral-700">
+                      Galeria de Fotos (Swipe no Mobile)
+                    </label>
+                    <span className="text-[10px] text-neutral-500 font-mono">
+                      {prodFormImageUrls.length} {prodFormImageUrls.length === 1 ? 'foto' : 'fotos'}
+                    </span>
+                  </div>
+                  <p className="text-[11px] text-neutral-500">
+                    Adicione fotos adicionais com ângulos, detalhes ou pés para enriquecer a experiência editorial.
+                  </p>
+                  
+                  <div className="flex items-center gap-2 pt-1">
+                    <input
+                      type="url"
+                      value={prodFormImageUrlInput}
+                      onChange={(e) => setProdFormImageUrlInput(e.target.value)}
+                      onKeyDown={(e) => {
+                        if (e.key === 'Enter') {
+                          e.preventDefault();
+                          handleAddImageUrl();
+                        }
+                      }}
+                      placeholder="https://... (URL da foto adicional)"
+                      className="flex-1 px-3 py-1.5 border border-neutral-300 rounded focus:ring-1 focus:ring-neutral-900 focus:outline-none text-xs bg-white"
+                    />
+                    <button
+                      type="button"
+                      onClick={handleAddImageUrl}
+                      className="px-3 py-1.5 bg-neutral-900 text-white rounded text-xs font-semibold hover:bg-neutral-800 cursor-pointer shrink-0"
+                    >
+                      Adicionar Foto
+                    </button>
+                  </div>
+
+                  {prodFormImageUrls.length > 0 && (
+                    <div className="flex flex-wrap gap-2 pt-2">
+                      {prodFormImageUrls.map((url, i) => (
+                        <div
+                          key={i}
+                          className={`relative group w-14 h-14 rounded border overflow-hidden shrink-0 ${
+                            url === prodFormImageUrl
+                              ? 'border-neutral-900 ring-2 ring-neutral-900/30'
+                              : 'border-neutral-300'
+                          }`}
+                        >
+                          <img
+                            src={url}
+                            alt={`Foto ${i + 1}`}
+                            className="w-full h-full object-cover"
+                            onError={(e) => {
+                              (e.target as HTMLElement).style.display = 'none';
+                            }}
+                          />
+                          {url === prodFormImageUrl && (
+                            <span className="absolute bottom-0 inset-x-0 bg-neutral-900 text-white text-[7px] font-bold text-center py-0.5 uppercase">
+                              Capa
+                            </span>
+                          )}
+                          <button
+                            type="button"
+                            onClick={() => handleRemoveImageUrl(url)}
+                            className="absolute top-0.5 right-0.5 w-4 h-4 bg-red-600 text-white rounded-full flex items-center justify-center text-[10px] opacity-80 hover:opacity-100 cursor-pointer shadow-xs"
+                            title="Remover foto"
+                          >
+                            ×
+                          </button>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+
+                <div className="space-y-1">
+                  <label className="font-semibold text-neutral-700">Link do Produto na Loja (Opcional)</label>
+                  <input
+                    type="url"
+                    value={prodFormProductUrl}
+                    onChange={(e) => setProdFormProductUrl(e.target.value)}
+                    placeholder="https://zhaya.com.br/produtos/..."
+                    className="w-full px-3 py-2 border border-neutral-300 rounded focus:ring-1 focus:ring-neutral-900 focus:outline-none text-xs"
+                  />
+                </div>
+              </div>
+
+              {/* SEÇÃO 2: PREÇOS */}
+              <div className="space-y-3 pt-2">
+                <h4 className="font-bold text-neutral-800 uppercase tracking-wider text-[10px] font-mono border-b border-neutral-100 pb-1">
+                  2. Preços (Opcional)
+                </h4>
+
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                  <div className="space-y-1">
+                    <label className="font-semibold text-neutral-700">Valor Original (De: R$)</label>
+                    <input
+                      type="number"
+                      step="0.01"
+                      min="0"
+                      value={prodFormOriginalPrice}
+                      onChange={(e) => setProdFormOriginalPrice(e.target.value)}
+                      placeholder="Ex: 299.90"
+                      className="w-full px-3 py-2 border border-neutral-300 rounded focus:ring-1 focus:ring-neutral-900 focus:outline-none text-xs"
+                    />
+                    <span className="text-[10px] text-neutral-400">Preço original antes do desconto</span>
+                  </div>
+
+                  <div className="space-y-1">
+                    <label className="font-semibold text-neutral-700">Valor Promocional (Por: R$)</label>
+                    <input
+                      type="number"
+                      step="0.01"
+                      min="0"
+                      value={prodFormPromotionalPrice}
+                      onChange={(e) => setProdFormPromotionalPrice(e.target.value)}
+                      placeholder="Ex: 199.90"
+                      className="w-full px-3 py-2 border border-neutral-300 rounded focus:ring-1 focus:ring-neutral-900 focus:outline-none text-xs"
+                    />
+                    <span className="text-[10px] text-neutral-400">Preço promocional atual em destaque</span>
+                  </div>
+                </div>
+              </div>
+
+              {/* SEÇÃO 3: VENDAS E ESTOQUE */}
+              <div className="space-y-3 pt-2">
+                <h4 className="font-bold text-neutral-800 uppercase tracking-wider text-[10px] font-mono border-b border-neutral-100 pb-1">
+                  3. Vendas e Estoque
+                </h4>
+
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                  <div className="space-y-1">
+                    <label className="font-semibold text-neutral-700">Quantidade Vendida</label>
+                    <input
+                      type="number"
+                      min="0"
+                      value={prodFormSoldQty}
+                      onChange={(e) => setProdFormSoldQty(e.target.value)}
+                      placeholder="Ex: 27"
+                      className="w-full px-3 py-2 border border-neutral-300 rounded focus:ring-1 focus:ring-neutral-900 focus:outline-none text-xs"
+                    />
+                  </div>
+
+                  <div className="space-y-1">
+                    <label className="font-semibold text-neutral-700">Quantidade Disponível / Estoque</label>
+                    <input
+                      type="number"
+                      min="0"
+                      value={prodFormAvailableQty}
+                      onChange={(e) => setProdFormAvailableQty(e.target.value)}
+                      placeholder="Ex: 3"
+                      className="w-full px-3 py-2 border border-neutral-300 rounded focus:ring-1 focus:ring-neutral-900 focus:outline-none text-xs"
+                    />
+                  </div>
+                </div>
+
+                <div>
+                  <label className="flex items-center gap-2 cursor-pointer text-xs">
+                    <input
+                      type="checkbox"
+                      checked={prodFormShowSoldQty}
+                      onChange={(e) => setProdFormShowSoldQty(e.target.checked)}
+                      className="rounded border-neutral-300 text-neutral-900 focus:ring-neutral-900"
+                    />
+                    <span className="text-neutral-700">
+                      Mostrar quantidade vendida publicamente (ex: &quot;27 vendidos hoje&quot;)
+                    </span>
+                  </label>
+                </div>
+              </div>
+
+              {/* SEÇÃO 4: VARIAÇÕES (TAMANHOS E CORES) */}
+              <div className="space-y-3 pt-2">
+                <h4 className="font-bold text-neutral-800 uppercase tracking-wider text-[10px] font-mono border-b border-neutral-100 pb-1">
+                  4. Variações (Tamanhos e Cores)
+                </h4>
+
+                {/* Tamanhos */}
+                <div className="space-y-1.5">
+                  <label className="font-semibold text-neutral-700">Tamanhos Disponíveis</label>
+                  <div className="flex items-center gap-2">
+                    <input
+                      type="text"
+                      value={prodFormSizeInput}
+                      onChange={(e) => setProdFormSizeInput(e.target.value)}
+                      onKeyDown={(e) => {
+                        if (e.key === 'Enter') {
+                          e.preventDefault();
+                          handleAddSize();
+                        }
+                      }}
+                      placeholder="Digite e pressione Enter (ex: 34, 35, 36 ou P, M)"
+                      className="flex-1 px-3 py-1.5 border border-neutral-300 rounded focus:ring-1 focus:ring-neutral-900 focus:outline-none text-xs"
+                    />
+                    <button
+                      type="button"
+                      onClick={handleAddSize}
+                      className="px-3 py-1.5 bg-neutral-100 text-neutral-800 border border-neutral-300 rounded text-xs font-semibold hover:bg-neutral-200 cursor-pointer"
+                    >
+                      Adicionar
+                    </button>
+                  </div>
+
+                  {prodFormSizes.length > 0 && (
+                    <div className="flex flex-wrap gap-1.5 pt-1">
+                      {prodFormSizes.map((size) => (
+                        <span
+                          key={size}
+                          className="inline-flex items-center gap-1 px-2 py-0.5 rounded bg-neutral-100 text-neutral-800 border border-neutral-300 font-mono text-[11px]"
+                        >
+                          {size}
+                          <button
+                            type="button"
+                            onClick={() => handleRemoveSize(size)}
+                            className="text-neutral-400 hover:text-red-600 ml-0.5 cursor-pointer"
+                          >
+                            ×
+                          </button>
+                        </span>
+                      ))}
+                    </div>
+                  )}
+                </div>
+
+                {/* Cores */}
+                <div className="space-y-1.5">
+                  <label className="font-semibold text-neutral-700">Cores Disponíveis</label>
+                  <div className="flex items-center gap-2">
+                    <input
+                      type="text"
+                      value={prodFormColorInput}
+                      onChange={(e) => setProdFormColorInput(e.target.value)}
+                      onKeyDown={(e) => {
+                        if (e.key === 'Enter') {
+                          e.preventDefault();
+                          handleAddColor();
+                        }
+                      }}
+                      placeholder="Digite e pressione Enter (ex: Preto, Off White)"
+                      className="flex-1 px-3 py-1.5 border border-neutral-300 rounded focus:ring-1 focus:ring-neutral-900 focus:outline-none text-xs"
+                    />
+                    <button
+                      type="button"
+                      onClick={handleAddColor}
+                      className="px-3 py-1.5 bg-neutral-100 text-neutral-800 border border-neutral-300 rounded text-xs font-semibold hover:bg-neutral-200 cursor-pointer"
+                    >
+                      Adicionar
+                    </button>
+                  </div>
+
+                  {prodFormColors.length > 0 && (
+                    <div className="flex flex-wrap gap-1.5 pt-1">
+                      {prodFormColors.map((color) => (
+                        <span
+                          key={color}
+                          className="inline-flex items-center gap-1 px-2 py-0.5 rounded bg-neutral-100 text-neutral-800 border border-neutral-300 text-[11px]"
+                        >
+                          {color}
+                          <button
+                            type="button"
+                            onClick={() => handleRemoveColor(color)}
+                            className="text-neutral-400 hover:text-red-600 ml-0.5 cursor-pointer"
+                          >
+                            ×
+                          </button>
+                        </span>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              </div>
+
+              {/* SEÇÃO 5: DESTAQUE / BADGE */}
+              <div className="space-y-3 pt-2">
+                <h4 className="font-bold text-neutral-800 uppercase tracking-wider text-[10px] font-mono border-b border-neutral-100 pb-1">
+                  5. Destaque / Badge
+                </h4>
+
+                <label className="flex items-center gap-2 cursor-pointer text-xs">
+                  <input
+                    type="checkbox"
+                    checked={prodFormBadgeEnabled}
+                    onChange={(e) => setProdFormBadgeEnabled(e.target.checked)}
+                    className="rounded border-neutral-300 text-neutral-900 focus:ring-neutral-900"
+                  />
+                  <span className="font-semibold text-neutral-800">
+                    Ativar tag/badge de destaque na imagem
+                  </span>
+                </label>
+
+                {prodFormBadgeEnabled && (
+                  <div className="space-y-3 pl-6">
+                    <div className="space-y-1">
+                      <label className="font-semibold text-neutral-700">Texto do Badge</label>
+                      <input
+                        type="text"
+                        maxLength={20}
+                        value={prodFormBadgeText}
+                        onChange={(e) => setProdFormBadgeText(e.target.value)}
+                        placeholder="Ex: 50% OFF, NOVO, ÚLTIMOS PARES"
+                        className="w-full px-3 py-2 border border-neutral-300 rounded focus:ring-1 focus:ring-neutral-900 focus:outline-none text-xs"
+                      />
+                      <div className="flex items-center gap-1.5 pt-1">
+                        <span className="text-[11px] text-neutral-500">Sugestões:</span>
+                        {['50% OFF', '30% OFF', 'NOVO', 'ÚLTIMOS PARES', 'EXCLUSIVO'].map((sug) => (
+                          <button
+                            key={sug}
+                            type="button"
+                            onClick={() => setProdFormBadgeText(sug)}
+                            className="px-1.5 py-0.5 bg-neutral-100 hover:bg-neutral-200 rounded text-[10px] text-neutral-700 cursor-pointer border border-neutral-200"
+                          >
+                            {sug}
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+
+                    <div className="space-y-1.5">
+                      <label className="font-semibold text-neutral-700">Cor de Fundo do Badge</label>
+                      <div className="flex items-center gap-2">
+                        <input
+                          type="color"
+                          value={prodFormBadgeColor}
+                          onChange={(e) => setProdFormBadgeColor(e.target.value)}
+                          className="w-8 h-8 rounded border border-neutral-300 cursor-pointer p-0.5"
+                        />
+                        <input
+                          type="text"
+                          value={prodFormBadgeColor}
+                          onChange={(e) => setProdFormBadgeColor(e.target.value)}
+                          placeholder="#FFFFFF"
+                          className="w-24 px-2 py-1.5 font-mono text-xs border border-neutral-300 rounded focus:ring-1 focus:ring-neutral-900 focus:outline-none"
+                        />
+                        <div className="flex items-center gap-1">
+                          {[
+                            { name: 'Branco', hex: '#FFFFFF' },
+                            { name: 'Vermelho', hex: '#DC2626' },
+                            { name: 'Dourado', hex: '#D97706' },
+                            { name: 'Preto', hex: '#171717' },
+                            { name: 'Verde', hex: '#059669' },
+                          ].map((c) => (
+                            <button
+                              key={c.hex}
+                              type="button"
+                              onClick={() => setProdFormBadgeColor(c.hex)}
+                              className="w-6 h-6 rounded-full border border-neutral-300 shrink-0 cursor-pointer shadow-xs"
+                              style={{ backgroundColor: c.hex }}
+                              title={c.name}
+                            />
+                          ))}
+                        </div>
+                      </div>
+                      <p className="text-[10px] text-neutral-500">
+                        O texto se ajusta dinamicamente entre branco ou preto conforme contraste WCAG.
+                      </p>
+                    </div>
+                  </div>
+                )}
+              </div>
+
+              {/* SEÇÃO 5: PRÉVIA AO VIVO DA VITRINE (DARK) */}
+              <div className="space-y-2 pt-3 border-t border-neutral-100">
+                <h4 className="font-bold text-neutral-800 uppercase tracking-wider text-[10px] font-mono flex items-center gap-1.5">
+                  <Eye className="w-3.5 h-3.5 text-neutral-500" />
+                  5. Prévia na Vitrine Pública (/mais-vendidos)
+                </h4>
+                <div className="bg-black text-white p-4 rounded-lg border border-neutral-800 max-w-xs mx-auto space-y-3 shadow-inner">
+                  {/* Image container */}
+                  <div className="relative w-full aspect-[4/5] bg-neutral-950 rounded-[4px] overflow-hidden border border-neutral-900 flex items-center justify-center">
+                    {prodFormImageUrl ? (
+                      <img
+                        src={prodFormImageUrl}
+                        alt="Preview"
+                        className="w-full h-full object-cover"
+                        onError={(e) => {
+                          (e.target as HTMLElement).style.display = 'none';
+                        }}
+                      />
+                    ) : (
+                      <span className="text-[10px] text-neutral-600 uppercase tracking-widest">
+                        Sem Imagem
+                      </span>
+                    )}
+
+                    {prodFormBadgeEnabled && prodFormBadgeText.trim() && (
+                      <div
+                        className="absolute top-2.5 right-2.5 z-10 text-[9px] font-semibold tracking-widest uppercase px-2 py-0.5 rounded-[2px] shadow-sm"
+                        style={{
+                          backgroundColor: prodFormBadgeColor || '#FFFFFF',
+                          color: getReadableTextColor(prodFormBadgeColor || '#FFFFFF'),
+                        }}
+                      >
+                        {prodFormBadgeText}
+                      </div>
+                    )}
+
+                    {prodFormImageUrls.length > 1 && (
+                      <div className="absolute bottom-2 left-2 z-10 px-1.5 py-0.5 rounded bg-black/70 backdrop-blur-xs text-white text-[8px] font-mono">
+                        1/{prodFormImageUrls.length}
+                      </div>
+                    )}
+                  </div>
+
+                  {/* Info */}
+                  <div className="space-y-1.5">
+                    <div className="flex items-center gap-1.5">
+                      <span className="font-mono text-xs text-neutral-400 font-medium">
+                        #{editingProduct ? editingProduct.position : (products.length + 1)}
+                      </span>
+                      {prodFormCategory && (
+                        <span className="text-[10px] uppercase tracking-widest text-neutral-500 font-light">
+                          · {prodFormCategory}
+                        </span>
+                      )}
+                    </div>
+
+                    <h5 className="text-xs font-medium text-white tracking-wide line-clamp-2">
+                      {prodFormName.trim() || 'Nome do produto aparecerá aqui'}
+                    </h5>
+
+                    {/* Vendas */}
+                    {prodFormShowSoldQty && prodFormSoldQty && Number(prodFormSoldQty) > 0 && (
+                      <p className="text-[10px] text-neutral-300 font-light">
+                        {Number(prodFormSoldQty) === 1 ? '1 vendido hoje' : `${prodFormSoldQty} vendidos hoje`}
+                      </p>
+                    )}
+
+                    {/* Cores */}
+                    {prodFormColors.length > 0 && (
+                      <div className="flex flex-wrap gap-1 pt-0.5">
+                        {prodFormColors.map((c, i) => (
+                          <span
+                            key={i}
+                            className="px-1.5 py-0.5 rounded-[2px] bg-neutral-900 text-neutral-300 border border-neutral-800 text-[9px]"
+                          >
+                            {c}
+                          </span>
+                        ))}
+                      </div>
+                    )}
+
+                    {/* Tamanhos */}
+                    {prodFormSizes.length > 0 && (
+                      <div className="flex flex-wrap gap-1 pt-0.5">
+                        {prodFormSizes.map((s, i) => (
+                          <span
+                            key={i}
+                            className="min-w-[20px] text-center px-1.5 py-0.5 rounded-[2px] bg-neutral-900 text-neutral-300 border border-neutral-800 text-[9px] font-mono"
+                          >
+                            {s}
+                          </span>
+                        ))}
+                      </div>
+                    )}
+
+                    {/* Botão Ver Produto */}
+                    {prodFormProductUrl && (
+                      <div className="pt-2">
+                        <div className="w-full py-2 px-3 rounded-[3px] bg-white text-black font-semibold text-[10px] tracking-wider uppercase text-center">
+                          Ver Produto →
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                </div>
+              </div>
+
+              <div className="pt-4 border-t border-neutral-200 flex items-center justify-end gap-2 shrink-0">
+                <button
+                  type="button"
+                  onClick={() => setIsProductModalOpen(false)}
+                  className="px-3.5 py-2 rounded text-xs font-semibold text-neutral-700 bg-white border border-neutral-300 hover:bg-neutral-50 transition-colors cursor-pointer"
+                >
+                  Cancelar
+                </button>
+                <button
+                  type="submit"
+                  disabled={savingProduct}
+                  className="px-4 py-2 rounded text-xs font-semibold text-white bg-neutral-900 hover:bg-neutral-800 disabled:opacity-50 transition-colors cursor-pointer shadow-sm"
+                >
+                  {savingProduct ? 'Salvando...' : editingProduct ? 'Salvar Alterações' : 'Adicionar Produto'}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* ========================================================================= */}
+      {/* MODAL 3: Confirmação de Exclusão (Sem window.alert)                      */}
+      {/* ========================================================================= */}
+      {deleteConfirm && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50 backdrop-blur-xs">
+          <div className="bg-white rounded-lg border border-neutral-200 shadow-xl max-w-sm w-full p-5 space-y-4 animate-in fade-in zoom-in-95 duration-150">
+            <div className="w-10 h-10 rounded-full bg-red-100 text-red-600 flex items-center justify-center mx-auto">
+              <Trash2 className="w-5 h-5" />
+            </div>
+
+            <div className="text-center space-y-1">
+              <h3 className="text-sm font-bold text-neutral-900">Confirmar Exclusão</h3>
+              <p className="text-xs text-neutral-600 leading-relaxed">
+                Tem certeza que deseja excluir <strong>{deleteConfirm.name}</strong>?
+                {deleteConfirm.type === 'list' && ' Todos os produtos associados serão excluídos junto.'}
+              </p>
+            </div>
+
+            <div className="flex items-center justify-center gap-2 pt-2">
+              <button
+                type="button"
+                onClick={() => setDeleteConfirm(null)}
+                className="px-3.5 py-2 rounded text-xs font-semibold text-neutral-700 bg-white border border-neutral-300 hover:bg-neutral-50 transition-colors cursor-pointer"
+              >
+                Cancelar
+              </button>
+              <button
+                type="button"
+                onClick={handleExecuteDelete}
+                className="px-4 py-2 rounded text-xs font-semibold text-white bg-red-600 hover:bg-red-700 transition-colors cursor-pointer shadow-sm"
+              >
+                Sim, Excluir
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+};

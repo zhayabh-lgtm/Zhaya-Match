@@ -5,9 +5,9 @@
   "type": "module",
   "scripts": {
     "dev": "tsx server.ts",
-    "test:widget": "tsx scripts/generate-widget-static.ts && tsx src/widget/widget.test.ts && tsx src/analytics/analytics.test.ts && tsx src/security/security.test.ts && tsx src/health/health.test.ts && tsx src/diagnostics/diagnostics.test.ts && tsx src/live/live.test.ts",
-    "build:widget": "tsx scripts/generate-widget-static.ts && tsx src/widget/widget.test.ts && tsx src/analytics/analytics.test.ts && tsx src/security/security.test.ts && tsx src/health/health.test.ts && tsx src/diagnostics/diagnostics.test.ts && tsx src/live/live.test.ts",
-    "build": "tsx scripts/generate-widget-static.ts && tsx src/widget/widget.test.ts && tsx src/analytics/analytics.test.ts && tsx src/security/security.test.ts && tsx src/health/health.test.ts && tsx src/diagnostics/diagnostics.test.ts && tsx src/live/live.test.ts && vite build && tsx scripts/generate-widget-static.ts && esbuild server.ts --bundle --platform=node --format=cjs --packages=external --sourcemap --outfile=dist/server.cjs",
+    "test:widget": "tsx scripts/generate-widget-static.ts && tsx src/widget/widget.test.ts && tsx src/analytics/analytics.test.ts && tsx src/security/security.test.ts && tsx src/health/health.test.ts && tsx src/diagnostics/diagnostics.test.ts && tsx src/live/live.test.ts && tsx src/bestsellers/bestsellers.test.ts",
+    "build:widget": "tsx scripts/generate-widget-static.ts && tsx src/widget/widget.test.ts && tsx src/analytics/analytics.test.ts && tsx src/security/security.test.ts && tsx src/health/health.test.ts && tsx src/diagnostics/diagnostics.test.ts && tsx src/live/live.test.ts && tsx src/bestsellers/bestsellers.test.ts",
+    "build": "tsx scripts/generate-widget-static.ts && tsx src/widget/widget.test.ts && tsx src/analytics/analytics.test.ts && tsx src/security/security.test.ts && tsx src/health/health.test.ts && tsx src/diagnostics/diagnostics.test.ts && tsx src/live/live.test.ts && tsx src/bestsellers/bestsellers.test.ts && vite build && tsx scripts/generate-widget-static.ts && esbuild server.ts --bundle --platform=node --format=cjs --packages=external --sourcemap --outfile=dist/server.cjs",
     "start": "node dist/server.cjs",
     "clean": "rm -rf dist server.cjs",
     "lint": "tsc --noEmit"

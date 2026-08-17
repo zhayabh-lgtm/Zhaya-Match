@@ -16,6 +16,10 @@ import adminLiveInvitesHandler from './api/admin/live-invites.js';
 import publicLiveInviteHandler from './api/public/live-invite.js';
 import publicLiveIcsHandler from './api/public/live-ics.js';
 import publicLiveClickHandler from './api/public/live-click.js';
+import adminBestSellersHandler from './api/admin/best-sellers.js';
+import adminBestSellerProductsHandler from './api/admin/best-seller-products.js';
+import publicBestSellersHandler from './api/public/best-sellers.js';
+import publicBestSellerClickHandler from './api/public/best-seller-click.js';
 
 async function startServer() {
   const app = express();
@@ -179,6 +183,14 @@ async function startServer() {
   app.all('/api/public/live-invite', publicLiveInviteHandler);
   app.all('/api/public/live-ics', publicLiveIcsHandler);
   app.all('/api/public/live-click', publicLiveClickHandler);
+
+  // 6e. Admin API - Mais Vendidos do Dia (Lists & Products Management)
+  app.all('/api/admin/best-sellers', adminBestSellersHandler);
+  app.all('/api/admin/best-seller-products', adminBestSellerProductsHandler);
+
+  // 6f. Public API - Mais Vendidos do Dia (Vitrine & Tracking de Cliques)
+  app.all('/api/public/best-sellers', publicBestSellersHandler);
+  app.all('/api/public/best-seller-click', publicBestSellerClickHandler);
 
   // 7. Admin API - System Activity Monitor
   app.get('/api/admin/activity-status', async (req, res) => {

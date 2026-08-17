@@ -13,6 +13,9 @@ import {
   DiagnosticContract,
   LiveInvite,
   PublicLiveInvite,
+  BestSellerList,
+  BestSellerProduct,
+  PublicBestSellerList,
 } from '../types/zhaya';
 import { supabase, isSupabaseConfigured } from './supabase';
 import { normalizeMeasurementObservation, normalizeProductType } from './normalize';
@@ -1769,6 +1772,300 @@ export const Repository = {
       }
     } catch (err) {
       console.warn('[Repository] Erro ao registrar clique do convite:', err);
+    }
+  },
+
+  // =========================================================================
+  // MAIS VENDIDOS DO DIA (BEST SELLERS)
+  // =========================================================================
+
+  async getBestSellerListsInfo(): Promise<{ lists: BestSellerList[]; tableConfigured: boolean; error?: string }> {
+    try {
+      const token = isSupabaseConfigured && supabase ? (await supabase.auth.getSession())?.data?.session?.access_token : undefined;
+      const headers: Record<string, string> = {};
+      if (token) headers['Authorization'] = `Bearer ${token}`;
+
+      const res = await fetch('/api/admin/best-sellers', { headers });
+      if (res.ok) {
+        const json = await res.json();
+        return {
+          lists: json.lists || [],
+          tableConfigured: json.tableConfigured !== false,
+          error: json.message,
+        };
+      }
+      const errJson = await res.json().catch(() => ({}));
+      return {
+        lists: [],
+        tableConfigured: errJson.tableConfigured !== false,
+        error: errJson.message || errJson.error || 'Falha ao buscar listas.',
+      };
+    } catch (e: any) {
+      console.warn('[Repository] Erro ao buscar listas de mais vendidos:', e);
+      return { lists: [], tableConfigured: false, error: e?.message };
+    }
+  },
+
+  async getBestSellerList(id: string): Promise<{ list: BestSellerList; tableConfigured: boolean } | null> {
+    if (!id) return null;
+    try {
+      const token = isSupabaseConfigured && supabase ? (await supabase.auth.getSession())?.data?.session?.access_token : undefined;
+      const headers: Record<string, string> = {};
+      if (token) headers['Authorization'] = `Bearer ${token}`;
+
+      const res = await fetch(`/api/admin/best-sellers?id=${encodeURIComponent(id)}`, { headers });
+      if (res.ok) {
+        const json = await res.json();
+        if (json.success && json.list) {
+          return { list: json.list, tableConfigured: json.tableConfigured !== false };
+        }
+      }
+    } catch (e) {
+      console.warn('[Repository] Erro ao buscar lista de mais vendidos por ID:', e);
+    }
+    return null;
+  },
+
+  async createBestSellerList(payload: Partial<BestSellerList>): Promise<{ success: boolean; list?: BestSellerList; error?: string; tableConfigured?: boolean }> {
+    try {
+      const token = isSupabaseConfigured && supabase ? (await supabase.auth.getSession())?.data?.session?.access_token : undefined;
+      const headers: Record<string, string> = {
+        'Content-Type': 'application/json',
+      };
+      if (token) headers['Authorization'] = `Bearer ${token}`;
+
+      const res = await fetch('/api/admin/best-sellers', {
+        method: 'POST',
+        headers,
+        body: JSON.stringify(payload),
+      });
+
+      const json = await res.json();
+      if (res.ok && json.success) {
+        return { success: true, list: json.list, tableConfigured: true };
+      }
+      return {
+        success: false,
+        error: json.message || json.error || 'Falha ao criar lista.',
+        tableConfigured: json.tableConfigured !== false,
+      };
+    } catch (e: any) {
+      return { success: false, error: e?.message || 'Erro de conexão ao criar lista.' };
+    }
+  },
+
+  async updateBestSellerList(id: string, payload: Partial<BestSellerList>): Promise<{ success: boolean; list?: BestSellerList; error?: string }> {
+    try {
+      const token = isSupabaseConfigured && supabase ? (await supabase.auth.getSession())?.data?.session?.access_token : undefined;
+      const headers: Record<string, string> = {
+        'Content-Type': 'application/json',
+      };
+      if (token) headers['Authorization'] = `Bearer ${token}`;
+
+      const res = await fetch('/api/admin/best-sellers', {
+        method: 'PUT',
+        headers,
+        body: JSON.stringify({ id, ...payload }),
+      });
+
+      const json = await res.json();
+      if (res.ok && json.success) {
+        return { success: true, list: json.list };
+      }
+      return { success: false, error: json.message || json.error || 'Falha ao atualizar lista.' };
+    } catch (e: any) {
+      return { success: false, error: e?.message || 'Erro de conexão ao atualizar lista.' };
+    }
+  },
+
+  async deleteBestSellerList(id: string): Promise<boolean> {
+    try {
+      const token = isSupabaseConfigured && supabase ? (await supabase.auth.getSession())?.data?.session?.access_token : undefined;
+      const headers: Record<string, string> = {};
+      if (token) headers['Authorization'] = `Bearer ${token}`;
+
+      const res = await fetch(`/api/admin/best-sellers?id=${encodeURIComponent(id)}`, {
+        method: 'DELETE',
+        headers,
+      });
+      return res.ok;
+    } catch (e) {
+      console.warn('[Repository] Erro ao deletar lista:', e);
+      return false;
+    }
+  },
+
+  async duplicateBestSellerList(sourceListId: string, newListDate?: string, newTitle?: string): Promise<{ success: boolean; list?: BestSellerList; error?: string }> {
+    try {
+      const token = isSupabaseConfigured && supabase ? (await supabase.auth.getSession())?.data?.session?.access_token : undefined;
+      const headers: Record<string, string> = {
+        'Content-Type': 'application/json',
+      };
+      if (token) headers['Authorization'] = `Bearer ${token}`;
+
+      const res = await fetch('/api/admin/best-sellers', {
+        method: 'POST',
+        headers,
+        body: JSON.stringify({
+          action: 'duplicate',
+          sourceListId,
+          newListDate,
+          newTitle,
+        }),
+      });
+
+      const json = await res.json();
+      if (res.ok && json.success) {
+        return { success: true, list: json.list };
+      }
+      return { success: false, error: json.message || json.error || 'Falha ao duplicar lista.' };
+    } catch (e: any) {
+      return { success: false, error: e?.message || 'Erro de conexão ao duplicar lista.' };
+    }
+  },
+
+  async getBestSellerProducts(listId: string): Promise<BestSellerProduct[]> {
+    if (!listId) return [];
+    try {
+      const token = isSupabaseConfigured && supabase ? (await supabase.auth.getSession())?.data?.session?.access_token : undefined;
+      const headers: Record<string, string> = {};
+      if (token) headers['Authorization'] = `Bearer ${token}`;
+
+      const res = await fetch(`/api/admin/best-seller-products?listId=${encodeURIComponent(listId)}`, { headers });
+      if (res.ok) {
+        const json = await res.json();
+        return json.products || [];
+      }
+    } catch (e) {
+      console.warn('[Repository] Erro ao buscar produtos da lista:', e);
+    }
+    return [];
+  },
+
+  async createBestSellerProduct(payload: Partial<BestSellerProduct>): Promise<{ success: boolean; product?: BestSellerProduct; error?: string }> {
+    try {
+      const token = isSupabaseConfigured && supabase ? (await supabase.auth.getSession())?.data?.session?.access_token : undefined;
+      const headers: Record<string, string> = {
+        'Content-Type': 'application/json',
+      };
+      if (token) headers['Authorization'] = `Bearer ${token}`;
+
+      const res = await fetch('/api/admin/best-seller-products', {
+        method: 'POST',
+        headers,
+        body: JSON.stringify(payload),
+      });
+
+      const json = await res.json();
+      if (res.ok && json.success) {
+        return { success: true, product: json.product };
+      }
+      return { success: false, error: json.message || json.error || 'Falha ao adicionar produto.' };
+    } catch (e: any) {
+      return { success: false, error: e?.message || 'Erro de conexão ao adicionar produto.' };
+    }
+  },
+
+  async updateBestSellerProduct(id: string, payload: Partial<BestSellerProduct>): Promise<{ success: boolean; product?: BestSellerProduct; error?: string }> {
+    try {
+      const token = isSupabaseConfigured && supabase ? (await supabase.auth.getSession())?.data?.session?.access_token : undefined;
+      const headers: Record<string, string> = {
+        'Content-Type': 'application/json',
+      };
+      if (token) headers['Authorization'] = `Bearer ${token}`;
+
+      const res = await fetch('/api/admin/best-seller-products', {
+        method: 'PUT',
+        headers,
+        body: JSON.stringify({ id, ...payload }),
+      });
+
+      const json = await res.json();
+      if (res.ok && json.success) {
+        return { success: true, product: json.product };
+      }
+      return { success: false, error: json.message || json.error || 'Falha ao atualizar produto.' };
+    } catch (e: any) {
+      return { success: false, error: e?.message || 'Erro de conexão ao atualizar produto.' };
+    }
+  },
+
+  async deleteBestSellerProduct(id: string): Promise<boolean> {
+    try {
+      const token = isSupabaseConfigured && supabase ? (await supabase.auth.getSession())?.data?.session?.access_token : undefined;
+      const headers: Record<string, string> = {};
+      if (token) headers['Authorization'] = `Bearer ${token}`;
+
+      const res = await fetch(`/api/admin/best-seller-products?id=${encodeURIComponent(id)}`, {
+        method: 'DELETE',
+        headers,
+      });
+      return res.ok;
+    } catch (e) {
+      console.warn('[Repository] Erro ao deletar produto:', e);
+      return false;
+    }
+  },
+
+  async reorderBestSellerProducts(listId: string, productIds: string[]): Promise<boolean> {
+    try {
+      const token = isSupabaseConfigured && supabase ? (await supabase.auth.getSession())?.data?.session?.access_token : undefined;
+      const headers: Record<string, string> = {
+        'Content-Type': 'application/json',
+      };
+      if (token) headers['Authorization'] = `Bearer ${token}`;
+
+      const res = await fetch('/api/admin/best-seller-products', {
+        method: 'POST',
+        headers,
+        body: JSON.stringify({ action: 'reorder', listId, productIds }),
+      });
+      return res.ok;
+    } catch (e) {
+      console.warn('[Repository] Erro ao reordenar produtos:', e);
+      return false;
+    }
+  },
+
+  async getPublicBestSellers(): Promise<PublicBestSellerList | null> {
+    try {
+      const res = await fetch(`/api/public/best-sellers?_=${Date.now()}`, {
+        cache: 'no-store',
+        headers: {
+          'Cache-Control': 'no-cache',
+          Pragma: 'no-cache',
+        },
+      });
+      if (res.ok) {
+        const json = await res.json();
+        if (json.success && json.list) {
+          return json.list;
+        }
+      }
+    } catch (e) {
+      console.warn('[Repository] Erro ao consultar mais vendidos públicos:', e);
+    }
+    return null;
+  },
+
+  trackBestSellerProductClick(productId: string): void {
+    if (!productId) return;
+    try {
+      const url = '/api/public/best-seller-click';
+      const payload = JSON.stringify({ productId });
+      if (typeof navigator !== 'undefined' && typeof navigator.sendBeacon === 'function') {
+        const blob = new Blob([payload], { type: 'application/json' });
+        const success = navigator.sendBeacon(url, blob);
+        if (success) return;
+      }
+      fetch(url, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: payload,
+        keepalive: true,
+      }).catch(() => {});
+    } catch {
+      // Silencioso
     }
   },
 };

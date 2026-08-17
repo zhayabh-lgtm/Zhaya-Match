@@ -1,6 +1,6 @@
 {
   "name": "Zhaya Match",
-  "description": "Sistema de recomendação de tamanhos, guia de medidas e gerenciador de convites de lives para o e-commerce Zhaya.",
+  "description": "Sistema de recomendação de tamanhos, guia de medidas, ranking de mais vendidos do dia e gerenciador de convites de lives para o e-commerce Zhaya.",
   "requestFramePermissions": [],
   "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
 }

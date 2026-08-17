@@ -447,3 +447,80 @@ export interface PublicLiveInvite {
   status: 'active' | 'ended' | 'not_found';
 }
 
+export type BestSellerCategory = 'Calçado' | 'Bolsa' | 'Cinto' | 'Acessório' | 'Outro' | string;
+
+export interface BestSellerList {
+  id: string;
+  title: string;
+  logoUrl?: string | null;
+  subtitle?: string | null;
+  listDate: string; // YYYY-MM-DD
+  active: boolean;
+  timerEnabled: boolean;
+  timerEnd?: string | null; // ISO 8601
+  timezone: string;
+  createdAt: string;
+  updatedAt?: string;
+  createdBy?: string | null;
+  productsCount?: number;
+  totalClicks?: number;
+  products?: BestSellerProduct[];
+}
+
+export interface BestSellerProduct {
+  id: string;
+  listId: string;
+  position: number;
+  name: string;
+  category: string;
+  imageUrl: string;
+  imageUrls?: string[];
+  productUrl?: string | null;
+  originalPrice?: number | null;
+  promotionalPrice?: number | null;
+  soldQuantity?: number | null;
+  showSoldQuantity: boolean;
+  availableQuantity?: number | null;
+  sizes: string[];
+  colors: string[];
+  badgeEnabled: boolean;
+  badgeText?: string | null;
+  badgeColor?: string;
+  clicks?: number;
+  createdAt?: string;
+  updatedAt?: string;
+}
+
+export interface PublicBestSellerProduct {
+  id: string;
+  position: number;
+  name: string;
+  category: string;
+  imageUrl: string;
+  imageUrls?: string[];
+  productUrl?: string | null;
+  originalPrice?: number | null;
+  promotionalPrice?: number | null;
+  soldQuantity?: number | null;
+  showSoldQuantity: boolean;
+  availableQuantity?: number | null;
+  sizes: string[];
+  colors: string[];
+  badgeEnabled: boolean;
+  badgeText?: string | null;
+  badgeColor?: string;
+}
+
+export interface PublicBestSellerList {
+  id: string;
+  title: string;
+  logoUrl?: string | null;
+  subtitle?: string | null;
+  listDate: string;
+  timerEnabled: boolean;
+  timerEnd?: string | null;
+  timezone: string;
+  products: PublicBestSellerProduct[];
+}
+
+
