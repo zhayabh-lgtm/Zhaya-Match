@@ -49,7 +49,7 @@ function isSafeUrl(value: any): boolean {
 function normalizePublicMediaItems(raw: any, imageUrl: any, imageUrls: any) {
   const source = Array.isArray(raw) ? raw : [];
   const seen = new Set<string>();
-  const items: Array<{ id: string; type: 'image' | 'video'; url: string }> = [];
+  const items: Array<{ id: string; type: 'image' | 'video'; url: string; posterUrl?: string | null }> = [];
   for (let i = 0; i < source.length && items.length < 16; i += 1) {
     const item = source[i] || {};
     const type: 'image' | 'video' = item.type === 'video' ? 'video' : 'image';
@@ -58,7 +58,10 @@ function normalizePublicMediaItems(raw: any, imageUrl: any, imageUrls: any) {
     const key = `${type}:${url}`;
     if (seen.has(key)) continue;
     seen.add(key);
-    items.push({ id: typeof item.id === 'string' && item.id.trim() ? item.id.trim() : `media-${i + 1}`, type, url });
+    const posterUrl = type === 'video' && typeof item.posterUrl === 'string' && isSafeUrl(item.posterUrl)
+      ? item.posterUrl.trim()
+      : null;
+    items.push({ id: typeof item.id === 'string' && item.id.trim() ? item.id.trim() : `media-${i + 1}`, type, url, posterUrl });
   }
   if (items.length > 0) return items;
 

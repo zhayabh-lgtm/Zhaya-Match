@@ -598,6 +598,153 @@ export const MaisVendidos: React.FC = () => {
 
   const makeMediaId = () => `media-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
 
+  // Gera uma capa JPEG real a partir de um frame do vídeo antes do upload.
+  // Isso evita o quadro preto em Safari/iPhone, onde preload/seek nem sempre
+  // produz um frame visual confiável antes de o usuário tocar em play.
+  const generateVideoPosterFile = async (file: File): Promise<File | null> => {
+    if (typeof document === 'undefined' || typeof URL === 'undefined') return null;
+
+    const objectUrl = URL.createObjectURL(file);
+    try {
+      const video = document.createElement('video');
+      video.muted = true;
+      video.playsInline = true;
+      video.preload = 'auto';
+      video.src = objectUrl;
+
+      await new Promise<void>((resolve, reject) => {
+        const timeout = window.setTimeout(() => reject(new Error('Tempo excedido ao preparar a capa.')), 12000);
+        const cleanup = () => window.clearTimeout(timeout);
+        video.onloadedmetadata = () => { cleanup(); resolve(); };
+        video.onerror = () => { cleanup(); reject(new Error('Não foi possível decodificar o vídeo para gerar a capa.')); };
+        video.load();
+      });
+
+      const duration = Number.isFinite(video.duration) ? video.duration : 0;
+      const targetTime = duration > 0.25
+        ? Math.min(Math.max(duration * 0.08, 0.12), Math.min(1.25, duration - 0.05))
+        : Math.max(0, duration * 0.5);
+
+      await new Promise<void>((resolve, reject) => {
+        const timeout = window.setTimeout(() => reject(new Error('Tempo excedido ao capturar a capa.')), 12000);
+        const cleanup = () => window.clearTimeout(timeout);
+        video.onseeked = () => { cleanup(); resolve(); };
+        video.onerror = () => { cleanup(); reject(new Error('Falha ao acessar um frame do vídeo.')); };
+        try {
+          video.currentTime = targetTime;
+        } catch (error) {
+          cleanup(); reject(error);
+        }
+      });
+
+      if (!video.videoWidth || !video.videoHeight) return null;
+      const maxDimension = 1280;
+      const scale = Math.min(1, maxDimension / Math.max(video.videoWidth, video.videoHeight));
+      const width = Math.max(1, Math.round(video.videoWidth * scale));
+      const height = Math.max(1, Math.round(video.videoHeight * scale));
+      const canvas = document.createElement('canvas');
+      canvas.width = width;
+      canvas.height = height;
+      const ctx = canvas.getContext('2d');
+      if (!ctx) return null;
+      ctx.drawImage(video, 0, 0, width, height);
+
+      const blob = await new Promise<Blob | null>((resolve) => canvas.toBlob(resolve, 'image/jpeg', 0.84));
+      if (!blob) return null;
+      const stem = file.name.replace(/\.[^.]+$/, '').replace(/[^a-zA-Z0-9_-]/g, '_').slice(0, 70) || 'video';
+      return new File([blob], `${stem}-poster.jpg`, { type: 'image/jpeg', lastModified: Date.now() });
+    } catch (error) {
+      console.warn('Não foi possível gerar capa automática do vídeo:', error);
+      return null;
+    } finally {
+      URL.revokeObjectURL(objectUrl);
+    }
+  };
+
+  const generateVideoPosterFromRemoteUrl = async (url: string, fileName = 'video'): Promise<File | null> => {
+    if (typeof document === 'undefined') return null;
+    try {
+      const video = document.createElement('video');
+      video.crossOrigin = 'anonymous';
+      video.muted = true;
+      video.playsInline = true;
+      video.preload = 'auto';
+      video.src = url;
+
+      await new Promise<void>((resolve, reject) => {
+        const timeout = window.setTimeout(() => reject(new Error('Tempo excedido ao carregar o vídeo existente.')), 15000);
+        const cleanup = () => window.clearTimeout(timeout);
+        video.onloadedmetadata = () => { cleanup(); resolve(); };
+        video.onerror = () => { cleanup(); reject(new Error('Não foi possível abrir o vídeo existente para gerar a capa.')); };
+        video.load();
+      });
+
+      const duration = Number.isFinite(video.duration) ? video.duration : 0;
+      const targetTime = duration > 0.25
+        ? Math.min(Math.max(duration * 0.08, 0.12), Math.min(1.25, duration - 0.05))
+        : Math.max(0, duration * 0.5);
+
+      await new Promise<void>((resolve, reject) => {
+        const timeout = window.setTimeout(() => reject(new Error('Tempo excedido ao capturar a capa existente.')), 15000);
+        const cleanup = () => window.clearTimeout(timeout);
+        video.onseeked = () => { cleanup(); resolve(); };
+        video.onerror = () => { cleanup(); reject(new Error('Falha ao acessar o frame do vídeo existente.')); };
+        try {
+          video.currentTime = targetTime;
+        } catch (error) {
+          cleanup(); reject(error);
+        }
+      });
+
+      if (!video.videoWidth || !video.videoHeight) return null;
+      const maxDimension = 1280;
+      const scale = Math.min(1, maxDimension / Math.max(video.videoWidth, video.videoHeight));
+      const canvas = document.createElement('canvas');
+      canvas.width = Math.max(1, Math.round(video.videoWidth * scale));
+      canvas.height = Math.max(1, Math.round(video.videoHeight * scale));
+      const ctx = canvas.getContext('2d');
+      if (!ctx) return null;
+      ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+      const blob = await new Promise<Blob | null>((resolve) => canvas.toBlob(resolve, 'image/jpeg', 0.84));
+      if (!blob) return null;
+      const stem = fileName.replace(/\.[^.]+$/, '').replace(/[^a-zA-Z0-9_-]/g, '_').slice(0, 70) || 'video';
+      return new File([blob], `${stem}-poster.jpg`, { type: 'image/jpeg', lastModified: Date.now() });
+    } catch (error) {
+      console.warn('Não foi possível gerar capa para vídeo já cadastrado:', error);
+      return null;
+    }
+  };
+
+  const backfillExistingVideoPosters = async (productId: string, items: BestSellerMediaItem[]) => {
+    const missing = items.filter((item) => item.type === 'video' && !item.posterUrl && Boolean(item.storagePath));
+    if (missing.length === 0 || !isSupabaseConfigured || !supabase) return;
+
+    let next = [...items];
+    let changed = false;
+    for (const item of missing) {
+      try {
+        const posterFile = await generateVideoPosterFromRemoteUrl(item.url, item.id || 'video');
+        if (!posterFile) continue;
+        const uploaded = await uploadBestSellerFile(posterFile, 'image', 'product');
+        next = next.map((entry) => entry.id === item.id ? {
+          ...entry,
+          posterUrl: uploaded.url,
+          posterStoragePath: uploaded.storagePath,
+        } : entry);
+        changed = true;
+      } catch (error) {
+        console.warn('Falha ao completar capa automática de vídeo antigo:', error);
+      }
+    }
+
+    if (!changed) return;
+    setProdFormMediaItems(next);
+    const saved = await Repository.updateBestSellerProduct(productId, { mediaItems: next });
+    if (!saved.success) {
+      console.warn('A capa foi gerada, mas não foi possível persistir no produto:', saved.error);
+    }
+  };
+
   const handleProductMediaFileUpload = async (file: File) => {
     if (!file) return;
     const isVideo = file.type.startsWith('video/');
@@ -619,11 +766,31 @@ export const MaisVendidos: React.FC = () => {
       setUploadingProdImage(isImage);
       setProductError(null);
       const type: 'image' | 'video' = isVideo ? 'video' : 'image';
+      const posterFile = isVideo ? await generateVideoPosterFile(file) : null;
       const uploaded = await uploadBestSellerFile(file, type, 'product');
+      let posterUpload: { url: string; storagePath: string } | null = null;
+      if (posterFile) {
+        try {
+          posterUpload = await uploadBestSellerFile(posterFile, 'image', 'product');
+        } catch (posterError) {
+          console.warn('Vídeo enviado, mas a capa automática não pôde ser salva:', posterError);
+        }
+      }
       setProdFormMediaItems((prev) => [
         ...prev,
-        { id: makeMediaId(), type, url: uploaded.url, storagePath: uploaded.storagePath, source: 'upload' },
+        {
+          id: makeMediaId(),
+          type,
+          url: uploaded.url,
+          storagePath: uploaded.storagePath,
+          posterUrl: posterUpload?.url || null,
+          posterStoragePath: posterUpload?.storagePath || null,
+          source: 'upload',
+        },
       ]);
+      if (isVideo && !posterUpload) {
+        setProductError('Vídeo enviado. A capa automática não pôde ser gerada neste navegador/formato; se houver uma imagem no produto ela será usada como fallback.');
+      }
     } catch (err: any) {
       console.error('Erro no upload de mídia do produto:', err);
       setProductError(err?.message || 'Erro ao enviar mídia para o Supabase Storage.');
@@ -866,6 +1033,7 @@ export const MaisVendidos: React.FC = () => {
       ? prod.mediaItems
       : existingImgs.map((url, index) => ({ id: `legacy-image-${index + 1}`, type: 'image' as const, url, source: 'url' as const }));
     setProdFormMediaItems(existingMedia);
+    void backfillExistingVideoPosters(prod.id, existingMedia);
     setProdFormMediaUrlInput('');
     setProdFormMediaUrlType('image');
     setProdFormProductUrl(prod.productUrl || '');
@@ -888,7 +1056,7 @@ export const MaisVendidos: React.FC = () => {
     setIsProductModalOpen(true);
   };
 
-  const handleAddMediaUrl = () => {
+  const handleAddMediaUrl = async () => {
     const trimmed = prodFormMediaUrlInput.trim();
     if (!trimmed) return;
     try {
@@ -902,9 +1070,29 @@ export const MaisVendidos: React.FC = () => {
       setProdFormMediaUrlInput('');
       return;
     }
+
+    const mediaId = makeMediaId();
+    let posterUrl: string | null = null;
+    let posterStoragePath: string | null = null;
+    if (prodFormMediaUrlType === 'video' && isSupabaseConfigured && supabase) {
+      try {
+        setUploadingProductMedia(true);
+        const posterFile = await generateVideoPosterFromRemoteUrl(trimmed, mediaId);
+        if (posterFile) {
+          const uploadedPoster = await uploadBestSellerFile(posterFile, 'image', 'product');
+          posterUrl = uploadedPoster.url;
+          posterStoragePath = uploadedPoster.storagePath;
+        }
+      } catch (error) {
+        console.warn('URL do vídeo adicionada sem capa automática:', error);
+      } finally {
+        setUploadingProductMedia(false);
+      }
+    }
+
     setProdFormMediaItems((prev) => [
       ...prev,
-      { id: makeMediaId(), type: prodFormMediaUrlType, url: trimmed, storagePath: null, source: 'url' },
+      { id: mediaId, type: prodFormMediaUrlType, url: trimmed, storagePath: null, posterUrl, posterStoragePath, source: 'url' },
     ]);
     setProdFormMediaUrlInput('');
     setProductError(null);
@@ -2387,7 +2575,7 @@ export const MaisVendidos: React.FC = () => {
                         >
                           <div className="w-12 h-14 rounded overflow-hidden bg-neutral-950 shrink-0 flex items-center justify-center">
                             {item.type === 'video' ? (
-                              <video src={item.url} muted playsInline preload="metadata" className="w-full h-full object-cover" />
+                              <video src={item.url} poster={item.posterUrl || undefined} muted playsInline preload="metadata" className="w-full h-full object-cover" />
                             ) : (
                               <img src={item.url} alt="" className="w-full h-full object-cover" />
                             )}
@@ -2827,6 +3015,7 @@ export const MaisVendidos: React.FC = () => {
                       prodFormMediaItems[0].type === 'video' ? (
                         <video
                           src={prodFormMediaItems[0].url}
+                          poster={prodFormMediaItems[0].posterUrl || undefined}
                           muted
                           playsInline
                           controls

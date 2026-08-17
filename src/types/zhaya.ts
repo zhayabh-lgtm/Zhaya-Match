@@ -456,6 +456,8 @@ export interface BestSellerMediaItem {
   type: BestSellerMediaType;
   url: string;
   storagePath?: string | null;
+  posterUrl?: string | null;
+  posterStoragePath?: string | null;
   source?: 'upload' | 'url';
 }
 
@@ -463,6 +465,7 @@ export interface PublicBestSellerMediaItem {
   id: string;
   type: BestSellerMediaType;
   url: string;
+  posterUrl?: string | null;
 }
 
 export interface BestSellerList {

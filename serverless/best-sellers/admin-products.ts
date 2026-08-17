@@ -95,10 +95,10 @@ function isValidSafeUrl(urlStr: any): boolean {
 }
 
 
-function normalizeMediaItems(input: any): Array<{ id: string; type: 'image' | 'video'; url: string; storagePath?: string | null; source?: 'upload' | 'url' }> {
+function normalizeMediaItems(input: any): Array<{ id: string; type: 'image' | 'video'; url: string; storagePath?: string | null; posterUrl?: string | null; posterStoragePath?: string | null; source?: 'upload' | 'url' }> {
   const source = Array.isArray(input) ? input : [];
   const seen = new Set<string>();
-  const result: Array<{ id: string; type: 'image' | 'video'; url: string; storagePath?: string | null; source?: 'upload' | 'url' }> = [];
+  const result: Array<{ id: string; type: 'image' | 'video'; url: string; storagePath?: string | null; posterUrl?: string | null; posterStoragePath?: string | null; source?: 'upload' | 'url' }> = [];
 
   for (let index = 0; index < source.length && result.length < 16; index += 1) {
     const item = source[index] || {};
@@ -112,12 +112,20 @@ function normalizeMediaItems(input: any): Array<{ id: string; type: 'image' | 'v
     const storagePath = typeof item.storagePath === 'string' && item.storagePath.startsWith('bestsellers/')
       ? item.storagePath.trim()
       : null;
+    const posterUrl = type === 'video' && typeof item.posterUrl === 'string' && isValidSafeUrl(item.posterUrl)
+      ? item.posterUrl.trim()
+      : null;
+    const posterStoragePath = type === 'video' && typeof item.posterStoragePath === 'string' && item.posterStoragePath.startsWith('bestsellers/')
+      ? item.posterStoragePath.trim()
+      : null;
 
     result.push({
       id: sanitizeText(item.id) || `media-${index + 1}`,
       type,
       url,
       storagePath,
+      posterUrl,
+      posterStoragePath,
       source: storagePath ? 'upload' : 'url',
     });
   }

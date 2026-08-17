@@ -463,7 +463,7 @@ const ProductMediaGallery: React.FC<{
                 src={currentMedia.url}
                 label={`${productName} - vídeo ${currentIndex + 1}`}
                 onError={() => setFailedMedia((prev) => ({ ...prev, [currentIndex]: true }))}
-                posterUrl={fallbackVideoPoster}
+                posterUrl={currentMedia.posterUrl || fallbackVideoPoster}
               />
             ) : (
               <img
