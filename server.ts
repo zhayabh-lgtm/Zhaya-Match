@@ -16,10 +16,11 @@ import adminLiveInvitesHandler from './api/admin/live-invites.js';
 import publicLiveInviteHandler from './api/public/live-invite.js';
 import publicLiveIcsHandler from './api/public/live-ics.js';
 import publicLiveClickHandler from './api/public/live-click.js';
-import adminBestSellersHandler from './api/admin/best-sellers.js';
-import adminBestSellerProductsHandler from './api/admin/best-seller-products.js';
-import publicBestSellersHandler from './api/public/best-sellers.js';
-import publicBestSellerClickHandler from './api/public/best-seller-click.js';
+import adminBestSellersHandler from './serverless/best-sellers/admin-lists.js';
+import adminBestSellerProductsHandler from './serverless/best-sellers/admin-products.js';
+import publicBestSellersHandler from './serverless/best-sellers/public-list.js';
+import publicBestSellerClickHandler from './serverless/best-sellers/public-click.js';
+import unifiedBestSellersHandler from './api/best-sellers.js';
 
 async function startServer() {
   const app = express();
@@ -183,6 +184,9 @@ async function startServer() {
   app.all('/api/public/live-invite', publicLiveInviteHandler);
   app.all('/api/public/live-ics', publicLiveIcsHandler);
   app.all('/api/public/live-click', publicLiveClickHandler);
+
+  // 6e. Unified Best Sellers API (mesma função usada na Vercel Hobby)
+  app.all('/api/best-sellers', unifiedBestSellersHandler);
 
   // 6e. Admin API - Mais Vendidos do Dia (Lists & Products Management)
   app.all('/api/admin/best-sellers', adminBestSellersHandler);

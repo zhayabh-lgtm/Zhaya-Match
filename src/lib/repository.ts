@@ -1785,7 +1785,7 @@ export const Repository = {
       const headers: Record<string, string> = {};
       if (token) headers['Authorization'] = `Bearer ${token}`;
 
-      const res = await fetch('/api/admin/best-sellers', { headers });
+      const res = await fetch('/api/best-sellers?mode=admin-lists', { headers });
       if (res.ok) {
         const json = await res.json();
         return {
@@ -1813,7 +1813,7 @@ export const Repository = {
       const headers: Record<string, string> = {};
       if (token) headers['Authorization'] = `Bearer ${token}`;
 
-      const res = await fetch(`/api/admin/best-sellers?id=${encodeURIComponent(id)}`, { headers });
+      const res = await fetch(`/api/best-sellers?mode=admin-lists&id=${encodeURIComponent(id)}`, { headers });
       if (res.ok) {
         const json = await res.json();
         if (json.success && json.list) {
@@ -1834,7 +1834,7 @@ export const Repository = {
       };
       if (token) headers['Authorization'] = `Bearer ${token}`;
 
-      const res = await fetch('/api/admin/best-sellers', {
+      const res = await fetch('/api/best-sellers?mode=admin-lists', {
         method: 'POST',
         headers,
         body: JSON.stringify(payload),
@@ -1874,7 +1874,7 @@ export const Repository = {
       };
       if (token) headers['Authorization'] = `Bearer ${token}`;
 
-      const res = await fetch('/api/admin/best-sellers', {
+      const res = await fetch('/api/best-sellers?mode=admin-lists', {
         method: 'PUT',
         headers,
         body: JSON.stringify({ id, ...payload }),
@@ -1896,7 +1896,7 @@ export const Repository = {
       const headers: Record<string, string> = {};
       if (token) headers['Authorization'] = `Bearer ${token}`;
 
-      const res = await fetch(`/api/admin/best-sellers?id=${encodeURIComponent(id)}`, {
+      const res = await fetch(`/api/best-sellers?mode=admin-lists&id=${encodeURIComponent(id)}`, {
         method: 'DELETE',
         headers,
       });
@@ -1915,7 +1915,7 @@ export const Repository = {
       };
       if (token) headers['Authorization'] = `Bearer ${token}`;
 
-      const res = await fetch('/api/admin/best-sellers', {
+      const res = await fetch('/api/best-sellers?mode=admin-lists', {
         method: 'POST',
         headers,
         body: JSON.stringify({
@@ -1943,7 +1943,7 @@ export const Repository = {
       const headers: Record<string, string> = {};
       if (token) headers['Authorization'] = `Bearer ${token}`;
 
-      const res = await fetch(`/api/admin/best-seller-products?listId=${encodeURIComponent(listId)}`, { headers });
+      const res = await fetch(`/api/best-sellers?mode=admin-products&listId=${encodeURIComponent(listId)}`, { headers });
       if (res.ok) {
         const json = await res.json();
         return json.products || [];
@@ -1962,7 +1962,7 @@ export const Repository = {
       };
       if (token) headers['Authorization'] = `Bearer ${token}`;
 
-      const res = await fetch('/api/admin/best-seller-products', {
+      const res = await fetch('/api/best-sellers?mode=admin-products', {
         method: 'POST',
         headers,
         body: JSON.stringify(payload),
@@ -1986,7 +1986,7 @@ export const Repository = {
       };
       if (token) headers['Authorization'] = `Bearer ${token}`;
 
-      const res = await fetch('/api/admin/best-seller-products', {
+      const res = await fetch('/api/best-sellers?mode=admin-products', {
         method: 'PUT',
         headers,
         body: JSON.stringify({ id, ...payload }),
@@ -2008,7 +2008,7 @@ export const Repository = {
       const headers: Record<string, string> = {};
       if (token) headers['Authorization'] = `Bearer ${token}`;
 
-      const res = await fetch(`/api/admin/best-seller-products?id=${encodeURIComponent(id)}`, {
+      const res = await fetch(`/api/best-sellers?mode=admin-products&id=${encodeURIComponent(id)}`, {
         method: 'DELETE',
         headers,
       });
@@ -2027,7 +2027,7 @@ export const Repository = {
       };
       if (token) headers['Authorization'] = `Bearer ${token}`;
 
-      const res = await fetch('/api/admin/best-seller-products', {
+      const res = await fetch('/api/best-sellers?mode=admin-products', {
         method: 'POST',
         headers,
         body: JSON.stringify({ action: 'reorder', listId, productIds }),
@@ -2041,7 +2041,7 @@ export const Repository = {
 
   async getPublicBestSellers(): Promise<PublicBestSellerList | null> {
     try {
-      const res = await fetch(`/api/public/best-sellers?_=${Date.now()}`, {
+      const res = await fetch(`/api/best-sellers?mode=public-list&_=${Date.now()}`, {
         cache: 'no-store',
         headers: {
           'Cache-Control': 'no-cache',
@@ -2063,7 +2063,7 @@ export const Repository = {
   trackBestSellerProductClick(productId: string): void {
     if (!productId) return;
     try {
-      const url = '/api/public/best-seller-click';
+      const url = '/api/best-sellers?mode=public-click';
       const payload = JSON.stringify({ productId });
       if (typeof navigator !== 'undefined' && typeof navigator.sendBeacon === 'function') {
         const blob = new Blob([payload], { type: 'application/json' });
