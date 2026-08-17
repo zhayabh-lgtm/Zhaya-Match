@@ -92,6 +92,11 @@ CREATE TABLE IF NOT EXISTS public.best_seller_products (
   badge_enabled BOOLEAN NOT NULL DEFAULT false,
   badge_text TEXT,
   badge_color TEXT NOT NULL DEFAULT '#FFFFFF',
+  timer_enabled BOOLEAN NOT NULL DEFAULT false,
+  timer_end TIMESTAMPTZ,
+  timer_looping BOOLEAN NOT NULL DEFAULT false,
+  timer_duration_minutes INTEGER CHECK (timer_duration_minutes IS NULL OR (timer_duration_minutes >= 1 AND timer_duration_minutes <= 10080)),
+  timer_color TEXT NOT NULL DEFAULT '#FFFFFF',
   clicks INTEGER NOT NULL DEFAULT 0 CHECK (clicks >= 0),
   created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
   updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
@@ -130,6 +135,11 @@ ALTER TABLE public.best_seller_products ADD COLUMN IF NOT EXISTS installment_val
 ALTER TABLE public.best_seller_products ADD COLUMN IF NOT EXISTS badge_enabled BOOLEAN NOT NULL DEFAULT false;
 ALTER TABLE public.best_seller_products ADD COLUMN IF NOT EXISTS badge_text TEXT;
 ALTER TABLE public.best_seller_products ADD COLUMN IF NOT EXISTS badge_color TEXT NOT NULL DEFAULT '#FFFFFF';
+ALTER TABLE public.best_seller_products ADD COLUMN IF NOT EXISTS timer_enabled BOOLEAN NOT NULL DEFAULT false;
+ALTER TABLE public.best_seller_products ADD COLUMN IF NOT EXISTS timer_end TIMESTAMPTZ;
+ALTER TABLE public.best_seller_products ADD COLUMN IF NOT EXISTS timer_looping BOOLEAN NOT NULL DEFAULT false;
+ALTER TABLE public.best_seller_products ADD COLUMN IF NOT EXISTS timer_duration_minutes INTEGER;
+ALTER TABLE public.best_seller_products ADD COLUMN IF NOT EXISTS timer_color TEXT NOT NULL DEFAULT '#FFFFFF';
 ALTER TABLE public.best_seller_products ADD COLUMN IF NOT EXISTS clicks INTEGER NOT NULL DEFAULT 0;
 
 -- 3.1 Constraints adicionais para instalações existentes
@@ -147,7 +157,28 @@ BEGIN
   END IF;
 END $$;
 
--- 3.2 Constraint do timer evergreen/looping para instalações existentes
+-- 3.2 Timer opcional por produto
+UPDATE public.best_seller_products
+SET timer_duration_minutes = NULL
+WHERE timer_duration_minutes IS NOT NULL
+  AND (timer_duration_minutes < 1 OR timer_duration_minutes > 10080);
+
+DO $$
+BEGIN
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_constraint
+    WHERE conname = 'best_seller_products_timer_duration_minutes_check'
+  ) THEN
+    ALTER TABLE public.best_seller_products
+      ADD CONSTRAINT best_seller_products_timer_duration_minutes_check
+      CHECK (
+        timer_duration_minutes IS NULL
+        OR (timer_duration_minutes >= 1 AND timer_duration_minutes <= 10080)
+      );
+  END IF;
+END $$;
+
+-- 3.3 Constraint do timer evergreen/looping para instalações existentes
 UPDATE public.best_seller_lists
 SET timer_duration_minutes = NULL
 WHERE timer_duration_minutes IS NOT NULL
@@ -392,6 +423,13 @@ export const MaisVendidos: React.FC = () => {
   const [prodFormBadgeEnabled, setProdFormBadgeEnabled] = useState<boolean>(false);
   const [prodFormBadgeText, setProdFormBadgeText] = useState('50% OFF');
   const [prodFormBadgeColor, setProdFormBadgeColor] = useState('#FFFFFF');
+  const [prodFormTimerEnabled, setProdFormTimerEnabled] = useState<boolean>(false);
+  const [prodFormTimerLooping, setProdFormTimerLooping] = useState<boolean>(false);
+  const [prodFormTimerDurationHours, setProdFormTimerDurationHours] = useState('2');
+  const [prodFormTimerDurationMinutes, setProdFormTimerDurationMinutes] = useState('0');
+  const [prodFormTimerDate, setProdFormTimerDate] = useState('');
+  const [prodFormTimerTime, setProdFormTimerTime] = useState('23:59');
+  const [prodFormTimerColor, setProdFormTimerColor] = useState('#FFFFFF');
   const [draggedSizeIndex, setDraggedSizeIndex] = useState<number | null>(null);
   const [savingProduct, setSavingProduct] = useState<boolean>(false);
   const [productError, setProductError] = useState<string | null>(null);
@@ -1017,6 +1055,13 @@ export const MaisVendidos: React.FC = () => {
     setProdFormBadgeEnabled(false);
     setProdFormBadgeText('50% OFF');
     setProdFormBadgeColor('#FFFFFF');
+    setProdFormTimerEnabled(false);
+    setProdFormTimerLooping(false);
+    setProdFormTimerDurationHours('2');
+    setProdFormTimerDurationMinutes('0');
+    setProdFormTimerDate(selectedList.listDate || new Date().toISOString().slice(0, 10));
+    setProdFormTimerTime('23:59');
+    setProdFormTimerColor('#FFFFFF');
     setProductError(null);
     setIsProductModalOpen(true);
   };
@@ -1052,6 +1097,31 @@ export const MaisVendidos: React.FC = () => {
     setProdFormBadgeEnabled(prod.badgeEnabled);
     setProdFormBadgeText(prod.badgeText || '50% OFF');
     setProdFormBadgeColor(prod.badgeColor || '#FFFFFF');
+    setProdFormTimerEnabled(Boolean(prod.timerEnabled));
+    setProdFormTimerLooping(Boolean(prod.timerLooping));
+    const productTimerDuration = Number(prod.timerDurationMinutes || 120);
+    setProdFormTimerDurationHours(String(Math.floor(productTimerDuration / 60)));
+    setProdFormTimerDurationMinutes(String(productTimerDuration % 60));
+    setProdFormTimerColor(prod.timerColor || '#FFFFFF');
+    if (prod.timerEnd) {
+      try {
+        const d = new Date(prod.timerEnd);
+        const datePart = new Intl.DateTimeFormat('en-CA', {
+          timeZone: 'America/Sao_Paulo', year: 'numeric', month: '2-digit', day: '2-digit',
+        }).format(d);
+        const timePart = new Intl.DateTimeFormat('en-GB', {
+          timeZone: 'America/Sao_Paulo', hour: '2-digit', minute: '2-digit', hour12: false,
+        }).format(d);
+        setProdFormTimerDate(datePart);
+        setProdFormTimerTime(timePart);
+      } catch {
+        setProdFormTimerDate(selectedList?.listDate || new Date().toISOString().slice(0, 10));
+        setProdFormTimerTime('23:59');
+      }
+    } else {
+      setProdFormTimerDate(selectedList?.listDate || new Date().toISOString().slice(0, 10));
+      setProdFormTimerTime('23:59');
+    }
     setProductError(null);
     setIsProductModalOpen(true);
   };
@@ -1268,6 +1338,36 @@ export const MaisVendidos: React.FC = () => {
       return;
     }
 
+    let productTimerEndIso: string | null = null;
+    let productTimerDurationValue: number | null = null;
+    if (prodFormTimerEnabled) {
+      if (prodFormTimerLooping) {
+        const hours = Number(prodFormTimerDurationHours || 0);
+        const minutes = Number(prodFormTimerDurationMinutes || 0);
+        const totalMinutes = Math.round(hours * 60 + minutes);
+        if (!Number.isFinite(totalMinutes) || totalMinutes < 1 || totalMinutes > 10080) {
+          setProductError('Informe uma duração entre 1 minuto e 7 dias para o timer do produto.');
+          return;
+        }
+        productTimerDurationValue = totalMinutes;
+      } else {
+        if (!prodFormTimerDate) {
+          setProductError('Informe a data final do timer do produto.');
+          return;
+        }
+        try {
+          const [yyyy, mm, dd] = prodFormTimerDate.split('-').map((part) => part.padStart(2, '0'));
+          const [hh, min] = (prodFormTimerTime || '23:59').split(':').map((part) => part.padStart(2, '0'));
+          const parsed = new Date(`${yyyy}-${mm}-${dd}T${hh}:${min}:00-03:00`);
+          if (Number.isNaN(parsed.getTime())) throw new Error('Invalid Date');
+          productTimerEndIso = parsed.toISOString();
+        } catch {
+          setProductError('Data/hora do timer do produto inválida.');
+          return;
+        }
+      }
+    }
+
     try {
       setSavingProduct(true);
       setProductError(null);
@@ -1292,6 +1392,11 @@ export const MaisVendidos: React.FC = () => {
         badgeEnabled: prodFormBadgeEnabled,
         badgeText: prodFormBadgeEnabled ? prodFormBadgeText.trim() : null,
         badgeColor: prodFormBadgeColor || '#FFFFFF',
+        timerEnabled: prodFormTimerEnabled,
+        timerEnd: prodFormTimerEnabled && !prodFormTimerLooping ? productTimerEndIso : null,
+        timerLooping: prodFormTimerEnabled && prodFormTimerLooping,
+        timerDurationMinutes: prodFormTimerEnabled && prodFormTimerLooping ? productTimerDurationValue : null,
+        timerColor: prodFormTimerColor || '#FFFFFF',
       };
 
       if (editingProduct) {
@@ -3002,7 +3107,92 @@ export const MaisVendidos: React.FC = () => {
                 )}
               </div>
 
-              {/* SEÇÃO 5: PRÉVIA AO VIVO DA VITRINE (DARK) */}
+              {/* SEÇÃO 6: TIMER DO PRODUTO */}
+              <div className="space-y-3 pt-3 border-t border-neutral-100">
+                <div className="flex items-center justify-between gap-3">
+                  <div>
+                    <h4 className="font-bold text-neutral-800 uppercase tracking-wider text-[10px] font-mono">6. Timer do produto</h4>
+                    <p className="text-[10px] text-neutral-500 mt-0.5">Opcional. Aparece pequeno no canto inferior direito da mídia.</p>
+                  </div>
+                  <label className="inline-flex items-center gap-2 cursor-pointer text-xs shrink-0">
+                    <input
+                      type="checkbox"
+                      checked={prodFormTimerEnabled}
+                      onChange={(e) => setProdFormTimerEnabled(e.target.checked)}
+                      className="rounded border-neutral-300 text-neutral-900 focus:ring-neutral-900"
+                    />
+                    <span className="font-semibold text-neutral-800">Ativar</span>
+                  </label>
+                </div>
+
+                {prodFormTimerEnabled && (
+                  <div className="space-y-3 p-3 bg-neutral-50 rounded-lg">
+                    <div className="inline-flex bg-neutral-200/70 p-0.5 rounded">
+                      <button
+                        type="button"
+                        onClick={() => setProdFormTimerLooping(false)}
+                        className={`px-3 py-1.5 rounded text-[10px] font-bold transition-colors ${!prodFormTimerLooping ? 'bg-white text-neutral-950' : 'text-neutral-500 hover:text-neutral-800'}`}
+                      >
+                        Data fixa
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setProdFormTimerLooping(true)}
+                        className={`px-3 py-1.5 rounded text-[10px] font-bold transition-colors ${prodFormTimerLooping ? 'bg-white text-neutral-950' : 'text-neutral-500 hover:text-neutral-800'}`}
+                      >
+                        Looping por visitante
+                      </button>
+                    </div>
+
+                    {prodFormTimerLooping ? (
+                      <div className="space-y-2">
+                        <div className="grid grid-cols-2 gap-2">
+                          <label className="space-y-1">
+                            <span className="text-[10px] font-semibold text-neutral-600">Horas</span>
+                            <input type="number" min="0" max="168" value={prodFormTimerDurationHours} onChange={(e) => setProdFormTimerDurationHours(e.target.value)} className="w-full px-3 py-2 border border-neutral-300 rounded text-xs" />
+                          </label>
+                          <label className="space-y-1">
+                            <span className="text-[10px] font-semibold text-neutral-600">Minutos</span>
+                            <input type="number" min="0" max="59" value={prodFormTimerDurationMinutes} onChange={(e) => setProdFormTimerDurationMinutes(e.target.value)} className="w-full px-3 py-2 border border-neutral-300 rounded text-xs" />
+                          </label>
+                        </div>
+                        <div className="flex flex-wrap gap-1.5">
+                          {[30, 60, 120, 180, 360].map((preset) => (
+                            <button key={preset} type="button" onClick={() => { setProdFormTimerDurationHours(String(Math.floor(preset / 60))); setProdFormTimerDurationMinutes(String(preset % 60)); }} className="px-2 py-1 rounded bg-white text-neutral-700 text-[10px] font-semibold hover:bg-neutral-100">
+                              {preset < 60 ? `${preset} min` : `${preset / 60}h`}
+                            </button>
+                          ))}
+                        </div>
+                        <p className="text-[10px] text-neutral-500">O mesmo navegador mantém o mesmo ciclo; ele só reinicia depois que zerar.</p>
+                      </div>
+                    ) : (
+                      <div className="grid grid-cols-2 gap-2">
+                        <label className="space-y-1">
+                          <span className="text-[10px] font-semibold text-neutral-600">Data final</span>
+                          <input type="date" value={prodFormTimerDate} onChange={(e) => setProdFormTimerDate(e.target.value)} className="w-full px-3 py-2 border border-neutral-300 rounded text-xs" />
+                        </label>
+                        <label className="space-y-1">
+                          <span className="text-[10px] font-semibold text-neutral-600">Horário</span>
+                          <input type="time" value={prodFormTimerTime} onChange={(e) => setProdFormTimerTime(e.target.value)} className="w-full px-3 py-2 border border-neutral-300 rounded text-xs" />
+                        </label>
+                      </div>
+                    )}
+
+                    <div className="flex items-center justify-between gap-3">
+                      <div>
+                        <p className="text-[10px] font-semibold text-neutral-700">Cor do timer</p>
+                        <p className="text-[9px] text-neutral-500">O texto ajusta o contraste automaticamente.</p>
+                      </div>
+                      <div className="flex items-center gap-2">
+                        <input type="color" value={prodFormTimerColor} onChange={(e) => setProdFormTimerColor(e.target.value)} className="w-8 h-8 rounded cursor-pointer" />
+                        <input type="text" value={prodFormTimerColor} onChange={(e) => setProdFormTimerColor(e.target.value)} className="w-24 px-2 py-1.5 font-mono text-xs border border-neutral-300 rounded" />
+                      </div>
+                    </div>
+                  </div>
+                )}
+              </div>
+
+              {/* SEÇÃO 7: PRÉVIA AO VIVO DA VITRINE (DARK) */}
               <div className="space-y-2 pt-3 border-t border-neutral-100">
                 <h4 className="font-bold text-neutral-800 uppercase tracking-wider text-[10px] font-mono flex items-center gap-1.5">
                   <Eye className="w-3.5 h-3.5 text-neutral-500" />
@@ -3086,6 +3276,19 @@ export const MaisVendidos: React.FC = () => {
                             );
                           })}
                         </div>
+                      </div>
+                    )}
+                    {prodFormTimerEnabled && (
+                      <div
+                        className="absolute right-2.5 bottom-3 z-20 px-2 py-1 rounded-[3px] text-[9px] font-black tabular-nums tracking-[0.04em]"
+                        style={{
+                          backgroundColor: prodFormTimerColor || '#FFFFFF',
+                          color: getReadableTextColor(prodFormTimerColor || '#FFFFFF'),
+                          boxShadow: 'none',
+                          textShadow: 'none',
+                        }}
+                      >
+                        12:29:00
                       </div>
                     )}
                   </div>

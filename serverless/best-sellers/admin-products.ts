@@ -219,6 +219,11 @@ export default async function handler(req: any, res: any) {
         badgeEnabled: Boolean(p.badge_enabled),
         badgeText: p.badge_text || null,
         badgeColor: p.badge_color || '#FFFFFF',
+        timerEnabled: Boolean(p.timer_enabled),
+        timerEnd: p.timer_end || null,
+        timerLooping: Boolean(p.timer_looping),
+        timerDurationMinutes: p.timer_duration_minutes ? Number(p.timer_duration_minutes) : null,
+        timerColor: p.timer_color || '#FFFFFF',
         clicks: typeof p.clicks === 'number' ? p.clicks : 0,
         createdAt: p.created_at,
         updatedAt: p.updated_at,
@@ -287,6 +292,11 @@ export default async function handler(req: any, res: any) {
         badgeEnabled,
         badgeText,
         badgeColor,
+        timerEnabled,
+        timerEnd,
+        timerLooping,
+        timerDurationMinutes,
+        timerColor,
       } = body;
 
       const cleanName = sanitizeText(name);
@@ -366,6 +376,24 @@ export default async function handler(req: any, res: any) {
       const isBadgeActive = Boolean(badgeEnabled);
       const cleanBadgeText = isBadgeActive && badgeText ? sanitizeText(String(badgeText)) : null;
       const cleanBadgeColor = normalizeHexColor(badgeColor);
+      const isProductTimerEnabled = Boolean(timerEnabled);
+      const isProductTimerLooping = Boolean(isProductTimerEnabled && timerLooping);
+      let cleanProductTimerEnd: string | null = null;
+      let cleanProductTimerDuration: number | null = null;
+      if (isProductTimerEnabled && isProductTimerLooping) {
+        const duration = Number(timerDurationMinutes);
+        if (!Number.isInteger(duration) || duration < 1 || duration > 10080) {
+          return res.status(400).json({ success: false, message: 'Duração do timer do produto deve ficar entre 1 minuto e 7 dias.' });
+        }
+        cleanProductTimerDuration = duration;
+      } else if (isProductTimerEnabled) {
+        const parsedTimerEnd = new Date(timerEnd);
+        if (!timerEnd || Number.isNaN(parsedTimerEnd.getTime())) {
+          return res.status(400).json({ success: false, message: 'Informe uma data e hora válidas para o timer do produto.' });
+        }
+        cleanProductTimerEnd = parsedTimerEnd.toISOString();
+      }
+      const cleanProductTimerColor = normalizeHexColor(timerColor);
 
       const { data, error } = await supabase
         .from('best_seller_products')
@@ -391,6 +419,11 @@ export default async function handler(req: any, res: any) {
           badge_enabled: isBadgeActive,
           badge_text: cleanBadgeText,
           badge_color: cleanBadgeColor,
+          timer_enabled: isProductTimerEnabled,
+          timer_end: isProductTimerEnabled && !isProductTimerLooping ? cleanProductTimerEnd : null,
+          timer_looping: isProductTimerLooping,
+          timer_duration_minutes: isProductTimerLooping ? cleanProductTimerDuration : null,
+          timer_color: cleanProductTimerColor,
           clicks: 0,
         })
         .select()
@@ -431,6 +464,11 @@ export default async function handler(req: any, res: any) {
         badgeEnabled: Boolean(data.badge_enabled),
         badgeText: data.badge_text || null,
         badgeColor: data.badge_color || '#FFFFFF',
+        timerEnabled: Boolean(data.timer_enabled),
+        timerEnd: data.timer_end || null,
+        timerLooping: Boolean(data.timer_looping),
+        timerDurationMinutes: data.timer_duration_minutes ? Number(data.timer_duration_minutes) : null,
+        timerColor: data.timer_color || '#FFFFFF',
         clicks: 0,
         createdAt: data.created_at,
         updatedAt: data.updated_at,
@@ -506,6 +544,36 @@ export default async function handler(req: any, res: any) {
         updates.badge_color = normalizeHexColor(body.badgeColor);
       }
 
+      if (body.timerEnabled !== undefined || body.timerLooping !== undefined || body.timerEnd !== undefined || body.timerDurationMinutes !== undefined || body.timerColor !== undefined) {
+        const enabled = body.timerEnabled !== undefined ? Boolean(body.timerEnabled) : undefined;
+        const looping = body.timerLooping !== undefined ? Boolean(body.timerLooping) : undefined;
+        if (enabled !== undefined) updates.timer_enabled = enabled;
+        if (looping !== undefined) updates.timer_looping = Boolean((enabled ?? true) && looping);
+        if (body.timerColor !== undefined) updates.timer_color = normalizeHexColor(body.timerColor);
+
+        const effectiveEnabled = enabled !== undefined ? enabled : true;
+        const effectiveLooping = looping !== undefined ? looping : false;
+        if (enabled === false) {
+          updates.timer_end = null;
+          updates.timer_looping = false;
+          updates.timer_duration_minutes = null;
+        } else if (effectiveEnabled && effectiveLooping) {
+          const duration = Number(body.timerDurationMinutes);
+          if (!Number.isInteger(duration) || duration < 1 || duration > 10080) {
+            return res.status(400).json({ success: false, message: 'Duração do timer do produto deve ficar entre 1 minuto e 7 dias.' });
+          }
+          updates.timer_duration_minutes = duration;
+          updates.timer_end = null;
+        } else if (effectiveEnabled && (body.timerEnd !== undefined || enabled === true)) {
+          const parsedTimerEnd = new Date(body.timerEnd);
+          if (!body.timerEnd || Number.isNaN(parsedTimerEnd.getTime())) {
+            return res.status(400).json({ success: false, message: 'Informe uma data e hora válidas para o timer do produto.' });
+          }
+          updates.timer_end = parsedTimerEnd.toISOString();
+          updates.timer_duration_minutes = null;
+          updates.timer_looping = false;
+        }
+      }
 
       if (body.productUrl !== undefined) {
         if (body.productUrl) {
@@ -641,6 +709,11 @@ export default async function handler(req: any, res: any) {
         badgeEnabled: Boolean(data.badge_enabled),
         badgeText: data.badge_text || null,
         badgeColor: data.badge_color || '#FFFFFF',
+        timerEnabled: Boolean(data.timer_enabled),
+        timerEnd: data.timer_end || null,
+        timerLooping: Boolean(data.timer_looping),
+        timerDurationMinutes: data.timer_duration_minutes ? Number(data.timer_duration_minutes) : null,
+        timerColor: data.timer_color || '#FFFFFF',
         clicks: typeof data.clicks === 'number' ? data.clicks : 0,
         createdAt: data.created_at,
         updatedAt: data.updated_at,

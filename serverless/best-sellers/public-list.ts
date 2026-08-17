@@ -168,6 +168,11 @@ export default async function handler(req: any, res: any) {
         badgeEnabled: Boolean(p.badge_enabled),
         badgeText: p.badge_enabled ? p.badge_text || null : null,
         badgeColor: p.badge_color || '#FFFFFF',
+        timerEnabled: Boolean(p.timer_enabled),
+        timerEnd: p.timer_enabled && !p.timer_looping ? p.timer_end || null : null,
+        timerLooping: Boolean(p.timer_enabled && p.timer_looping),
+        timerDurationMinutes: p.timer_enabled && p.timer_looping && p.timer_duration_minutes ? Number(p.timer_duration_minutes) : null,
+        timerColor: p.timer_color || '#FFFFFF',
       };
     });
 

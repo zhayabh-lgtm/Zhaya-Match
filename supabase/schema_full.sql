@@ -583,6 +583,11 @@ CREATE TABLE IF NOT EXISTS public.best_seller_products (
   badge_enabled BOOLEAN NOT NULL DEFAULT false,
   badge_text TEXT,
   badge_color TEXT NOT NULL DEFAULT '#FFFFFF',
+  timer_enabled BOOLEAN NOT NULL DEFAULT false,
+  timer_end TIMESTAMPTZ,
+  timer_looping BOOLEAN NOT NULL DEFAULT false,
+  timer_duration_minutes INTEGER CHECK (timer_duration_minutes IS NULL OR (timer_duration_minutes >= 1 AND timer_duration_minutes <= 10080)),
+  timer_color TEXT NOT NULL DEFAULT '#FFFFFF',
   clicks INTEGER NOT NULL DEFAULT 0 CHECK (clicks >= 0),
   created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
   updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
@@ -609,6 +614,33 @@ ALTER TABLE public.best_seller_products
   ADD COLUMN IF NOT EXISTS installments_count INTEGER;
 ALTER TABLE public.best_seller_products
   ADD COLUMN IF NOT EXISTS installment_value NUMERIC(10, 2);
+ALTER TABLE public.best_seller_products
+  ADD COLUMN IF NOT EXISTS timer_enabled BOOLEAN NOT NULL DEFAULT false;
+ALTER TABLE public.best_seller_products
+  ADD COLUMN IF NOT EXISTS timer_end TIMESTAMPTZ;
+ALTER TABLE public.best_seller_products
+  ADD COLUMN IF NOT EXISTS timer_looping BOOLEAN NOT NULL DEFAULT false;
+ALTER TABLE public.best_seller_products
+  ADD COLUMN IF NOT EXISTS timer_duration_minutes INTEGER;
+ALTER TABLE public.best_seller_products
+  ADD COLUMN IF NOT EXISTS timer_color TEXT NOT NULL DEFAULT '#FFFFFF';
+
+UPDATE public.best_seller_products
+SET timer_duration_minutes = NULL
+WHERE timer_duration_minutes IS NOT NULL
+  AND (timer_duration_minutes < 1 OR timer_duration_minutes > 10080);
+
+DO $$
+BEGIN
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_constraint
+    WHERE conname = 'best_seller_products_timer_duration_minutes_check'
+  ) THEN
+    ALTER TABLE public.best_seller_products
+      ADD CONSTRAINT best_seller_products_timer_duration_minutes_check
+      CHECK (timer_duration_minutes IS NULL OR (timer_duration_minutes >= 1 AND timer_duration_minutes <= 10080));
+  END IF;
+END $$;
 
 UPDATE public.best_seller_lists
 SET timer_duration_minutes = NULL

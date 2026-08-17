@@ -502,7 +502,8 @@ const ProductMediaGallery: React.FC<{
   badgeContent?: React.ReactNode;
   sizes: string[];
   outOfStockSizes: string[];
-}> = ({ mediaItems, productName, isFirst, rankLabel, rankColor, sizeColor, badgeContent, sizes, outOfStockSizes }) => {
+  timerContent?: React.ReactNode;
+}> = ({ mediaItems, productName, isFirst, rankLabel, rankColor, sizeColor, badgeContent, sizes, outOfStockSizes, timerContent }) => {
   const [currentIndex, setCurrentIndex] = useState(0);
   const [failedMedia, setFailedMedia] = useState<Record<number, boolean>>({});
   const [direction, setDirection] = useState(0);
@@ -616,6 +617,12 @@ const ProductMediaGallery: React.FC<{
         </div>
       )}
 
+      {timerContent && (
+        <div className={`absolute right-3.5 z-30 pointer-events-none ${currentMedia?.type === 'video' ? 'bottom-[76px]' : 'bottom-4'}`}>
+          {timerContent}
+        </div>
+      )}
+
       {totalItems > 1 && (
         <>
           <button type="button" onClick={handlePrev} aria-label="Mídia anterior" className="absolute left-2.5 top-1/2 -translate-y-1/2 w-9 h-9 rounded-full bg-black/40 text-white hidden sm:flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity duration-200 hover:bg-black/65 z-30 cursor-pointer">‹</button>
@@ -647,7 +654,8 @@ const ProductItem: React.FC<{
   ctaText: string;
   rankColor: string;
   sizeColor: string;
-}> = ({ product, index, isFirst, ctaText, rankColor, sizeColor }) => {
+  now: number;
+}> = ({ product, index, isFirst, ctaText, rankColor, sizeColor, now }) => {
   const formattedPos = String(product.position || index + 1).padStart(2, '0');
   const soldText = product.showSoldQuantity ? formatSoldQuantityText(product.soldQuantity) : null;
   const availableText = formatAvailableQuantityText(product.availableQuantity);
@@ -667,6 +675,34 @@ const ProductItem: React.FC<{
 
   const badgeBgColor = product.badgeColor || '#FFFFFF';
   const badgeTextColor = useMemo(() => getReadableTextColor(badgeBgColor), [badgeBgColor]);
+
+  const productTimeRemaining = useMemo(() => {
+    if (!product.timerEnabled) return null;
+    if (product.timerLooping && product.timerDurationMinutes && product.timerDurationMinutes > 0) {
+      const evergreenEndMs = getEvergreenTimerEndMs(`product:${product.id}`, product.timerDurationMinutes, now);
+      return calculateTimeRemaining(new Date(evergreenEndMs).toISOString());
+    }
+    if (!product.timerEnd) return null;
+    return calculateTimeRemaining(product.timerEnd);
+  }, [product.id, product.timerEnabled, product.timerLooping, product.timerDurationMinutes, product.timerEnd, now]);
+
+  const productTimerBg = product.timerColor || '#FFFFFF';
+  const productTimerText = useMemo(() => getReadableTextColor(productTimerBg), [productTimerBg]);
+  const productTimerElement = productTimeRemaining ? (
+    <div
+      className="px-2 py-1 rounded-[3px] text-[10px] sm:text-[11px] leading-none font-black tabular-nums tracking-[0.035em]"
+      style={{
+        backgroundColor: productTimerBg,
+        color: productTimerText,
+        boxShadow: 'none',
+        textShadow: 'none',
+        filter: 'none',
+      }}
+      aria-label={`Timer do produto: ${productTimeRemaining.formattedString}`}
+    >
+      {productTimeRemaining.formattedString}
+    </div>
+  ) : null;
 
   const handleProductClick = () => {
     Repository.trackBestSellerProductClick(product.id);
@@ -708,6 +744,7 @@ const ProductItem: React.FC<{
         badgeContent={badgeElement}
         sizes={sizes}
         outOfStockSizes={outOfStockSizes}
+        timerContent={productTimerElement}
       />
 
       <div className="flex flex-col items-center text-center px-2 sm:px-4">
@@ -1052,6 +1089,7 @@ export const MaisVendidosPage: React.FC = () => {
                     ctaText={(listData.ctaText || '').trim() || 'VER PRODUTO'}
                     rankColor={listData.rankColor || '#FFFFFF'}
                     sizeColor={listData.sizeColor || '#FFFFFF'}
+                    now={now}
                   />
                 ))}
               </div>

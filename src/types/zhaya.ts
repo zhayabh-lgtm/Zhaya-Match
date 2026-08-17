@@ -517,6 +517,11 @@ export interface BestSellerProduct {
   badgeEnabled: boolean;
   badgeText?: string | null;
   badgeColor?: string;
+  timerEnabled?: boolean;
+  timerEnd?: string | null;
+  timerLooping?: boolean;
+  timerDurationMinutes?: number | null;
+  timerColor?: string;
   clicks?: number;
   createdAt?: string;
   updatedAt?: string;
@@ -544,6 +549,11 @@ export interface PublicBestSellerProduct {
   badgeEnabled: boolean;
   badgeText?: string | null;
   badgeColor?: string;
+  timerEnabled?: boolean;
+  timerEnd?: string | null;
+  timerLooping?: boolean;
+  timerDurationMinutes?: number | null;
+  timerColor?: string;
 }
 
 export interface PublicBestSellerList {
