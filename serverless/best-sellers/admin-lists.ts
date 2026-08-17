@@ -127,6 +127,7 @@ export default async function handler(req: any, res: any) {
           subtitle: listData.subtitle || null,
           ctaText: listData.cta_text || null,
           rankColor: listData.rank_color || '#FFFFFF',
+          sizeColor: listData.size_color || '#FFFFFF',
           listDate: listData.list_date,
           active: Boolean(listData.active),
           timerEnabled: Boolean(listData.timer_enabled),
@@ -176,6 +177,7 @@ export default async function handler(req: any, res: any) {
           subtitle: row.subtitle || null,
           ctaText: row.cta_text || null,
           rankColor: row.rank_color || '#FFFFFF',
+          sizeColor: row.size_color || '#FFFFFF',
           listDate: row.list_date,
           active: Boolean(row.active),
           timerEnabled: Boolean(row.timer_enabled),
@@ -246,6 +248,7 @@ export default async function handler(req: any, res: any) {
             subtitle: srcList.subtitle || null,
             cta_text: srcList.cta_text || null,
             rank_color: srcList.rank_color || '#FFFFFF',
+            size_color: srcList.size_color || '#FFFFFF',
             list_date: targetDate,
             active: false,
             timer_enabled: false,
@@ -302,6 +305,7 @@ export default async function handler(req: any, res: any) {
           subtitle: newListData.subtitle || null,
           ctaText: newListData.cta_text || null,
           rankColor: newListData.rank_color || '#FFFFFF',
+          sizeColor: newListData.size_color || '#FFFFFF',
           listDate: newListData.list_date,
           active: false,
           timerEnabled: false,
@@ -327,6 +331,7 @@ export default async function handler(req: any, res: any) {
       const subtitle = body.subtitle ? String(body.subtitle).trim() : null;
       const ctaText = body.ctaText ? String(body.ctaText).trim() : null;
       const rankColor = normalizeHexColor(body.rankColor);
+      const sizeColor = normalizeHexColor(body.sizeColor);
       const listDate = body.listDate || new Date().toISOString().slice(0, 10);
       const active = Boolean(body.active);
       const timerEnabled = Boolean(body.timerEnabled);
@@ -356,6 +361,7 @@ export default async function handler(req: any, res: any) {
           subtitle,
           cta_text: ctaText,
           rank_color: rankColor,
+          size_color: sizeColor,
           list_date: listDate,
           active,
           timer_enabled: timerEnabled,
@@ -385,6 +391,7 @@ export default async function handler(req: any, res: any) {
         subtitle: data.subtitle || null,
         ctaText: data.cta_text || null,
         rankColor: data.rank_color || '#FFFFFF',
+        sizeColor: data.size_color || '#FFFFFF',
         listDate: data.list_date,
         active: Boolean(data.active),
         timerEnabled: Boolean(data.timer_enabled),
@@ -426,6 +433,7 @@ export default async function handler(req: any, res: any) {
       if (body.subtitle !== undefined) updates.subtitle = body.subtitle ? String(body.subtitle).trim() : null;
       if (body.ctaText !== undefined) updates.cta_text = body.ctaText ? String(body.ctaText).trim() : null;
       if (body.rankColor !== undefined) updates.rank_color = normalizeHexColor(body.rankColor);
+      if (body.sizeColor !== undefined) updates.size_color = normalizeHexColor(body.sizeColor);
       if (body.listDate !== undefined) updates.list_date = body.listDate;
       if (body.timezone !== undefined) updates.timezone = body.timezone;
       if (body.timerEnabled !== undefined) {
@@ -474,6 +482,7 @@ export default async function handler(req: any, res: any) {
         subtitle: data.subtitle || null,
         ctaText: data.cta_text || null,
         rankColor: data.rank_color || '#FFFFFF',
+        sizeColor: data.size_color || '#FFFFFF',
         listDate: data.list_date,
         active: Boolean(data.active),
         timerEnabled: Boolean(data.timer_enabled),

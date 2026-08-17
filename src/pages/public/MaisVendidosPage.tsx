@@ -151,10 +151,11 @@ const ProductImageGallery: React.FC<{
   isFirst: boolean;
   rankLabel: string;
   rankColor: string;
+  sizeColor: string;
   badgeContent?: React.ReactNode;
   sizes: string[];
   outOfStockSizes: string[];
-}> = ({ images, productName, isFirst, rankLabel, rankColor, badgeContent, sizes, outOfStockSizes }) => {
+}> = ({ images, productName, isFirst, rankLabel, rankColor, sizeColor, badgeContent, sizes, outOfStockSizes }) => {
   const [currentIndex, setCurrentIndex] = useState(0);
   const [failedImages, setFailedImages] = useState<Record<number, boolean>>({});
   const [direction, setDirection] = useState(0);
@@ -251,10 +252,13 @@ const ProductImageGallery: React.FC<{
               return (
                 <span
                   key={size}
-                  className={`relative inline-flex items-center text-[12px] sm:text-[13px] leading-none font-medium ${
-                    unavailable ? 'text-white/35' : 'text-white'
-                  }`}
-                  style={{ textShadow: 'none', filter: 'none' }}
+                  className="relative inline-flex items-center text-[12px] sm:text-[13px] leading-none font-medium"
+                  style={{
+                    color: sizeColor,
+                    opacity: unavailable ? 0.38 : 1,
+                    textShadow: 'none',
+                    filter: 'none',
+                  }}
                 >
                   {size}
                   {unavailable && (
@@ -324,7 +328,8 @@ const ProductItem: React.FC<{
   isFirst: boolean;
   ctaText: string;
   rankColor: string;
-}> = ({ product, index, isFirst, ctaText, rankColor }) => {
+  sizeColor: string;
+}> = ({ product, index, isFirst, ctaText, rankColor, sizeColor }) => {
   const formattedPos = String(product.position || index + 1).padStart(2, '0');
   const soldText = product.showSoldQuantity ? formatSoldQuantityText(product.soldQuantity) : null;
   const availableText = formatAvailableQuantityText(product.availableQuantity);
@@ -378,6 +383,7 @@ const ProductItem: React.FC<{
         isFirst={isFirst}
         rankLabel={formattedPos}
         rankColor={rankColor}
+        sizeColor={sizeColor}
         badgeContent={badgeElement}
         sizes={sizes}
         outOfStockSizes={outOfStockSizes}
@@ -689,6 +695,7 @@ export const MaisVendidosPage: React.FC = () => {
                     isFirst={idx === 0}
                     ctaText={(listData.ctaText || '').trim() || 'VER PRODUTO'}
                     rankColor={listData.rankColor || '#FFFFFF'}
+                    sizeColor={listData.sizeColor || '#FFFFFF'}
                   />
                 ))}
               </div>

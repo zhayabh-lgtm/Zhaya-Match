@@ -456,6 +456,7 @@ export interface BestSellerList {
   subtitle?: string | null;
   ctaText?: string | null;
   rankColor?: string;
+  sizeColor?: string;
   listDate: string; // YYYY-MM-DD
   active: boolean;
   timerEnabled: boolean;
@@ -526,6 +527,7 @@ export interface PublicBestSellerList {
   subtitle?: string | null;
   ctaText?: string | null;
   rankColor?: string;
+  sizeColor?: string;
   listDate: string;
   timerEnabled: boolean;
   timerEnd?: string | null;

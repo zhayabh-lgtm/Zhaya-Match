@@ -137,6 +137,7 @@ export default async function handler(req: any, res: any) {
       subtitle: activeList.subtitle || null,
       ctaText: activeList.cta_text || null,
       rankColor: activeList.rank_color || '#FFFFFF',
+      sizeColor: activeList.size_color || '#FFFFFF',
       listDate: activeList.list_date,
       timerEnabled: Boolean(activeList.timer_enabled),
       timerEnd: activeList.timer_enabled ? activeList.timer_end || null : null,

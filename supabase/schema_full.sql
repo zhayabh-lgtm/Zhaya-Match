@@ -545,6 +545,7 @@ CREATE TABLE IF NOT EXISTS public.best_seller_lists (
   subtitle TEXT,
   cta_text TEXT,
   rank_color TEXT NOT NULL DEFAULT '#FFFFFF',
+  size_color TEXT NOT NULL DEFAULT '#FFFFFF',
   list_date DATE NOT NULL DEFAULT CURRENT_DATE,
   active BOOLEAN NOT NULL DEFAULT false,
   timer_enabled BOOLEAN NOT NULL DEFAULT false,
@@ -590,6 +591,8 @@ ALTER TABLE public.best_seller_lists
   ADD COLUMN IF NOT EXISTS cta_text TEXT;
 ALTER TABLE public.best_seller_lists
   ADD COLUMN IF NOT EXISTS rank_color TEXT NOT NULL DEFAULT '#FFFFFF';
+ALTER TABLE public.best_seller_lists
+  ADD COLUMN IF NOT EXISTS size_color TEXT NOT NULL DEFAULT '#FFFFFF';
 ALTER TABLE public.best_seller_products
   ADD COLUMN IF NOT EXISTS original_price NUMERIC(10, 2);
 ALTER TABLE public.best_seller_products

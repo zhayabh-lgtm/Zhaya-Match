@@ -49,6 +49,7 @@ CREATE TABLE IF NOT EXISTS public.best_seller_lists (
   subtitle TEXT,
   cta_text TEXT,
   rank_color TEXT NOT NULL DEFAULT '#FFFFFF',
+  size_color TEXT NOT NULL DEFAULT '#FFFFFF',
   list_date DATE NOT NULL DEFAULT CURRENT_DATE,
   active BOOLEAN NOT NULL DEFAULT false,
   timer_enabled BOOLEAN NOT NULL DEFAULT false,
@@ -92,6 +93,7 @@ ALTER TABLE public.best_seller_lists ADD COLUMN IF NOT EXISTS logo_url TEXT;
 ALTER TABLE public.best_seller_lists ADD COLUMN IF NOT EXISTS subtitle TEXT;
 ALTER TABLE public.best_seller_lists ADD COLUMN IF NOT EXISTS cta_text TEXT;
 ALTER TABLE public.best_seller_lists ADD COLUMN IF NOT EXISTS rank_color TEXT NOT NULL DEFAULT '#FFFFFF';
+ALTER TABLE public.best_seller_lists ADD COLUMN IF NOT EXISTS size_color TEXT NOT NULL DEFAULT '#FFFFFF';
 ALTER TABLE public.best_seller_lists ADD COLUMN IF NOT EXISTS timer_enabled BOOLEAN NOT NULL DEFAULT false;
 ALTER TABLE public.best_seller_lists ADD COLUMN IF NOT EXISTS timer_end TIMESTAMPTZ;
 ALTER TABLE public.best_seller_lists ADD COLUMN IF NOT EXISTS timezone TEXT NOT NULL DEFAULT 'America/Sao_Paulo';
@@ -288,6 +290,7 @@ export const MaisVendidos: React.FC = () => {
   const [listFormSubtitle, setListFormSubtitle] = useState('');
   const [listFormCtaText, setListFormCtaText] = useState('');
   const [listFormRankColor, setListFormRankColor] = useState('#FFFFFF');
+  const [listFormSizeColor, setListFormSizeColor] = useState('#FFFFFF');
   const [listFormDate, setListFormDate] = useState('');
   const [listFormActive, setListFormActive] = useState<boolean>(false);
   const [listFormTimerEnabled, setListFormTimerEnabled] = useState<boolean>(false);
@@ -397,6 +400,7 @@ export const MaisVendidos: React.FC = () => {
     setListFormSubtitle('');
     setListFormCtaText('');
     setListFormRankColor('#FFFFFF');
+    setListFormSizeColor('#FFFFFF');
     const today = new Date().toISOString().slice(0, 10);
     setListFormDate(today);
     setListFormActive(lists.length === 0); // Ativa por padrão se for a primeira
@@ -418,6 +422,7 @@ export const MaisVendidos: React.FC = () => {
     setListFormSubtitle(list.subtitle || '');
     setListFormCtaText(list.ctaText || '');
     setListFormRankColor(list.rankColor || '#FFFFFF');
+    setListFormSizeColor(list.sizeColor || '#FFFFFF');
     setListFormDate(list.listDate);
     setListFormActive(list.active);
     setListFormTimerEnabled(list.timerEnabled);
@@ -618,6 +623,7 @@ export const MaisVendidos: React.FC = () => {
           subtitle: listFormSubtitle.trim() || null,
           ctaText: listFormCtaText.trim() || null,
           rankColor: listFormRankColor || '#FFFFFF',
+          sizeColor: listFormSizeColor || '#FFFFFF',
           listDate: listFormDate,
           active: listFormActive,
           timerEnabled: listFormTimerEnabled,
@@ -639,6 +645,7 @@ export const MaisVendidos: React.FC = () => {
           subtitle: listFormSubtitle.trim() || null,
           ctaText: listFormCtaText.trim() || null,
           rankColor: listFormRankColor || '#FFFFFF',
+          sizeColor: listFormSizeColor || '#FFFFFF',
           listDate: listFormDate,
           active: listFormActive,
           timerEnabled: listFormTimerEnabled,
@@ -1588,8 +1595,8 @@ export const MaisVendidos: React.FC = () => {
       {/* ========================================================================= */}
       {isListModalOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50 backdrop-blur-xs">
-          <div className="bg-white rounded-lg border border-neutral-200 shadow-xl max-w-lg w-full overflow-hidden animate-in fade-in zoom-in-95 duration-150">
-            <div className="px-5 py-4 border-b border-neutral-200 flex items-center justify-between">
+          <div className="bg-white rounded-lg border border-neutral-200 shadow-xl max-w-lg w-full max-h-[90vh] flex flex-col overflow-hidden animate-in fade-in zoom-in-95 duration-150">
+            <div className="px-5 py-4 border-b border-neutral-200 flex items-center justify-between shrink-0">
               <h3 className="text-sm font-bold text-neutral-900">
                 {editingList ? 'Editar Lista de Mais Vendidos' : 'Criar Nova Lista de Mais Vendidos'}
               </h3>
@@ -1602,7 +1609,7 @@ export const MaisVendidos: React.FC = () => {
               </button>
             </div>
 
-            <form onSubmit={handleSaveList} className="p-5 space-y-4 text-xs">
+            <form onSubmit={handleSaveList} className="p-5 space-y-4 text-xs overflow-y-auto overscroll-contain flex-1 min-h-0">
               {listError && (
                 <div className="p-3 rounded bg-red-50 text-red-800 border border-red-200 text-xs">
                   {listError}
@@ -1834,6 +1841,26 @@ export const MaisVendidos: React.FC = () => {
                     className="w-24 px-2.5 py-2 border border-neutral-300 rounded text-xs font-mono uppercase"
                   />
                   <span className="text-[10px] text-neutral-500">A mesma cor será usada em #01, #02, #03 e todos os produtos desta lista.</span>
+                </div>
+              </div>
+
+              <div className="space-y-1.5">
+                <label className="font-semibold text-neutral-700">Cor dos tamanhos na vitrine</label>
+                <div className="flex items-center gap-2">
+                  <input
+                    type="color"
+                    value={listFormSizeColor}
+                    onChange={(e) => setListFormSizeColor(e.target.value.toUpperCase())}
+                    className="h-9 w-11 p-1 border border-neutral-300 rounded bg-white cursor-pointer"
+                  />
+                  <input
+                    type="text"
+                    value={listFormSizeColor}
+                    onChange={(e) => setListFormSizeColor(e.target.value.toUpperCase())}
+                    maxLength={7}
+                    className="w-24 px-2.5 py-2 border border-neutral-300 rounded text-xs font-mono uppercase"
+                  />
+                  <span className="text-[10px] text-neutral-500">Define a cor dos números de tamanho exibidos sobre as fotos nesta lista.</span>
                 </div>
               </div>
 
