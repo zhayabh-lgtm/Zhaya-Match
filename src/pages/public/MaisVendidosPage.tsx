@@ -228,33 +228,41 @@ const ProductImageGallery: React.FC<{
 
       {badgeContent}
 
-      {/* Ranking: todos usam o mesmo tamanho; a cor é definida por produto no painel. */}
+      {/* Ranking: todos usam o mesmo tamanho e a mesma cor definida na lista. */}
       <div
-        className="absolute left-3.5 top-3 z-20 pointer-events-none text-[36px] sm:text-[40px] leading-none font-black tracking-[-0.07em] drop-shadow-[0_1px_4px_rgba(0,0,0,0.35)]"
-        style={{ color: rankColor }}
+        className="absolute left-3.5 top-3 z-20 pointer-events-none text-[27px] sm:text-[29px] leading-none font-semibold tracking-[-0.045em]"
+        style={{
+          color: rankColor,
+          textShadow: 'none',
+          WebkitTextStroke: '0px transparent',
+          filter: 'none',
+        }}
         aria-label={`Posição ${rankLabel}`}
       >
         #{rankLabel}
       </div>
 
-      {/* Tamanhos: somente os quadrados, sem título e sem fundo preenchido. */}
+      {/* Tamanhos: texto puro em coluna na lateral esquerda da foto. */}
       {sizes.length > 0 && (
-        <div className="absolute left-3 bottom-3 z-20 max-w-[80%] pointer-events-none">
-          <div className="flex flex-wrap gap-1.5">
+        <div className="absolute left-3.5 bottom-4 z-20 pointer-events-none">
+          <div className="flex flex-col items-start gap-y-2">
             {sizes.map((size) => {
               const unavailable = unavailableSet.has(size);
               return (
                 <span
                   key={size}
-                  className={`relative h-8 min-w-8 px-2 inline-flex items-center justify-center border text-[11px] font-semibold backdrop-blur-[1px] ${
-                    unavailable
-                      ? 'border-white/30 text-white/45'
-                      : 'border-white/70 text-white'
-                  } drop-shadow-[0_1px_2px_rgba(0,0,0,0.65)]`}
+                  className={`relative inline-flex items-center text-[12px] sm:text-[13px] leading-none font-medium ${
+                    unavailable ? 'text-white/35' : 'text-white'
+                  }`}
+                  style={{ textShadow: 'none', filter: 'none' }}
                 >
                   {size}
                   {unavailable && (
-                    <span className="absolute -top-1.5 -right-1 text-[15px] leading-none font-black text-red-500 drop-shadow-sm" aria-label="Fora de estoque">
+                    <span
+                      className="absolute left-full ml-1 -top-1 text-[12px] leading-none font-semibold text-red-500"
+                      style={{ textShadow: 'none', filter: 'none' }}
+                      aria-label="Fora de estoque"
+                    >
                       ×
                     </span>
                   )}
@@ -285,7 +293,7 @@ const ProductImageGallery: React.FC<{
           </button>
 
           {/* Sem contador numérico: apenas pontos discretos. */}
-          <div className="absolute right-3.5 bottom-3.5 z-20 flex items-center gap-1.5" aria-label="Galeria de imagens">
+          <div className="absolute left-1/2 -translate-x-1/2 bottom-3.5 z-20 flex items-center justify-center gap-1.5" aria-label="Galeria de imagens">
             {images.map((_, dotIndex) => (
               <button
                 key={dotIndex}
@@ -315,7 +323,8 @@ const ProductItem: React.FC<{
   index: number;
   isFirst: boolean;
   ctaText: string;
-}> = ({ product, index, isFirst, ctaText }) => {
+  rankColor: string;
+}> = ({ product, index, isFirst, ctaText, rankColor }) => {
   const formattedPos = String(product.position || index + 1).padStart(2, '0');
   const soldText = product.showSoldQuantity ? formatSoldQuantityText(product.soldQuantity) : null;
   const availableText = formatAvailableQuantityText(product.availableQuantity);
@@ -368,7 +377,7 @@ const ProductItem: React.FC<{
         productName={product.name}
         isFirst={isFirst}
         rankLabel={formattedPos}
-        rankColor={product.rankColor || '#FFFFFF'}
+        rankColor={rankColor}
         badgeContent={badgeElement}
         sizes={sizes}
         outOfStockSizes={outOfStockSizes}
@@ -679,6 +688,7 @@ export const MaisVendidosPage: React.FC = () => {
                     index={idx}
                     isFirst={idx === 0}
                     ctaText={(listData.ctaText || '').trim() || 'VER PRODUTO'}
+                    rankColor={listData.rankColor || '#FFFFFF'}
                   />
                 ))}
               </div>

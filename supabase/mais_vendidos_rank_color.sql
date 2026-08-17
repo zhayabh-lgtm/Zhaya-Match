@@ -1,7 +1,7 @@
--- Zhaya Match — cor individual do ranking dos Mais Vendidos
--- Seguro para rodar em uma instalação existente. Não apaga dados.
+-- Zhaya Match — cor única do ranking por lista de Mais Vendidos
+-- Seguro para instalações existentes. Não apaga dados.
 
-ALTER TABLE public.best_seller_products
+ALTER TABLE public.best_seller_lists
   ADD COLUMN IF NOT EXISTS rank_color TEXT NOT NULL DEFAULT '#FFFFFF';
 
 NOTIFY pgrst, 'reload schema';

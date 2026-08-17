@@ -455,6 +455,7 @@ export interface BestSellerList {
   logoUrl?: string | null;
   subtitle?: string | null;
   ctaText?: string | null;
+  rankColor?: string;
   listDate: string; // YYYY-MM-DD
   active: boolean;
   timerEnabled: boolean;
@@ -490,7 +491,6 @@ export interface BestSellerProduct {
   badgeEnabled: boolean;
   badgeText?: string | null;
   badgeColor?: string;
-  rankColor?: string;
   clicks?: number;
   createdAt?: string;
   updatedAt?: string;
@@ -517,7 +517,6 @@ export interface PublicBestSellerProduct {
   badgeEnabled: boolean;
   badgeText?: string | null;
   badgeColor?: string;
-  rankColor?: string;
 }
 
 export interface PublicBestSellerList {
@@ -526,6 +525,7 @@ export interface PublicBestSellerList {
   logoUrl?: string | null;
   subtitle?: string | null;
   ctaText?: string | null;
+  rankColor?: string;
   listDate: string;
   timerEnabled: boolean;
   timerEnd?: string | null;

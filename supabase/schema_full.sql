@@ -544,6 +544,7 @@ CREATE TABLE IF NOT EXISTS public.best_seller_lists (
   logo_url TEXT,
   subtitle TEXT,
   cta_text TEXT,
+  rank_color TEXT NOT NULL DEFAULT '#FFFFFF',
   list_date DATE NOT NULL DEFAULT CURRENT_DATE,
   active BOOLEAN NOT NULL DEFAULT false,
   timer_enabled BOOLEAN NOT NULL DEFAULT false,
@@ -579,7 +580,6 @@ CREATE TABLE IF NOT EXISTS public.best_seller_products (
   badge_enabled BOOLEAN NOT NULL DEFAULT false,
   badge_text TEXT,
   badge_color TEXT NOT NULL DEFAULT '#FFFFFF',
-  rank_color TEXT NOT NULL DEFAULT '#FFFFFF',
   clicks INTEGER NOT NULL DEFAULT 0 CHECK (clicks >= 0),
   created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
   updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
@@ -588,6 +588,8 @@ CREATE TABLE IF NOT EXISTS public.best_seller_products (
 -- Compatibilidade com instalações existentes: adiciona campos sem apagar dados.
 ALTER TABLE public.best_seller_lists
   ADD COLUMN IF NOT EXISTS cta_text TEXT;
+ALTER TABLE public.best_seller_lists
+  ADD COLUMN IF NOT EXISTS rank_color TEXT NOT NULL DEFAULT '#FFFFFF';
 ALTER TABLE public.best_seller_products
   ADD COLUMN IF NOT EXISTS original_price NUMERIC(10, 2);
 ALTER TABLE public.best_seller_products
@@ -598,8 +600,6 @@ ALTER TABLE public.best_seller_products
   ADD COLUMN IF NOT EXISTS installments_count INTEGER;
 ALTER TABLE public.best_seller_products
   ADD COLUMN IF NOT EXISTS installment_value NUMERIC(10, 2);
-ALTER TABLE public.best_seller_products
-  ADD COLUMN IF NOT EXISTS rank_color TEXT NOT NULL DEFAULT '#FFFFFF';
 
 CREATE INDEX IF NOT EXISTS idx_best_seller_lists_active ON public.best_seller_lists(active);
 CREATE INDEX IF NOT EXISTS idx_best_seller_lists_date ON public.best_seller_lists(list_date DESC);

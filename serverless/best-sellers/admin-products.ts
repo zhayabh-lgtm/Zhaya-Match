@@ -166,7 +166,6 @@ export default async function handler(req: any, res: any) {
         badgeEnabled: Boolean(p.badge_enabled),
         badgeText: p.badge_text || null,
         badgeColor: p.badge_color || '#FFFFFF',
-        rankColor: p.rank_color || '#FFFFFF',
         clicks: typeof p.clicks === 'number' ? p.clicks : 0,
         createdAt: p.created_at,
         updatedAt: p.updated_at,
@@ -234,7 +233,6 @@ export default async function handler(req: any, res: any) {
         badgeEnabled,
         badgeText,
         badgeColor,
-        rankColor,
       } = body;
 
       const cleanName = sanitizeText(name);
@@ -322,7 +320,6 @@ export default async function handler(req: any, res: any) {
       const isBadgeActive = Boolean(badgeEnabled);
       const cleanBadgeText = isBadgeActive && badgeText ? sanitizeText(String(badgeText)) : null;
       const cleanBadgeColor = normalizeHexColor(badgeColor);
-      const cleanRankColor = normalizeHexColor(rankColor);
 
       const { data, error } = await supabase
         .from('best_seller_products')
@@ -347,7 +344,6 @@ export default async function handler(req: any, res: any) {
           badge_enabled: isBadgeActive,
           badge_text: cleanBadgeText,
           badge_color: cleanBadgeColor,
-          rank_color: cleanRankColor,
           clicks: 0,
         })
         .select()
@@ -387,7 +383,6 @@ export default async function handler(req: any, res: any) {
         badgeEnabled: Boolean(data.badge_enabled),
         badgeText: data.badge_text || null,
         badgeColor: data.badge_color || '#FFFFFF',
-        rankColor: data.rank_color || '#FFFFFF',
         clicks: 0,
         createdAt: data.created_at,
         updatedAt: data.updated_at,
@@ -455,9 +450,6 @@ export default async function handler(req: any, res: any) {
         updates.badge_color = normalizeHexColor(body.badgeColor);
       }
 
-      if (body.rankColor !== undefined) {
-        updates.rank_color = normalizeHexColor(body.rankColor);
-      }
 
       if (body.productUrl !== undefined) {
         if (body.productUrl) {
@@ -592,7 +584,6 @@ export default async function handler(req: any, res: any) {
         badgeEnabled: Boolean(data.badge_enabled),
         badgeText: data.badge_text || null,
         badgeColor: data.badge_color || '#FFFFFF',
-        rankColor: data.rank_color || '#FFFFFF',
         clicks: typeof data.clicks === 'number' ? data.clicks : 0,
         createdAt: data.created_at,
         updatedAt: data.updated_at,

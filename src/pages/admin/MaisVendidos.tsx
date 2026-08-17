@@ -27,6 +27,7 @@ import {
   MousePointerClick,
   Upload,
   Loader2,
+  GripVertical,
 } from 'lucide-react';
 import { Repository } from '../../lib/repository';
 import { getReadableTextColor } from '../../lib/contrast';
@@ -47,6 +48,7 @@ CREATE TABLE IF NOT EXISTS public.best_seller_lists (
   logo_url TEXT,
   subtitle TEXT,
   cta_text TEXT,
+  rank_color TEXT NOT NULL DEFAULT '#FFFFFF',
   list_date DATE NOT NULL DEFAULT CURRENT_DATE,
   active BOOLEAN NOT NULL DEFAULT false,
   timer_enabled BOOLEAN NOT NULL DEFAULT false,
@@ -80,7 +82,6 @@ CREATE TABLE IF NOT EXISTS public.best_seller_products (
   badge_enabled BOOLEAN NOT NULL DEFAULT false,
   badge_text TEXT,
   badge_color TEXT NOT NULL DEFAULT '#FFFFFF',
-  rank_color TEXT NOT NULL DEFAULT '#FFFFFF',
   clicks INTEGER NOT NULL DEFAULT 0 CHECK (clicks >= 0),
   created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
   updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
@@ -90,6 +91,7 @@ CREATE TABLE IF NOT EXISTS public.best_seller_products (
 ALTER TABLE public.best_seller_lists ADD COLUMN IF NOT EXISTS logo_url TEXT;
 ALTER TABLE public.best_seller_lists ADD COLUMN IF NOT EXISTS subtitle TEXT;
 ALTER TABLE public.best_seller_lists ADD COLUMN IF NOT EXISTS cta_text TEXT;
+ALTER TABLE public.best_seller_lists ADD COLUMN IF NOT EXISTS rank_color TEXT NOT NULL DEFAULT '#FFFFFF';
 ALTER TABLE public.best_seller_lists ADD COLUMN IF NOT EXISTS timer_enabled BOOLEAN NOT NULL DEFAULT false;
 ALTER TABLE public.best_seller_lists ADD COLUMN IF NOT EXISTS timer_end TIMESTAMPTZ;
 ALTER TABLE public.best_seller_lists ADD COLUMN IF NOT EXISTS timezone TEXT NOT NULL DEFAULT 'America/Sao_Paulo';
@@ -110,7 +112,6 @@ ALTER TABLE public.best_seller_products ADD COLUMN IF NOT EXISTS installment_val
 ALTER TABLE public.best_seller_products ADD COLUMN IF NOT EXISTS badge_enabled BOOLEAN NOT NULL DEFAULT false;
 ALTER TABLE public.best_seller_products ADD COLUMN IF NOT EXISTS badge_text TEXT;
 ALTER TABLE public.best_seller_products ADD COLUMN IF NOT EXISTS badge_color TEXT NOT NULL DEFAULT '#FFFFFF';
-ALTER TABLE public.best_seller_products ADD COLUMN IF NOT EXISTS rank_color TEXT NOT NULL DEFAULT '#FFFFFF';
 ALTER TABLE public.best_seller_products ADD COLUMN IF NOT EXISTS clicks INTEGER NOT NULL DEFAULT 0;
 
 -- 3.1 Constraints adicionais para instalações existentes
@@ -240,6 +241,9 @@ function normalizeSizeValues(values: string[] | string): string[] {
   return Array.from(new Set(parsed));
 }
 
+const NUMERIC_SIZE_PRESET = Array.from({ length: 10 }, (_, index) => String(33 + index));
+const LETTER_SIZE_PRESET = ['PP', 'P', 'M', 'G', 'GG'];
+
 function parseAdminPrice(value: string): number | null {
   const clean = String(value || '').trim();
   if (!clean) return null;
@@ -283,6 +287,7 @@ export const MaisVendidos: React.FC = () => {
   const [listFormLogoUrl, setListFormLogoUrl] = useState('');
   const [listFormSubtitle, setListFormSubtitle] = useState('');
   const [listFormCtaText, setListFormCtaText] = useState('');
+  const [listFormRankColor, setListFormRankColor] = useState('#FFFFFF');
   const [listFormDate, setListFormDate] = useState('');
   const [listFormActive, setListFormActive] = useState<boolean>(false);
   const [listFormTimerEnabled, setListFormTimerEnabled] = useState<boolean>(false);
@@ -322,7 +327,7 @@ export const MaisVendidos: React.FC = () => {
   const [prodFormBadgeEnabled, setProdFormBadgeEnabled] = useState<boolean>(false);
   const [prodFormBadgeText, setProdFormBadgeText] = useState('50% OFF');
   const [prodFormBadgeColor, setProdFormBadgeColor] = useState('#FFFFFF');
-  const [prodFormRankColor, setProdFormRankColor] = useState('#FFFFFF');
+  const [draggedSizeIndex, setDraggedSizeIndex] = useState<number | null>(null);
   const [savingProduct, setSavingProduct] = useState<boolean>(false);
   const [productError, setProductError] = useState<string | null>(null);
   const [uploadingProdImage, setUploadingProdImage] = useState<boolean>(false);
@@ -391,6 +396,7 @@ export const MaisVendidos: React.FC = () => {
     setListFormLogoUrl('');
     setListFormSubtitle('');
     setListFormCtaText('');
+    setListFormRankColor('#FFFFFF');
     const today = new Date().toISOString().slice(0, 10);
     setListFormDate(today);
     setListFormActive(lists.length === 0); // Ativa por padrão se for a primeira
@@ -411,6 +417,7 @@ export const MaisVendidos: React.FC = () => {
     setListFormLogoUrl(list.logoUrl || '');
     setListFormSubtitle(list.subtitle || '');
     setListFormCtaText(list.ctaText || '');
+    setListFormRankColor(list.rankColor || '#FFFFFF');
     setListFormDate(list.listDate);
     setListFormActive(list.active);
     setListFormTimerEnabled(list.timerEnabled);
@@ -610,6 +617,7 @@ export const MaisVendidos: React.FC = () => {
           logoUrl: listFormLogoUrl.trim() || null,
           subtitle: listFormSubtitle.trim() || null,
           ctaText: listFormCtaText.trim() || null,
+          rankColor: listFormRankColor || '#FFFFFF',
           listDate: listFormDate,
           active: listFormActive,
           timerEnabled: listFormTimerEnabled,
@@ -630,6 +638,7 @@ export const MaisVendidos: React.FC = () => {
           logoUrl: listFormLogoUrl.trim() || null,
           subtitle: listFormSubtitle.trim() || null,
           ctaText: listFormCtaText.trim() || null,
+          rankColor: listFormRankColor || '#FFFFFF',
           listDate: listFormDate,
           active: listFormActive,
           timerEnabled: listFormTimerEnabled,
@@ -720,7 +729,6 @@ export const MaisVendidos: React.FC = () => {
     setProdFormBadgeEnabled(false);
     setProdFormBadgeText('50% OFF');
     setProdFormBadgeColor('#FFFFFF');
-    setProdFormRankColor('#FFFFFF');
     setProductError(null);
     setIsProductModalOpen(true);
   };
@@ -749,7 +757,6 @@ export const MaisVendidos: React.FC = () => {
     setProdFormBadgeEnabled(prod.badgeEnabled);
     setProdFormBadgeText(prod.badgeText || '50% OFF');
     setProdFormBadgeColor(prod.badgeColor || '#FFFFFF');
-    setProdFormRankColor(prod.rankColor || '#FFFFFF');
     setProductError(null);
     setIsProductModalOpen(true);
   };
@@ -775,11 +782,11 @@ export const MaisVendidos: React.FC = () => {
     }
   };
 
-  // Adiciona tamanhos aceitando vírgulas, ponto e vírgula ou quebra de linha.
+  // Adiciona um tamanho por vez. Presets são usados para grupos prontos.
   const handleAddSize = () => {
-    const incoming = normalizeSizeValues(prodFormSizeInput);
-    if (incoming.length === 0) return;
-    setProdFormSizes((prev) => normalizeSizeValues([...prev, ...incoming]));
+    const size = prodFormSizeInput.trim();
+    if (!size) return;
+    setProdFormSizes((prev) => (prev.includes(size) ? prev : [...prev, size]));
     setProdFormSizeInput('');
   };
 
@@ -792,6 +799,24 @@ export const MaisVendidos: React.FC = () => {
     setProdFormOutOfStockSizes((prev) =>
       prev.includes(size) ? prev.filter((s) => s !== size) : [...prev, size]
     );
+  };
+
+  const handleApplySizePreset = (preset: string[]) => {
+    setProdFormSizes((prev) => normalizeSizeValues([...prev, ...preset]));
+  };
+
+  const handleDropSize = (targetIndex: number) => {
+    if (draggedSizeIndex === null || draggedSizeIndex === targetIndex) {
+      setDraggedSizeIndex(null);
+      return;
+    }
+    setProdFormSizes((prev) => {
+      const next = [...prev];
+      const [moved] = next.splice(draggedSizeIndex, 1);
+      next.splice(targetIndex, 0, moved);
+      return next;
+    });
+    setDraggedSizeIndex(null);
   };
 
   // Add Color chip
@@ -909,7 +934,6 @@ export const MaisVendidos: React.FC = () => {
         badgeEnabled: prodFormBadgeEnabled,
         badgeText: prodFormBadgeEnabled ? prodFormBadgeText.trim() : null,
         badgeColor: prodFormBadgeColor || '#FFFFFF',
-        rankColor: prodFormRankColor || '#FFFFFF',
       };
 
       if (editingProduct) {
@@ -1793,6 +1817,26 @@ export const MaisVendidos: React.FC = () => {
                 <p className="text-[10px] text-neutral-500">Se ficar vazio, todos os produtos usam “VER PRODUTO”.</p>
               </div>
 
+              <div className="space-y-1.5">
+                <label className="font-semibold text-neutral-700">Cor dos números do ranking</label>
+                <div className="flex items-center gap-2">
+                  <input
+                    type="color"
+                    value={listFormRankColor}
+                    onChange={(e) => setListFormRankColor(e.target.value.toUpperCase())}
+                    className="h-9 w-11 p-1 border border-neutral-300 rounded bg-white cursor-pointer"
+                  />
+                  <input
+                    type="text"
+                    value={listFormRankColor}
+                    onChange={(e) => setListFormRankColor(e.target.value.toUpperCase())}
+                    maxLength={7}
+                    className="w-24 px-2.5 py-2 border border-neutral-300 rounded text-xs font-mono uppercase"
+                  />
+                  <span className="text-[10px] text-neutral-500">A mesma cor será usada em #01, #02, #03 e todos os produtos desta lista.</span>
+                </div>
+              </div>
+
               <div className="space-y-1">
                 <label className="font-semibold text-neutral-700">Data da Lista *</label>
                 <input
@@ -2179,10 +2223,28 @@ export const MaisVendidos: React.FC = () => {
                 <h4 className="font-bold text-neutral-800 uppercase tracking-wider text-[10px] font-mono border-b border-neutral-100 pb-1">
                   4. Variações (Tamanhos e Cores)
                 </h4>
-
                 {/* Tamanhos */}
-                <div className="space-y-2">
-                  <label className="font-semibold text-neutral-700">Tamanhos</label>
+                <div className="space-y-2.5">
+                  <div className="flex flex-wrap items-center justify-between gap-2">
+                    <label className="font-semibold text-neutral-700">Tamanhos</label>
+                    <div className="flex flex-wrap gap-1.5">
+                      <button
+                        type="button"
+                        onClick={() => handleApplySizePreset(NUMERIC_SIZE_PRESET)}
+                        className="px-2.5 py-1.5 rounded border border-neutral-300 bg-white text-[10px] font-semibold text-neutral-700 hover:border-neutral-900 hover:text-neutral-900 cursor-pointer"
+                      >
+                        Preset 33–42
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => handleApplySizePreset(LETTER_SIZE_PRESET)}
+                        className="px-2.5 py-1.5 rounded border border-neutral-300 bg-white text-[10px] font-semibold text-neutral-700 hover:border-neutral-900 hover:text-neutral-900 cursor-pointer"
+                      >
+                        Preset PP–GG
+                      </button>
+                    </div>
+                  </div>
+
                   <div className="flex items-center gap-2">
                     <input
                       type="text"
@@ -2194,39 +2256,53 @@ export const MaisVendidos: React.FC = () => {
                           handleAddSize();
                         }
                       }}
-                      placeholder="Ex: 34"
-                      className="w-28 px-3 py-2 border border-neutral-300 rounded focus:ring-1 focus:ring-neutral-900 focus:outline-none text-xs"
+                      placeholder="Outro tamanho"
+                      className="w-32 px-3 py-2 border border-neutral-300 rounded focus:ring-1 focus:ring-neutral-900 focus:outline-none text-xs"
                     />
                     <button
                       type="button"
                       onClick={handleAddSize}
                       className="px-3 py-2 bg-neutral-900 text-white rounded text-xs font-semibold hover:bg-black cursor-pointer"
                     >
-                      Adicionar tamanho
+                      Adicionar
                     </button>
                   </div>
 
                   {prodFormSizes.length > 0 && (
                     <>
                       <div className="flex flex-wrap gap-2 pt-1">
-                        {prodFormSizes.map((size) => {
+                        {prodFormSizes.map((size, index) => {
                           const unavailable = prodFormOutOfStockSizes.includes(size);
                           return (
-                            <div key={size} className="inline-flex items-center gap-1">
+                            <div
+                              key={size}
+                              draggable
+                              onDragStart={() => setDraggedSizeIndex(index)}
+                              onDragOver={(e) => e.preventDefault()}
+                              onDrop={() => handleDropSize(index)}
+                              onDragEnd={() => setDraggedSizeIndex(null)}
+                              className={`inline-flex items-center rounded border bg-white overflow-hidden transition-opacity ${
+                                draggedSizeIndex === index ? 'opacity-45 border-neutral-400' : 'border-neutral-300'
+                              }`}
+                            >
+                              <span
+                                className="h-9 w-7 inline-flex items-center justify-center text-neutral-400 cursor-grab active:cursor-grabbing border-r border-neutral-200"
+                                title="Arraste para mudar a ordem"
+                              >
+                                <GripVertical className="w-3.5 h-3.5" />
+                              </span>
                               <button
                                 type="button"
                                 onClick={() => handleToggleSizeStock(size)}
                                 title={unavailable ? 'Esgotado — clique para marcar disponível' : 'Disponível — clique para marcar esgotado'}
-                                className={`group relative h-10 min-w-10 px-2 inline-flex items-center justify-center border text-xs font-semibold transition-colors cursor-pointer ${
-                                  unavailable
-                                    ? 'border-neutral-300 text-neutral-400 bg-neutral-50'
-                                    : 'border-neutral-900 text-neutral-900 bg-white hover:bg-neutral-50'
+                                className={`group relative h-9 min-w-10 px-2 inline-flex items-center justify-center text-xs font-semibold cursor-pointer ${
+                                  unavailable ? 'text-neutral-400 bg-neutral-50' : 'text-neutral-900 hover:bg-neutral-50'
                                 }`}
                               >
                                 {size}
                                 <span
-                                  className={`absolute -top-1.5 -right-1 text-[16px] leading-none font-black text-red-500 transition-opacity ${
-                                    unavailable ? 'opacity-100' : 'opacity-0 group-hover:opacity-35'
+                                  className={`absolute -top-0.5 right-0.5 text-[14px] leading-none font-black text-red-500 transition-opacity ${
+                                    unavailable ? 'opacity-100' : 'opacity-0 group-hover:opacity-30'
                                   }`}
                                   aria-hidden="true"
                                 >
@@ -2236,7 +2312,7 @@ export const MaisVendidos: React.FC = () => {
                               <button
                                 type="button"
                                 onClick={() => handleRemoveSize(size)}
-                                className="p-1 text-neutral-300 hover:text-red-600 cursor-pointer"
+                                className="h-9 w-7 inline-flex items-center justify-center text-neutral-300 hover:text-red-600 border-l border-neutral-200 cursor-pointer"
                                 aria-label={`Remover tamanho ${size}`}
                                 title="Remover tamanho"
                               >
@@ -2246,7 +2322,7 @@ export const MaisVendidos: React.FC = () => {
                           );
                         })}
                       </div>
-                      <p className="text-[10px] text-neutral-500">Clique no quadrado do tamanho para colocar ou retirar o X de esgotado.</p>
+                      <p className="text-[10px] text-neutral-500">Arraste pelo ícone para mudar a ordem. Clique no tamanho para marcar ou retirar o X de esgotado.</p>
                     </>
                   )}
                 </div>
@@ -2304,26 +2380,6 @@ export const MaisVendidos: React.FC = () => {
                 <h4 className="font-bold text-neutral-800 uppercase tracking-wider text-[10px] font-mono border-b border-neutral-100 pb-1">
                   5. Destaque visual
                 </h4>
-
-                <div className="space-y-1.5">
-                  <label className="font-semibold text-neutral-700">Cor do número do ranking</label>
-                  <div className="flex items-center gap-2">
-                    <input
-                      type="color"
-                      value={prodFormRankColor}
-                      onChange={(e) => setProdFormRankColor(e.target.value)}
-                      className="h-9 w-11 p-1 border border-neutral-300 rounded bg-white cursor-pointer"
-                    />
-                    <input
-                      type="text"
-                      value={prodFormRankColor}
-                      onChange={(e) => setProdFormRankColor(e.target.value)}
-                      maxLength={7}
-                      className="w-24 px-2.5 py-2 border border-neutral-300 rounded text-xs font-mono uppercase"
-                    />
-                    <span className="text-[10px] text-neutral-500">Define a cor de #{String(editingProduct ? editingProduct.position : products.length + 1).padStart(2, '0')}.</span>
-                  </div>
-                </div>
 
                 <label className="flex items-center gap-2 cursor-pointer text-xs">
                   <input
@@ -2444,21 +2500,37 @@ export const MaisVendidos: React.FC = () => {
                     )}
 
                     <div
-                      className="absolute left-2.5 top-2.5 z-10 text-2xl font-black tracking-[-0.06em] leading-none"
-                      style={{ color: prodFormRankColor || '#FFFFFF' }}
+                      className="absolute left-2.5 top-2.5 z-10 text-[18px] font-semibold tracking-[-0.04em] leading-none"
+                      style={{
+                        color: selectedList?.rankColor || '#FFFFFF',
+                        textShadow: 'none',
+                        WebkitTextStroke: '0px transparent',
+                        filter: 'none',
+                      }}
                     >
                       #{String(editingProduct ? editingProduct.position : products.length + 1).padStart(2, '0')}
                     </div>
 
                     {prodFormSizes.length > 0 && (
-                      <div className="absolute left-2.5 bottom-2.5 z-10 max-w-[78%]">
-                        <div className="flex flex-wrap gap-1">
-                          {normalizeSizeValues(prodFormSizes).map((size) => {
+                      <div className="absolute left-2.5 bottom-3 z-10">
+                        <div className="flex flex-col items-start gap-y-1.5">
+                          {prodFormSizes.map((size) => {
                             const unavailable = prodFormOutOfStockSizes.includes(size);
                             return (
-                              <span key={size} className={`relative h-6 min-w-6 px-1.5 inline-flex items-center justify-center border text-[8px] font-semibold ${unavailable ? 'border-white/30 text-white/45' : 'border-white/70 text-white'}`}>
+                              <span
+                                key={size}
+                                className={`relative inline-flex items-center text-[9px] leading-none font-medium ${unavailable ? 'text-white/35' : 'text-white'}`}
+                                style={{ textShadow: 'none', filter: 'none' }}
+                              >
                                 {size}
-                                {unavailable && <span className="absolute -top-1.5 -right-1 text-red-500 text-xs font-black">×</span>}
+                                {unavailable && (
+                                  <span
+                                    className="absolute left-full ml-1 -top-1 text-red-500 text-[9px] font-semibold leading-none"
+                                    style={{ textShadow: 'none', filter: 'none' }}
+                                  >
+                                    ×
+                                  </span>
+                                )}
                               </span>
                             );
                           })}
