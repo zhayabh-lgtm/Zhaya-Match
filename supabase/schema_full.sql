@@ -545,6 +545,8 @@ CREATE TABLE IF NOT EXISTS public.best_seller_lists (
   logo_url TEXT,
   subtitle TEXT,
   cta_text TEXT,
+  show_date BOOLEAN NOT NULL DEFAULT true,
+  show_ranking BOOLEAN NOT NULL DEFAULT true,
   rank_color TEXT NOT NULL DEFAULT '#FFFFFF',
   size_color TEXT NOT NULL DEFAULT '#FFFFFF',
   list_date DATE NOT NULL DEFAULT CURRENT_DATE,
@@ -597,6 +599,10 @@ CREATE TABLE IF NOT EXISTS public.best_seller_products (
 -- Compatibilidade com instalações existentes: adiciona campos sem apagar dados.
 ALTER TABLE public.best_seller_lists
   ADD COLUMN IF NOT EXISTS cta_text TEXT;
+ALTER TABLE public.best_seller_lists
+  ADD COLUMN IF NOT EXISTS show_date BOOLEAN NOT NULL DEFAULT true;
+ALTER TABLE public.best_seller_lists
+  ADD COLUMN IF NOT EXISTS show_ranking BOOLEAN NOT NULL DEFAULT true;
 ALTER TABLE public.best_seller_lists
   ADD COLUMN IF NOT EXISTS rank_color TEXT NOT NULL DEFAULT '#FFFFFF';
 ALTER TABLE public.best_seller_lists

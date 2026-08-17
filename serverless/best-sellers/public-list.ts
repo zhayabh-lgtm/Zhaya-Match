@@ -202,6 +202,8 @@ export default async function handler(req: any, res: any) {
       logoUrl: activeList.logo_url || null,
       subtitle: activeList.subtitle || null,
       ctaText: activeList.cta_text || null,
+      showDate: activeList.show_date !== false,
+      showRanking: activeList.show_ranking !== false,
       rankColor: activeList.rank_color || '#FFFFFF',
       sizeColor: activeList.size_color || '#FFFFFF',
       backgroundVideoUrl: activeList.background_video_url || null,

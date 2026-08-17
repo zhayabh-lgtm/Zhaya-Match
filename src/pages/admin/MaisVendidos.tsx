@@ -52,6 +52,8 @@ CREATE TABLE IF NOT EXISTS public.best_seller_lists (
   logo_url TEXT,
   subtitle TEXT,
   cta_text TEXT,
+  show_date BOOLEAN NOT NULL DEFAULT true,
+  show_ranking BOOLEAN NOT NULL DEFAULT true,
   rank_color TEXT NOT NULL DEFAULT '#FFFFFF',
   size_color TEXT NOT NULL DEFAULT '#FFFFFF',
   background_video_url TEXT,
@@ -108,6 +110,8 @@ ALTER TABLE public.best_seller_lists ADD COLUMN IF NOT EXISTS slug TEXT;
 ALTER TABLE public.best_seller_lists ADD COLUMN IF NOT EXISTS logo_url TEXT;
 ALTER TABLE public.best_seller_lists ADD COLUMN IF NOT EXISTS subtitle TEXT;
 ALTER TABLE public.best_seller_lists ADD COLUMN IF NOT EXISTS cta_text TEXT;
+ALTER TABLE public.best_seller_lists ADD COLUMN IF NOT EXISTS show_date BOOLEAN NOT NULL DEFAULT true;
+ALTER TABLE public.best_seller_lists ADD COLUMN IF NOT EXISTS show_ranking BOOLEAN NOT NULL DEFAULT true;
 ALTER TABLE public.best_seller_lists ADD COLUMN IF NOT EXISTS rank_color TEXT NOT NULL DEFAULT '#FFFFFF';
 ALTER TABLE public.best_seller_lists ADD COLUMN IF NOT EXISTS size_color TEXT NOT NULL DEFAULT '#FFFFFF';
 ALTER TABLE public.best_seller_lists ADD COLUMN IF NOT EXISTS background_video_url TEXT;
@@ -385,6 +389,8 @@ export const MaisVendidos: React.FC = () => {
   const [listFormLogoUrl, setListFormLogoUrl] = useState('');
   const [listFormSubtitle, setListFormSubtitle] = useState('');
   const [listFormCtaText, setListFormCtaText] = useState('');
+  const [listFormShowDate, setListFormShowDate] = useState<boolean>(true);
+  const [listFormShowRanking, setListFormShowRanking] = useState<boolean>(true);
   const [listFormRankColor, setListFormRankColor] = useState('#FFFFFF');
   const [listFormSizeColor, setListFormSizeColor] = useState('#FFFFFF');
   const [listFormBackgroundVideoUrl, setListFormBackgroundVideoUrl] = useState('');
@@ -517,6 +523,8 @@ export const MaisVendidos: React.FC = () => {
     setListFormLogoUrl('');
     setListFormSubtitle('');
     setListFormCtaText('');
+    setListFormShowDate(true);
+    setListFormShowRanking(true);
     setListFormRankColor('#FFFFFF');
     setListFormSizeColor('#FFFFFF');
     setListFormBackgroundVideoUrl('');
@@ -546,6 +554,8 @@ export const MaisVendidos: React.FC = () => {
     setListFormLogoUrl(list.logoUrl || '');
     setListFormSubtitle(list.subtitle || '');
     setListFormCtaText(list.ctaText || '');
+    setListFormShowDate(list.showDate !== false);
+    setListFormShowRanking(list.showRanking !== false);
     setListFormRankColor(list.rankColor || '#FFFFFF');
     setListFormSizeColor(list.sizeColor || '#FFFFFF');
     setListFormBackgroundVideoUrl(list.backgroundVideoUrl || '');
@@ -945,6 +955,8 @@ export const MaisVendidos: React.FC = () => {
           logoUrl: listFormLogoUrl.trim() || null,
           subtitle: listFormSubtitle.trim() || null,
           ctaText: listFormCtaText.trim() || null,
+          showDate: listFormShowDate,
+          showRanking: listFormShowRanking,
           rankColor: listFormRankColor || '#FFFFFF',
           sizeColor: listFormSizeColor || '#FFFFFF',
           backgroundVideoUrl: listFormBackgroundVideoUrl.trim() || null,
@@ -972,6 +984,8 @@ export const MaisVendidos: React.FC = () => {
           logoUrl: listFormLogoUrl.trim() || null,
           subtitle: listFormSubtitle.trim() || null,
           ctaText: listFormCtaText.trim() || null,
+          showDate: listFormShowDate,
+          showRanking: listFormShowRanking,
           rankColor: listFormRankColor || '#FFFFFF',
           sizeColor: listFormSizeColor || '#FFFFFF',
           backgroundVideoUrl: listFormBackgroundVideoUrl.trim() || null,
@@ -2329,6 +2343,31 @@ export const MaisVendidos: React.FC = () => {
                   className="w-full px-3 py-2 border border-neutral-300 rounded focus:ring-1 focus:ring-neutral-900 focus:outline-none text-xs"
                 />
                 <p className="text-[10px] text-neutral-500">Se ficar vazio, todos os produtos usam “VER PRODUTO”.</p>
+              </div>
+
+              <div className="space-y-2 rounded-lg bg-neutral-50 border border-neutral-200 p-3">
+                <div>
+                  <p className="font-semibold text-neutral-800">Exibição na página</p>
+                  <p className="text-[10px] text-neutral-500 mt-0.5">Desative quando quiser usar a lista com uma composição diferente.</p>
+                </div>
+                <label className="flex items-center gap-2.5 cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={listFormShowDate}
+                    onChange={(e) => setListFormShowDate(e.target.checked)}
+                    className="rounded border-neutral-300 text-neutral-900 focus:ring-neutral-900"
+                  />
+                  <span className="font-semibold text-neutral-700">Mostrar data no topo</span>
+                </label>
+                <label className="flex items-center gap-2.5 cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={listFormShowRanking}
+                    onChange={(e) => setListFormShowRanking(e.target.checked)}
+                    className="rounded border-neutral-300 text-neutral-900 focus:ring-neutral-900"
+                  />
+                  <span className="font-semibold text-neutral-700">Mostrar #01, #02, #03...</span>
+                </label>
               </div>
 
               <div className="space-y-1.5">

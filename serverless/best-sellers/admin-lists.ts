@@ -155,6 +155,8 @@ export default async function handler(req: any, res: any) {
           logoUrl: listData.logo_url || null,
           subtitle: listData.subtitle || null,
           ctaText: listData.cta_text || null,
+          showDate: listData.show_date !== false,
+          showRanking: listData.show_ranking !== false,
           rankColor: listData.rank_color || '#FFFFFF',
           sizeColor: listData.size_color || '#FFFFFF',
           backgroundVideoUrl: listData.background_video_url || null,
@@ -211,6 +213,8 @@ export default async function handler(req: any, res: any) {
           logoUrl: row.logo_url || null,
           subtitle: row.subtitle || null,
           ctaText: row.cta_text || null,
+          showDate: row.show_date !== false,
+          showRanking: row.show_ranking !== false,
           rankColor: row.rank_color || '#FFFFFF',
           sizeColor: row.size_color || '#FFFFFF',
           backgroundVideoUrl: row.background_video_url || null,
@@ -288,6 +292,8 @@ export default async function handler(req: any, res: any) {
             logo_url: srcList.logo_url || null,
             subtitle: srcList.subtitle || null,
             cta_text: srcList.cta_text || null,
+            show_date: srcList.show_date !== false,
+            show_ranking: srcList.show_ranking !== false,
             rank_color: srcList.rank_color || '#FFFFFF',
             size_color: srcList.size_color || '#FFFFFF',
             background_video_url: srcList.background_video_url || null,
@@ -352,6 +358,8 @@ export default async function handler(req: any, res: any) {
           logoUrl: newListData.logo_url || null,
           subtitle: newListData.subtitle || null,
           ctaText: newListData.cta_text || null,
+          showDate: newListData.show_date !== false,
+          showRanking: newListData.show_ranking !== false,
           rankColor: newListData.rank_color || '#FFFFFF',
           sizeColor: newListData.size_color || '#FFFFFF',
           backgroundVideoUrl: newListData.background_video_url || null,
@@ -383,6 +391,8 @@ export default async function handler(req: any, res: any) {
       const logoUrl = body.logoUrl ? String(body.logoUrl).trim() : null;
       const subtitle = body.subtitle ? String(body.subtitle).trim() : null;
       const ctaText = body.ctaText ? String(body.ctaText).trim() : null;
+      const showDate = body.showDate !== false;
+      const showRanking = body.showRanking !== false;
       const rankColor = normalizeHexColor(body.rankColor);
       const sizeColor = normalizeHexColor(body.sizeColor);
       const backgroundVideoUrl = body.backgroundVideoUrl ? String(body.backgroundVideoUrl).trim() : null;
@@ -431,6 +441,8 @@ export default async function handler(req: any, res: any) {
           logo_url: logoUrl,
           subtitle,
           cta_text: ctaText,
+          show_date: showDate,
+          show_ranking: showRanking,
           rank_color: rankColor,
           size_color: sizeColor,
           background_video_url: backgroundVideoUrl,
@@ -467,6 +479,8 @@ export default async function handler(req: any, res: any) {
         logoUrl: data.logo_url || null,
         subtitle: data.subtitle || null,
         ctaText: data.cta_text || null,
+        showDate: data.show_date !== false,
+        showRanking: data.show_ranking !== false,
         rankColor: data.rank_color || '#FFFFFF',
         sizeColor: data.size_color || '#FFFFFF',
         backgroundVideoUrl: data.background_video_url || null,
@@ -514,6 +528,8 @@ export default async function handler(req: any, res: any) {
       if (body.logoUrl !== undefined) updates.logo_url = body.logoUrl ? String(body.logoUrl).trim() : null;
       if (body.subtitle !== undefined) updates.subtitle = body.subtitle ? String(body.subtitle).trim() : null;
       if (body.ctaText !== undefined) updates.cta_text = body.ctaText ? String(body.ctaText).trim() : null;
+      if (body.showDate !== undefined) updates.show_date = Boolean(body.showDate);
+      if (body.showRanking !== undefined) updates.show_ranking = Boolean(body.showRanking);
       if (body.rankColor !== undefined) updates.rank_color = normalizeHexColor(body.rankColor);
       if (body.sizeColor !== undefined) updates.size_color = normalizeHexColor(body.sizeColor);
       if (body.backgroundVideoUrl !== undefined) {
@@ -607,6 +623,8 @@ export default async function handler(req: any, res: any) {
         logoUrl: data.logo_url || null,
         subtitle: data.subtitle || null,
         ctaText: data.cta_text || null,
+        showDate: data.show_date !== false,
+        showRanking: data.show_ranking !== false,
         rankColor: data.rank_color || '#FFFFFF',
         sizeColor: data.size_color || '#FFFFFF',
         backgroundVideoUrl: data.background_video_url || null,

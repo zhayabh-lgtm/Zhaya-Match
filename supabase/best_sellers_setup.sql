@@ -13,6 +13,8 @@ CREATE TABLE IF NOT EXISTS public.best_seller_lists (
   logo_url TEXT,
   subtitle TEXT,
   cta_text TEXT,
+  show_date BOOLEAN NOT NULL DEFAULT true,
+  show_ranking BOOLEAN NOT NULL DEFAULT true,
   rank_color TEXT NOT NULL DEFAULT '#FFFFFF',
   size_color TEXT NOT NULL DEFAULT '#FFFFFF',
   background_video_url TEXT,
@@ -69,6 +71,8 @@ ALTER TABLE public.best_seller_lists ADD COLUMN IF NOT EXISTS slug TEXT;
 ALTER TABLE public.best_seller_lists ADD COLUMN IF NOT EXISTS logo_url TEXT;
 ALTER TABLE public.best_seller_lists ADD COLUMN IF NOT EXISTS subtitle TEXT;
 ALTER TABLE public.best_seller_lists ADD COLUMN IF NOT EXISTS cta_text TEXT;
+ALTER TABLE public.best_seller_lists ADD COLUMN IF NOT EXISTS show_date BOOLEAN NOT NULL DEFAULT true;
+ALTER TABLE public.best_seller_lists ADD COLUMN IF NOT EXISTS show_ranking BOOLEAN NOT NULL DEFAULT true;
 ALTER TABLE public.best_seller_lists ADD COLUMN IF NOT EXISTS rank_color TEXT NOT NULL DEFAULT '#FFFFFF';
 ALTER TABLE public.best_seller_lists ADD COLUMN IF NOT EXISTS size_color TEXT NOT NULL DEFAULT '#FFFFFF';
 ALTER TABLE public.best_seller_lists ADD COLUMN IF NOT EXISTS background_video_url TEXT;

@@ -456,7 +456,7 @@ const GalleryVideo: React.FC<{
       {/* Controles aparecem somente depois que o player foi realmente aberto. */}
       {activated && videoReady && (
         <div
-          className="absolute left-3 right-3 bottom-2.5 z-40 flex items-center gap-2.5 text-white"
+          className="absolute left-3 right-3 bottom-10 z-40 flex items-center gap-2.5 text-white"
           onPointerDown={stopPointer}
           onClick={(event) => event.stopPropagation()}
         >
@@ -516,11 +516,12 @@ const ProductMediaGallery: React.FC<{
   rankLabel: string;
   rankColor: string;
   sizeColor: string;
+  showRanking: boolean;
   badgeContent?: React.ReactNode;
   sizes: string[];
   outOfStockSizes: string[];
   timerContent?: React.ReactNode;
-}> = ({ mediaItems, productName, isFirst, rankLabel, rankColor, sizeColor, badgeContent, sizes, outOfStockSizes, timerContent }) => {
+}> = ({ mediaItems, productName, isFirst, rankLabel, rankColor, sizeColor, showRanking, badgeContent, sizes, outOfStockSizes, timerContent }) => {
   const [currentIndex, setCurrentIndex] = useState(0);
   const [failedMedia, setFailedMedia] = useState<Record<number, boolean>>({});
   const [direction, setDirection] = useState(0);
@@ -625,13 +626,15 @@ const ProductMediaGallery: React.FC<{
 
       {badgeContent}
 
-      <div
-        className="absolute left-3.5 top-3 z-20 pointer-events-none text-[27px] sm:text-[29px] leading-none font-black tracking-[-0.055em]"
-        style={{ color: rankColor, textShadow: 'none', WebkitTextStroke: '0px transparent', filter: 'none' }}
-        aria-label={`Posição ${rankLabel}`}
-      >
-        #{rankLabel}
-      </div>
+      {showRanking && (
+        <div
+          className="absolute left-3.5 top-3 z-20 pointer-events-none text-[27px] sm:text-[29px] leading-none font-black tracking-[-0.055em]"
+          style={{ color: rankColor, textShadow: 'none', WebkitTextStroke: '0px transparent', filter: 'none' }}
+          aria-label={`Posição ${rankLabel}`}
+        >
+          #{rankLabel}
+        </div>
+      )}
 
       {sizes.length > 0 && (
         <div className={`absolute left-3.5 z-20 pointer-events-none ${currentMedia?.type === 'video' ? 'bottom-[76px]' : 'bottom-4'}`}>
@@ -656,7 +659,7 @@ const ProductMediaGallery: React.FC<{
       )}
 
       {timerContent && (
-        <div className={`absolute right-3.5 z-30 pointer-events-none ${currentMedia?.type === 'video' ? 'bottom-[76px]' : 'bottom-4'}`}>
+        <div className="absolute right-3.5 bottom-4 z-30 pointer-events-none">
           {timerContent}
         </div>
       )}
@@ -665,7 +668,7 @@ const ProductMediaGallery: React.FC<{
         <>
           <button type="button" onClick={handlePrev} aria-label="Mídia anterior" className="absolute left-2.5 top-1/2 -translate-y-1/2 w-9 h-9 rounded-full bg-black/40 text-white hidden sm:flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity duration-200 hover:bg-black/65 z-30 cursor-pointer">‹</button>
           <button type="button" onClick={handleNext} aria-label="Próxima mídia" className="absolute right-2.5 top-1/2 -translate-y-1/2 w-9 h-9 rounded-full bg-black/40 text-white hidden sm:flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity duration-200 hover:bg-black/65 z-30 cursor-pointer">›</button>
-          <div className={`absolute left-1/2 -translate-x-1/2 z-30 flex items-center justify-center gap-1.5 ${currentMedia?.type === 'video' ? 'bottom-[58px]' : 'bottom-3.5'}`} aria-label="Galeria de mídia">
+          <div className="absolute left-1/2 -translate-x-1/2 bottom-3.5 z-30 flex items-center justify-center gap-1.5" aria-label="Galeria de mídia">
             {mediaItems.map((item, dotIndex) => (
               <button
                 key={item.id || dotIndex}
@@ -692,8 +695,9 @@ const ProductItem: React.FC<{
   ctaText: string;
   rankColor: string;
   sizeColor: string;
+  showRanking: boolean;
   now: number;
-}> = ({ product, index, isFirst, ctaText, rankColor, sizeColor, now }) => {
+}> = ({ product, index, isFirst, ctaText, rankColor, sizeColor, showRanking, now }) => {
   const formattedPos = String(product.position || index + 1).padStart(2, '0');
   const soldText = product.showSoldQuantity ? formatSoldQuantityText(product.soldQuantity) : null;
   const availableText = formatAvailableQuantityText(product.availableQuantity);
@@ -786,6 +790,7 @@ const ProductItem: React.FC<{
         rankLabel={formattedPos}
         rankColor={rankColor}
         sizeColor={sizeColor}
+        showRanking={showRanking}
         badgeContent={badgeElement}
         sizes={sizes}
         outOfStockSizes={outOfStockSizes}
@@ -1075,7 +1080,7 @@ export const MaisVendidosPage: React.FC = () => {
           <div className="w-full flex flex-col items-center">
             {/* Header Editorial: data primeiro, depois logo e timer. */}
             <header className="w-full text-center mb-6 sm:mb-8">
-              {formattedDate && (
+              {listData.showDate !== false && formattedDate && (
                 <p className="mb-3 text-[10px] sm:text-[11px] tracking-[0.18em] text-neutral-500 font-bold leading-none">
                   {formattedDate}
                 </p>
@@ -1141,6 +1146,7 @@ export const MaisVendidosPage: React.FC = () => {
                     ctaText={(listData.ctaText || '').trim() || 'VER PRODUTO'}
                     rankColor={listData.rankColor || '#FFFFFF'}
                     sizeColor={listData.sizeColor || '#FFFFFF'}
+                    showRanking={listData.showRanking !== false}
                     now={now}
                   />
                 ))}

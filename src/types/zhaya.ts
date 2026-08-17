@@ -475,6 +475,8 @@ export interface BestSellerList {
   logoUrl?: string | null;
   subtitle?: string | null;
   ctaText?: string | null;
+  showDate?: boolean;
+  showRanking?: boolean;
   rankColor?: string;
   sizeColor?: string;
   backgroundVideoUrl?: string | null;
@@ -564,6 +566,8 @@ export interface PublicBestSellerList {
   logoUrl?: string | null;
   subtitle?: string | null;
   ctaText?: string | null;
+  showDate?: boolean;
+  showRanking?: boolean;
   rankColor?: string;
   sizeColor?: string;
   backgroundVideoUrl?: string | null;
