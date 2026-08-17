@@ -127,6 +127,7 @@ export default async function handler(req: any, res: any) {
         badgeEnabled: Boolean(p.badge_enabled),
         badgeText: p.badge_enabled ? p.badge_text || null : null,
         badgeColor: p.badge_color || '#FFFFFF',
+        rankColor: p.rank_color || '#FFFFFF',
       };
     });
 

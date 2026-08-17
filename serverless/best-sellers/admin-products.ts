@@ -70,6 +70,11 @@ function parseInstallmentsCount(val: any): number | null {
   return parsed;
 }
 
+function normalizeHexColor(value: any, fallback = '#FFFFFF'): string {
+  const clean = typeof value === 'string' ? value.trim().toUpperCase() : '';
+  return /^#[0-9A-F]{6}$/.test(clean) ? clean : fallback;
+}
+
 // Validação de URL segura (rejeita javascript:, data:, etc.)
 function isValidSafeUrl(urlStr: any): boolean {
   if (!urlStr || typeof urlStr !== 'string') return false;
@@ -161,6 +166,7 @@ export default async function handler(req: any, res: any) {
         badgeEnabled: Boolean(p.badge_enabled),
         badgeText: p.badge_text || null,
         badgeColor: p.badge_color || '#FFFFFF',
+        rankColor: p.rank_color || '#FFFFFF',
         clicks: typeof p.clicks === 'number' ? p.clicks : 0,
         createdAt: p.created_at,
         updatedAt: p.updated_at,
@@ -228,10 +234,11 @@ export default async function handler(req: any, res: any) {
         badgeEnabled,
         badgeText,
         badgeColor,
+        rankColor,
       } = body;
 
       const cleanName = sanitizeText(name);
-      const cleanCategory = sanitizeText(category);
+      const cleanCategory = sanitizeText(category) || 'Produto';
       const parsedOriginalPrice = parsePriceInput(originalPrice !== undefined ? originalPrice : body.original_price);
       const parsedPromotionalPrice = parsePriceInput(promotionalPrice !== undefined ? promotionalPrice : body.promotional_price);
       const rawInstallmentsCount = installmentsCount !== undefined ? installmentsCount : body.installments_count;
@@ -268,9 +275,6 @@ export default async function handler(req: any, res: any) {
 
       if (!cleanName) {
         return res.status(400).json({ success: false, message: 'Nome do produto é obrigatório.' });
-      }
-      if (!cleanCategory) {
-        return res.status(400).json({ success: false, message: 'Categoria do produto é obrigatória.' });
       }
       if (!cleanImageUrl || !isValidSafeUrl(cleanImageUrl)) {
         return res.status(400).json({ success: false, message: 'URL da imagem é inválida ou contém protocolo inseguro.' });
@@ -317,7 +321,8 @@ export default async function handler(req: any, res: any) {
         : [];
       const isBadgeActive = Boolean(badgeEnabled);
       const cleanBadgeText = isBadgeActive && badgeText ? sanitizeText(String(badgeText)) : null;
-      const cleanBadgeColor = badgeColor && typeof badgeColor === 'string' ? sanitizeText(badgeColor) : '#FFFFFF';
+      const cleanBadgeColor = normalizeHexColor(badgeColor);
+      const cleanRankColor = normalizeHexColor(rankColor);
 
       const { data, error } = await supabase
         .from('best_seller_products')
@@ -342,6 +347,7 @@ export default async function handler(req: any, res: any) {
           badge_enabled: isBadgeActive,
           badge_text: cleanBadgeText,
           badge_color: cleanBadgeColor,
+          rank_color: cleanRankColor,
           clicks: 0,
         })
         .select()
@@ -381,6 +387,7 @@ export default async function handler(req: any, res: any) {
         badgeEnabled: Boolean(data.badge_enabled),
         badgeText: data.badge_text || null,
         badgeColor: data.badge_color || '#FFFFFF',
+        rankColor: data.rank_color || '#FFFFFF',
         clicks: 0,
         createdAt: data.created_at,
         updatedAt: data.updated_at,
@@ -445,7 +452,11 @@ export default async function handler(req: any, res: any) {
       }
 
       if (body.badgeColor !== undefined) {
-        updates.badge_color = sanitizeText(String(body.badgeColor)) || '#FFFFFF';
+        updates.badge_color = normalizeHexColor(body.badgeColor);
+      }
+
+      if (body.rankColor !== undefined) {
+        updates.rank_color = normalizeHexColor(body.rankColor);
       }
 
       if (body.productUrl !== undefined) {
@@ -581,6 +592,7 @@ export default async function handler(req: any, res: any) {
         badgeEnabled: Boolean(data.badge_enabled),
         badgeText: data.badge_text || null,
         badgeColor: data.badge_color || '#FFFFFF',
+        rankColor: data.rank_color || '#FFFFFF',
         clicks: typeof data.clicks === 'number' ? data.clicks : 0,
         createdAt: data.created_at,
         updatedAt: data.updated_at,

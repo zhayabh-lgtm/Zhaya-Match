@@ -150,10 +150,11 @@ const ProductImageGallery: React.FC<{
   productName: string;
   isFirst: boolean;
   rankLabel: string;
+  rankColor: string;
   badgeContent?: React.ReactNode;
   sizes: string[];
   outOfStockSizes: string[];
-}> = ({ images, productName, isFirst, rankLabel, badgeContent, sizes, outOfStockSizes }) => {
+}> = ({ images, productName, isFirst, rankLabel, rankColor, badgeContent, sizes, outOfStockSizes }) => {
   const [currentIndex, setCurrentIndex] = useState(0);
   const [failedImages, setFailedImages] = useState<Record<number, boolean>>({});
   const [direction, setDirection] = useState(0);
@@ -227,33 +228,29 @@ const ProductImageGallery: React.FC<{
 
       {badgeContent}
 
-      {/* Ranking: sem fundo e sem selo TOP. O primeiro recebe apenas escala maior. */}
+      {/* Ranking: todos usam o mesmo tamanho; a cor é definida por produto no painel. */}
       <div
-        className={`absolute left-3.5 top-3 z-20 pointer-events-none text-white mix-blend-difference leading-none font-black tracking-[-0.07em] ${
-          isFirst ? 'text-[38px] sm:text-[44px]' : 'text-[28px] sm:text-[32px]'
-        }`}
+        className="absolute left-3.5 top-3 z-20 pointer-events-none text-[36px] sm:text-[40px] leading-none font-black tracking-[-0.07em] drop-shadow-[0_1px_4px_rgba(0,0,0,0.35)]"
+        style={{ color: rankColor }}
         aria-label={`Posição ${rankLabel}`}
       >
         #{rankLabel}
       </div>
 
-      {/* Tamanhos ficam sobre a foto, no canto inferior esquerdo. */}
+      {/* Tamanhos: somente os quadrados, sem título e sem fundo preenchido. */}
       {sizes.length > 0 && (
-        <div className="absolute left-3 bottom-3 z-20 max-w-[78%] pointer-events-none">
-          <span className="mb-1.5 block text-[8px] font-semibold uppercase tracking-[0.16em] text-white drop-shadow-[0_1px_2px_rgba(0,0,0,0.8)]">
-            Tamanhos
-          </span>
+        <div className="absolute left-3 bottom-3 z-20 max-w-[80%] pointer-events-none">
           <div className="flex flex-wrap gap-1.5">
             {sizes.map((size) => {
               const unavailable = unavailableSet.has(size);
               return (
                 <span
                   key={size}
-                  className={`relative h-8 min-w-8 px-2 inline-flex items-center justify-center rounded-[3px] border text-[11px] font-semibold shadow-sm ${
+                  className={`relative h-8 min-w-8 px-2 inline-flex items-center justify-center border text-[11px] font-semibold backdrop-blur-[1px] ${
                     unavailable
-                      ? 'border-white/45 bg-white/80 text-neutral-400'
-                      : 'border-white/80 bg-white/95 text-black'
-                  }`}
+                      ? 'border-white/30 text-white/45'
+                      : 'border-white/70 text-white'
+                  } drop-shadow-[0_1px_2px_rgba(0,0,0,0.65)]`}
                 >
                   {size}
                   {unavailable && (
@@ -371,18 +368,13 @@ const ProductItem: React.FC<{
         productName={product.name}
         isFirst={isFirst}
         rankLabel={formattedPos}
+        rankColor={product.rankColor || '#FFFFFF'}
         badgeContent={badgeElement}
         sizes={sizes}
         outOfStockSizes={outOfStockSizes}
       />
 
       <div className="flex flex-col items-center text-center px-2 sm:px-4">
-        {product.category && (
-          <span className="text-[9px] uppercase tracking-[0.22em] text-neutral-500 font-semibold mb-2">
-            {product.category}
-          </span>
-        )}
-
         <h2 className="max-w-md text-[18px] sm:text-[21px] font-semibold text-white tracking-[-0.01em] leading-[1.22] break-words">
           {product.name}
         </h2>

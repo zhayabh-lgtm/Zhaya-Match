@@ -7,7 +7,8 @@ ALTER TABLE public.best_seller_lists
 ALTER TABLE public.best_seller_products
   ADD COLUMN IF NOT EXISTS out_of_stock_sizes TEXT[] NOT NULL DEFAULT '{}'::text[],
   ADD COLUMN IF NOT EXISTS installments_count INTEGER,
-  ADD COLUMN IF NOT EXISTS installment_value NUMERIC(10, 2);
+  ADD COLUMN IF NOT EXISTS installment_value NUMERIC(10, 2),
+  ADD COLUMN IF NOT EXISTS rank_color TEXT NOT NULL DEFAULT '#FFFFFF';
 
 DO $$
 BEGIN

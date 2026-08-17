@@ -63,7 +63,7 @@ CREATE TABLE IF NOT EXISTS public.best_seller_products (
   list_id UUID NOT NULL REFERENCES public.best_seller_lists(id) ON DELETE CASCADE,
   position INTEGER NOT NULL DEFAULT 1,
   name TEXT NOT NULL,
-  category TEXT NOT NULL DEFAULT 'Calçado',
+  category TEXT NOT NULL DEFAULT 'Produto',
   image_url TEXT NOT NULL,
   image_urls TEXT[] NOT NULL DEFAULT '{}'::text[],
   product_url TEXT,
@@ -80,6 +80,7 @@ CREATE TABLE IF NOT EXISTS public.best_seller_products (
   badge_enabled BOOLEAN NOT NULL DEFAULT false,
   badge_text TEXT,
   badge_color TEXT NOT NULL DEFAULT '#FFFFFF',
+  rank_color TEXT NOT NULL DEFAULT '#FFFFFF',
   clicks INTEGER NOT NULL DEFAULT 0 CHECK (clicks >= 0),
   created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
   updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
@@ -109,6 +110,7 @@ ALTER TABLE public.best_seller_products ADD COLUMN IF NOT EXISTS installment_val
 ALTER TABLE public.best_seller_products ADD COLUMN IF NOT EXISTS badge_enabled BOOLEAN NOT NULL DEFAULT false;
 ALTER TABLE public.best_seller_products ADD COLUMN IF NOT EXISTS badge_text TEXT;
 ALTER TABLE public.best_seller_products ADD COLUMN IF NOT EXISTS badge_color TEXT NOT NULL DEFAULT '#FFFFFF';
+ALTER TABLE public.best_seller_products ADD COLUMN IF NOT EXISTS rank_color TEXT NOT NULL DEFAULT '#FFFFFF';
 ALTER TABLE public.best_seller_products ADD COLUMN IF NOT EXISTS clicks INTEGER NOT NULL DEFAULT 0;
 
 -- 3.1 Constraints adicionais para instalações existentes
@@ -301,7 +303,6 @@ export const MaisVendidos: React.FC = () => {
   const [isProductModalOpen, setIsProductModalOpen] = useState<boolean>(false);
   const [editingProduct, setEditingProduct] = useState<BestSellerProduct | null>(null);
   const [prodFormName, setProdFormName] = useState('');
-  const [prodFormCategory, setProdFormCategory] = useState<string>('Calçado');
   const [prodFormImageUrl, setProdFormImageUrl] = useState('');
   const [prodFormImageUrls, setProdFormImageUrls] = useState<string[]>([]);
   const [prodFormImageUrlInput, setProdFormImageUrlInput] = useState('');
@@ -321,6 +322,7 @@ export const MaisVendidos: React.FC = () => {
   const [prodFormBadgeEnabled, setProdFormBadgeEnabled] = useState<boolean>(false);
   const [prodFormBadgeText, setProdFormBadgeText] = useState('50% OFF');
   const [prodFormBadgeColor, setProdFormBadgeColor] = useState('#FFFFFF');
+  const [prodFormRankColor, setProdFormRankColor] = useState('#FFFFFF');
   const [savingProduct, setSavingProduct] = useState<boolean>(false);
   const [productError, setProductError] = useState<string | null>(null);
   const [uploadingProdImage, setUploadingProdImage] = useState<boolean>(false);
@@ -699,7 +701,6 @@ export const MaisVendidos: React.FC = () => {
     if (!selectedList) return;
     setEditingProduct(null);
     setProdFormName('');
-    setProdFormCategory('');
     setProdFormImageUrl('');
     setProdFormImageUrls([]);
     setProdFormImageUrlInput('');
@@ -719,6 +720,7 @@ export const MaisVendidos: React.FC = () => {
     setProdFormBadgeEnabled(false);
     setProdFormBadgeText('50% OFF');
     setProdFormBadgeColor('#FFFFFF');
+    setProdFormRankColor('#FFFFFF');
     setProductError(null);
     setIsProductModalOpen(true);
   };
@@ -727,7 +729,6 @@ export const MaisVendidos: React.FC = () => {
   const handleOpenEditProduct = (prod: BestSellerProduct) => {
     setEditingProduct(prod);
     setProdFormName(prod.name);
-    setProdFormCategory(prod.category || '');
     setProdFormImageUrl(prod.imageUrl);
     const existingImgs = Array.isArray(prod.imageUrls) && prod.imageUrls.length > 0 ? prod.imageUrls : (prod.imageUrl ? [prod.imageUrl] : []);
     setProdFormImageUrls(existingImgs);
@@ -748,6 +749,7 @@ export const MaisVendidos: React.FC = () => {
     setProdFormBadgeEnabled(prod.badgeEnabled);
     setProdFormBadgeText(prod.badgeText || '50% OFF');
     setProdFormBadgeColor(prod.badgeColor || '#FFFFFF');
+    setProdFormRankColor(prod.rankColor || '#FFFFFF');
     setProductError(null);
     setIsProductModalOpen(true);
   };
@@ -813,10 +815,6 @@ export const MaisVendidos: React.FC = () => {
 
     if (!prodFormName.trim()) {
       setProductError('Nome do produto é obrigatório.');
-      return;
-    }
-    if (!prodFormCategory.trim()) {
-      setProductError('Categoria é obrigatória.');
       return;
     }
 
@@ -895,7 +893,6 @@ export const MaisVendidos: React.FC = () => {
       const payload = {
         listId: selectedList.id,
         name: prodFormName.trim(),
-        category: prodFormCategory.trim(),
         imageUrl: finalMainImage,
         imageUrls: finalImageUrls,
         productUrl: prodFormProductUrl.trim() || null,
@@ -912,6 +909,7 @@ export const MaisVendidos: React.FC = () => {
         badgeEnabled: prodFormBadgeEnabled,
         badgeText: prodFormBadgeEnabled ? prodFormBadgeText.trim() : null,
         badgeColor: prodFormBadgeColor || '#FFFFFF',
+        rankColor: prodFormRankColor || '#FFFFFF',
       };
 
       if (editingProduct) {
@@ -1425,10 +1423,6 @@ export const MaisVendidos: React.FC = () => {
                               <span className="text-xs font-bold text-neutral-900 truncate">
                                 {prod.name}
                               </span>
-                              <span className="px-1.5 py-0.5 rounded bg-neutral-100 text-neutral-600 text-[10px] font-medium border border-neutral-200">
-                                {prod.category}
-                              </span>
-
                               {prod.badgeEnabled && prod.badgeText && (
                                 <span
                                   className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-bold border border-neutral-200"
@@ -1922,31 +1916,16 @@ export const MaisVendidos: React.FC = () => {
                   1. Informações do Produto
                 </h4>
 
-                <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-                  <div className="sm:col-span-2 space-y-1">
-                    <label className="font-semibold text-neutral-700">Nome do Produto *</label>
-                    <input
-                      type="text"
-                      value={prodFormName}
-                      onChange={(e) => setProdFormName(e.target.value)}
-                      placeholder="Ex: Scarpin Couro Preto Salto Fino"
-                      required
-                      className="w-full px-3 py-2 border border-neutral-300 rounded focus:ring-1 focus:ring-neutral-900 focus:outline-none text-xs"
-                    />
-                  </div>
-
-                  <div className="space-y-1">
-                    <label className="font-semibold text-neutral-700">Categoria *</label>
-                    <input
-                      type="text"
-                      value={prodFormCategory}
-                      onChange={(e) => setProdFormCategory(e.target.value)}
-                      placeholder="Ex: Sandália, Scarpin, Bolsa..."
-                      required
-                      maxLength={80}
-                      className="w-full px-3 py-2 border border-neutral-300 rounded focus:ring-1 focus:ring-neutral-900 focus:outline-none text-xs bg-white"
-                    />
-                  </div>
+                <div className="space-y-1">
+                  <label className="font-semibold text-neutral-700">Nome do Produto *</label>
+                  <input
+                    type="text"
+                    value={prodFormName}
+                    onChange={(e) => setProdFormName(e.target.value)}
+                    placeholder="Ex: Scarpin Couro Preto Salto Fino"
+                    required
+                    className="w-full px-3 py-2 border border-neutral-300 rounded focus:ring-1 focus:ring-neutral-900 focus:outline-none text-xs"
+                  />
                 </div>
 
                 <div className="space-y-2">
@@ -2202,8 +2181,8 @@ export const MaisVendidos: React.FC = () => {
                 </h4>
 
                 {/* Tamanhos */}
-                <div className="space-y-1.5">
-                  <label className="font-semibold text-neutral-700">Tamanhos Disponíveis</label>
+                <div className="space-y-2">
+                  <label className="font-semibold text-neutral-700">Tamanhos</label>
                   <div className="flex items-center gap-2">
                     <input
                       type="text"
@@ -2215,53 +2194,60 @@ export const MaisVendidos: React.FC = () => {
                           handleAddSize();
                         }
                       }}
-                      placeholder="Digite e pressione Enter (ex: 34, 35, 36 ou P, M)"
-                      className="flex-1 px-3 py-1.5 border border-neutral-300 rounded focus:ring-1 focus:ring-neutral-900 focus:outline-none text-xs"
+                      placeholder="Ex: 34"
+                      className="w-28 px-3 py-2 border border-neutral-300 rounded focus:ring-1 focus:ring-neutral-900 focus:outline-none text-xs"
                     />
                     <button
                       type="button"
                       onClick={handleAddSize}
-                      className="px-3 py-1.5 bg-neutral-100 text-neutral-800 border border-neutral-300 rounded text-xs font-semibold hover:bg-neutral-200 cursor-pointer"
+                      className="px-3 py-2 bg-neutral-900 text-white rounded text-xs font-semibold hover:bg-black cursor-pointer"
                     >
-                      Adicionar
+                      Adicionar tamanho
                     </button>
                   </div>
 
-                  <p className="text-[10px] text-neutral-500">Você pode colar vários tamanhos separados por vírgula. Ex.: 33, 34, 35, 36.</p>
-
                   {prodFormSizes.length > 0 && (
-                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 pt-1">
-                      {prodFormSizes.map((size) => {
-                        const unavailable = prodFormOutOfStockSizes.includes(size);
-                        return (
-                          <div key={size} className="flex items-center justify-between gap-2 rounded border border-neutral-200 bg-neutral-50 px-2.5 py-2">
-                            <div className="flex items-center gap-2">
-                              <span className={`relative h-9 min-w-9 px-2 inline-flex items-center justify-center rounded-sm border text-xs font-semibold ${unavailable ? 'border-neutral-300 bg-neutral-100 text-neutral-400' : 'border-neutral-900 bg-white text-neutral-900'}`}>
+                    <>
+                      <div className="flex flex-wrap gap-2 pt-1">
+                        {prodFormSizes.map((size) => {
+                          const unavailable = prodFormOutOfStockSizes.includes(size);
+                          return (
+                            <div key={size} className="inline-flex items-center gap-1">
+                              <button
+                                type="button"
+                                onClick={() => handleToggleSizeStock(size)}
+                                title={unavailable ? 'Esgotado — clique para marcar disponível' : 'Disponível — clique para marcar esgotado'}
+                                className={`group relative h-10 min-w-10 px-2 inline-flex items-center justify-center border text-xs font-semibold transition-colors cursor-pointer ${
+                                  unavailable
+                                    ? 'border-neutral-300 text-neutral-400 bg-neutral-50'
+                                    : 'border-neutral-900 text-neutral-900 bg-white hover:bg-neutral-50'
+                                }`}
+                              >
                                 {size}
-                                {unavailable && <span className="absolute -top-1 -right-1 text-red-500 text-sm font-bold leading-none">×</span>}
-                              </span>
-                              <label className="flex items-center gap-1.5 text-[11px] text-neutral-600 cursor-pointer">
-                                <input
-                                  type="checkbox"
-                                  checked={unavailable}
-                                  onChange={() => handleToggleSizeStock(size)}
-                                  className="rounded border-neutral-300 text-neutral-900 focus:ring-neutral-900"
-                                />
-                                Fora de estoque
-                              </label>
+                                <span
+                                  className={`absolute -top-1.5 -right-1 text-[16px] leading-none font-black text-red-500 transition-opacity ${
+                                    unavailable ? 'opacity-100' : 'opacity-0 group-hover:opacity-35'
+                                  }`}
+                                  aria-hidden="true"
+                                >
+                                  ×
+                                </span>
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => handleRemoveSize(size)}
+                                className="p-1 text-neutral-300 hover:text-red-600 cursor-pointer"
+                                aria-label={`Remover tamanho ${size}`}
+                                title="Remover tamanho"
+                              >
+                                <Trash2 className="w-3.5 h-3.5" />
+                              </button>
                             </div>
-                            <button
-                              type="button"
-                              onClick={() => handleRemoveSize(size)}
-                              className="text-neutral-400 hover:text-red-600 cursor-pointer p-1"
-                              aria-label={`Remover tamanho ${size}`}
-                            >
-                              ×
-                            </button>
-                          </div>
-                        );
-                      })}
-                    </div>
+                          );
+                        })}
+                      </div>
+                      <p className="text-[10px] text-neutral-500">Clique no quadrado do tamanho para colocar ou retirar o X de esgotado.</p>
+                    </>
                   )}
                 </div>
 
@@ -2316,8 +2302,28 @@ export const MaisVendidos: React.FC = () => {
               {/* SEÇÃO 5: DESTAQUE / BADGE */}
               <div className="space-y-3 pt-2">
                 <h4 className="font-bold text-neutral-800 uppercase tracking-wider text-[10px] font-mono border-b border-neutral-100 pb-1">
-                  5. Destaque / Badge
+                  5. Destaque visual
                 </h4>
+
+                <div className="space-y-1.5">
+                  <label className="font-semibold text-neutral-700">Cor do número do ranking</label>
+                  <div className="flex items-center gap-2">
+                    <input
+                      type="color"
+                      value={prodFormRankColor}
+                      onChange={(e) => setProdFormRankColor(e.target.value)}
+                      className="h-9 w-11 p-1 border border-neutral-300 rounded bg-white cursor-pointer"
+                    />
+                    <input
+                      type="text"
+                      value={prodFormRankColor}
+                      onChange={(e) => setProdFormRankColor(e.target.value)}
+                      maxLength={7}
+                      className="w-24 px-2.5 py-2 border border-neutral-300 rounded text-xs font-mono uppercase"
+                    />
+                    <span className="text-[10px] text-neutral-500">Define a cor de #{String(editingProduct ? editingProduct.position : products.length + 1).padStart(2, '0')}.</span>
+                  </div>
+                </div>
 
                 <label className="flex items-center gap-2 cursor-pointer text-xs">
                   <input
@@ -2437,7 +2443,10 @@ export const MaisVendidos: React.FC = () => {
                       </div>
                     )}
 
-                    <div className="absolute left-2.5 top-2.5 z-10 text-white mix-blend-difference text-2xl font-black tracking-[-0.06em] leading-none">
+                    <div
+                      className="absolute left-2.5 top-2.5 z-10 text-2xl font-black tracking-[-0.06em] leading-none"
+                      style={{ color: prodFormRankColor || '#FFFFFF' }}
+                    >
                       #{String(editingProduct ? editingProduct.position : products.length + 1).padStart(2, '0')}
                     </div>
 
@@ -2447,7 +2456,7 @@ export const MaisVendidos: React.FC = () => {
                           {normalizeSizeValues(prodFormSizes).map((size) => {
                             const unavailable = prodFormOutOfStockSizes.includes(size);
                             return (
-                              <span key={size} className={`relative h-6 min-w-6 px-1.5 inline-flex items-center justify-center rounded-[2px] border text-[8px] font-semibold ${unavailable ? 'border-white/50 bg-white/80 text-neutral-400' : 'border-white bg-white text-black'}`}>
+                              <span key={size} className={`relative h-6 min-w-6 px-1.5 inline-flex items-center justify-center border text-[8px] font-semibold ${unavailable ? 'border-white/30 text-white/45' : 'border-white/70 text-white'}`}>
                                 {size}
                                 {unavailable && <span className="absolute -top-1.5 -right-1 text-red-500 text-xs font-black">×</span>}
                               </span>
@@ -2460,12 +2469,6 @@ export const MaisVendidos: React.FC = () => {
 
                   {/* Info */}
                   <div className="space-y-1.5 text-center flex flex-col items-center">
-                    {prodFormCategory && (
-                      <span className="text-[9px] uppercase tracking-[0.18em] text-neutral-500 font-medium">
-                        {prodFormCategory}
-                      </span>
-                    )}
-
                     <h5 className="text-sm font-semibold text-white tracking-tight line-clamp-2">
                       {prodFormName.trim() || 'Nome do produto aparecerá aqui'}
                     </h5>

@@ -490,6 +490,7 @@ export interface BestSellerProduct {
   badgeEnabled: boolean;
   badgeText?: string | null;
   badgeColor?: string;
+  rankColor?: string;
   clicks?: number;
   createdAt?: string;
   updatedAt?: string;
@@ -516,6 +517,7 @@ export interface PublicBestSellerProduct {
   badgeEnabled: boolean;
   badgeText?: string | null;
   badgeColor?: string;
+  rankColor?: string;
 }
 
 export interface PublicBestSellerList {

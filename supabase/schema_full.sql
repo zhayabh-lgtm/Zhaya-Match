@@ -562,7 +562,7 @@ CREATE TABLE IF NOT EXISTS public.best_seller_products (
   list_id UUID NOT NULL REFERENCES public.best_seller_lists(id) ON DELETE CASCADE,
   position INTEGER NOT NULL DEFAULT 1,
   name TEXT NOT NULL,
-  category TEXT NOT NULL DEFAULT 'Calçado',
+  category TEXT NOT NULL DEFAULT 'Produto',
   image_url TEXT NOT NULL,
   image_urls TEXT[] NOT NULL DEFAULT '{}'::text[],
   product_url TEXT,
@@ -579,6 +579,7 @@ CREATE TABLE IF NOT EXISTS public.best_seller_products (
   badge_enabled BOOLEAN NOT NULL DEFAULT false,
   badge_text TEXT,
   badge_color TEXT NOT NULL DEFAULT '#FFFFFF',
+  rank_color TEXT NOT NULL DEFAULT '#FFFFFF',
   clicks INTEGER NOT NULL DEFAULT 0 CHECK (clicks >= 0),
   created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
   updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
@@ -597,6 +598,8 @@ ALTER TABLE public.best_seller_products
   ADD COLUMN IF NOT EXISTS installments_count INTEGER;
 ALTER TABLE public.best_seller_products
   ADD COLUMN IF NOT EXISTS installment_value NUMERIC(10, 2);
+ALTER TABLE public.best_seller_products
+  ADD COLUMN IF NOT EXISTS rank_color TEXT NOT NULL DEFAULT '#FFFFFF';
 
 CREATE INDEX IF NOT EXISTS idx_best_seller_lists_active ON public.best_seller_lists(active);
 CREATE INDEX IF NOT EXISTS idx_best_seller_lists_date ON public.best_seller_lists(list_date DESC);
