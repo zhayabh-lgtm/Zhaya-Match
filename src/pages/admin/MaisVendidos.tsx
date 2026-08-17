@@ -789,7 +789,7 @@ export const MaisVendidos: React.FC = () => {
         },
       ]);
       if (isVideo && !posterUpload) {
-        setProductError('Vídeo enviado. A capa automática não pôde ser gerada neste navegador/formato; se houver uma imagem no produto ela será usada como fallback.');
+        setProductError('Vídeo enviado. A capa automática não pôde ser gerada neste navegador/formato. O vídeo continuará sem capa até que um frame próprio possa ser capturado.');
       }
     } catch (err: any) {
       console.error('Erro no upload de mídia do produto:', err);

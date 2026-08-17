@@ -538,7 +538,6 @@ const ProductMediaGallery: React.FC<{
   };
 
   const currentMedia = mediaItems[currentIndex];
-  const fallbackVideoPoster = mediaItems.find((item) => item.type === 'image' && item.url)?.url;
   const hasError = failedMedia[currentIndex];
   const unavailableSet = new Set(outOfStockSizes);
   const canSwipe = totalItems > 1;
@@ -565,7 +564,7 @@ const ProductMediaGallery: React.FC<{
                 src={currentMedia.url}
                 label={`${productName} - vídeo ${currentIndex + 1}`}
                 onError={() => setFailedMedia((prev) => ({ ...prev, [currentIndex]: true }))}
-                posterUrl={currentMedia.posterUrl || fallbackVideoPoster}
+                posterUrl={currentMedia.posterUrl || undefined}
               />
             ) : (
               <img
