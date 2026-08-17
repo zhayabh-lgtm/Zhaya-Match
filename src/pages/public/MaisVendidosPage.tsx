@@ -689,18 +689,25 @@ const ProductItem: React.FC<{
   const productTimerBg = product.timerColor || '#FFFFFF';
   const productTimerText = useMemo(() => getReadableTextColor(productTimerBg), [productTimerBg]);
   const productTimerElement = productTimeRemaining ? (
-    <div
-      className="px-2 py-1 rounded-[3px] text-[10px] sm:text-[11px] leading-none font-black tabular-nums tracking-[0.035em]"
-      style={{
-        backgroundColor: productTimerBg,
-        color: productTimerText,
-        boxShadow: 'none',
-        textShadow: 'none',
-        filter: 'none',
-      }}
-      aria-label={`Timer do produto: ${productTimeRemaining.formattedString}`}
-    >
-      {productTimeRemaining.formattedString}
+    <div className="flex flex-col items-end gap-1" aria-label={`Termina em ${productTimeRemaining.formattedString}`}>
+      <span
+        className="text-[7px] sm:text-[8px] leading-none font-bold uppercase tracking-[0.16em] text-white/75"
+        style={{ textShadow: 'none', filter: 'none' }}
+      >
+        TERMINA EM
+      </span>
+      <div
+        className="px-2 py-1 rounded-[3px] text-[10px] sm:text-[11px] leading-none font-black tabular-nums tracking-[0.035em]"
+        style={{
+          backgroundColor: productTimerBg,
+          color: productTimerText,
+          boxShadow: 'none',
+          textShadow: 'none',
+          filter: 'none',
+        }}
+      >
+        {productTimeRemaining.formattedString}
+      </div>
     </div>
   ) : null;
 
