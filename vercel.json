@@ -38,6 +38,22 @@
       "use": "@vercel/node"
     },
     {
+      "src": "api/admin/best-sellers.ts",
+      "use": "@vercel/node"
+    },
+    {
+      "src": "api/admin/best-seller-products.ts",
+      "use": "@vercel/node"
+    },
+    {
+      "src": "api/public/best-sellers.ts",
+      "use": "@vercel/node"
+    },
+    {
+      "src": "api/public/best-seller-click.ts",
+      "use": "@vercel/node"
+    },
+    {
       "src": "server.ts",
       "use": "@vercel/node"
     },
@@ -157,6 +173,48 @@
       "headers": {
         "Access-Control-Allow-Origin": "*",
         "Cross-Origin-Resource-Policy": "cross-origin"
+      }
+    },
+    {
+      "src": "/api/admin/best-sellers",
+      "dest": "/api/admin/best-sellers.ts",
+      "headers": {
+        "Content-Type": "application/json; charset=utf-8",
+        "Access-Control-Allow-Methods": "GET, POST, PUT, PATCH, DELETE, OPTIONS",
+        "Access-Control-Allow-Headers": "Content-Type, Authorization",
+        "Cache-Control": "no-store"
+      }
+    },
+    {
+      "src": "/api/admin/best-seller-products",
+      "dest": "/api/admin/best-seller-products.ts",
+      "headers": {
+        "Content-Type": "application/json; charset=utf-8",
+        "Access-Control-Allow-Methods": "GET, POST, PUT, PATCH, DELETE, OPTIONS",
+        "Access-Control-Allow-Headers": "Content-Type, Authorization",
+        "Cache-Control": "no-store"
+      }
+    },
+    {
+      "src": "/api/public/best-sellers",
+      "dest": "/api/public/best-sellers.ts",
+      "headers": {
+        "Content-Type": "application/json; charset=utf-8",
+        "Access-Control-Allow-Methods": "GET, OPTIONS",
+        "Access-Control-Allow-Headers": "Content-Type",
+        "Cache-Control": "no-store, no-cache, must-revalidate, proxy-revalidate",
+        "CDN-Cache-Control": "no-store",
+        "Vercel-CDN-Cache-Control": "no-store"
+      }
+    },
+    {
+      "src": "/api/public/best-seller-click",
+      "dest": "/api/public/best-seller-click.ts",
+      "headers": {
+        "Content-Type": "application/json; charset=utf-8",
+        "Access-Control-Allow-Methods": "POST, OPTIONS",
+        "Access-Control-Allow-Headers": "Content-Type",
+        "Cache-Control": "no-store"
       }
     },
     {

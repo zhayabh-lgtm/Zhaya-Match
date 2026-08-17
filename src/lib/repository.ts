@@ -1840,7 +1840,19 @@ export const Repository = {
         body: JSON.stringify(payload),
       });
 
-      const json = await res.json();
+      const raw = await res.text();
+      let json: any = {};
+      try {
+        json = raw ? JSON.parse(raw) : {};
+      } catch {
+        console.error('[Repository] Resposta não-JSON ao criar lista:', res.status, raw.slice(0, 300));
+        return {
+          success: false,
+          error: `Erro do servidor ao criar lista (HTTP ${res.status}).`,
+          tableConfigured: true,
+        };
+      }
+
       if (res.ok && json.success) {
         return { success: true, list: json.list, tableConfigured: true };
       }
