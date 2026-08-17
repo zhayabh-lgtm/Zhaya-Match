@@ -1,5 +1,6 @@
 import React, { useEffect, useState, useMemo, useRef } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
+import { Play, Pause, Volume2, VolumeX } from 'lucide-react';
 import { Repository } from '../../lib/repository';
 import { getReadableTextColor } from '../../lib/contrast';
 import type { PublicBestSellerList, PublicBestSellerProduct, PublicBestSellerMediaItem } from '../../types/zhaya';
@@ -211,8 +212,183 @@ function normalizePublicSizes(values: string[] | undefined): string[] {
 }
 
 /**
+ * Player de vídeo da galeria com controles próprios.
+ * O elemento <video> não captura o gesto horizontal, então o swipe da galeria
+ * continua funcionando inclusive quando a mídia atual é um vídeo.
+ */
+const GalleryVideo: React.FC<{
+  src: string;
+  label: string;
+  onError: () => void;
+  posterUrl?: string;
+}> = ({ src, label, onError, posterUrl }) => {
+  const videoRef = useRef<HTMLVideoElement | null>(null);
+  const [playing, setPlaying] = useState(false);
+  const [muted, setMuted] = useState(false);
+  const [volume, setVolume] = useState(1);
+  const [duration, setDuration] = useState(0);
+  const [currentTime, setCurrentTime] = useState(0);
+  const [ready, setReady] = useState(false);
+
+  useEffect(() => {
+    setPlaying(false);
+    setCurrentTime(0);
+    setDuration(0);
+    setReady(false);
+  }, [src]);
+
+  const stopPointer = (event: React.PointerEvent) => event.stopPropagation();
+
+  const togglePlayback = () => {
+    const video = videoRef.current;
+    if (!video) return;
+    if (video.paused) {
+      void video.play().catch(() => undefined);
+    } else {
+      video.pause();
+    }
+  };
+
+  const toggleMute = () => {
+    const video = videoRef.current;
+    if (!video) return;
+    const next = !video.muted;
+    video.muted = next;
+    setMuted(next);
+  };
+
+  const handleVolume = (value: number) => {
+    const video = videoRef.current;
+    if (!video) return;
+    const next = Math.max(0, Math.min(1, value));
+    video.volume = next;
+    video.muted = next === 0;
+    setVolume(next);
+    setMuted(next === 0);
+  };
+
+  const handleSeek = (value: number) => {
+    const video = videoRef.current;
+    if (!video || !Number.isFinite(video.duration)) return;
+    video.currentTime = value;
+    setCurrentTime(value);
+  };
+
+  const handleLoadedMetadata = () => {
+    const video = videoRef.current;
+    if (!video) return;
+    const nextDuration = Number.isFinite(video.duration) ? video.duration : 0;
+    setDuration(nextDuration);
+
+    // Força o navegador a decodificar um frame inicial para funcionar como
+    // capa visual antes do play, evitando a tela preta comum do preload=metadata.
+    if (nextDuration > 0.15 && video.currentTime < 0.02) {
+      try {
+        video.currentTime = Math.min(0.12, nextDuration * 0.05);
+      } catch {
+        setReady(true);
+      }
+    } else {
+      setReady(true);
+    }
+  };
+
+  return (
+    <div className="relative w-full h-full bg-neutral-950">
+      <video
+        ref={videoRef}
+        src={src}
+        aria-label={label}
+        playsInline
+        poster={posterUrl || undefined}
+        preload="auto"
+        controls={false}
+        onLoadedMetadata={handleLoadedMetadata}
+        onLoadedData={() => setReady(true)}
+        onSeeked={() => setReady(true)}
+        onPlay={() => setPlaying(true)}
+        onPause={() => setPlaying(false)}
+        onEnded={() => setPlaying(false)}
+        onTimeUpdate={(event) => setCurrentTime(event.currentTarget.currentTime || 0)}
+        onVolumeChange={(event) => {
+          setMuted(event.currentTarget.muted);
+          setVolume(event.currentTarget.volume);
+        }}
+        onError={onError}
+        className={`w-full h-full object-cover object-center bg-neutral-950 pointer-events-none transition-opacity duration-200 ${ready || posterUrl ? 'opacity-100' : 'opacity-0'}`}
+      />
+
+      {!ready && !posterUrl && (
+        <div className="absolute inset-0 flex items-center justify-center bg-neutral-950 text-white/35 text-[10px] uppercase tracking-[0.18em] pointer-events-none">
+          Carregando vídeo
+        </div>
+      )}
+
+      {!playing && ready && (
+        <button
+          type="button"
+          onPointerDown={stopPointer}
+          onClick={(event) => { event.stopPropagation(); togglePlayback(); }}
+          aria-label="Reproduzir vídeo"
+          className="absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 z-30 flex items-center justify-center text-white/95 transition-transform duration-150 active:scale-95"
+        >
+          <Play size={42} strokeWidth={1.7} fill="currentColor" />
+        </button>
+      )}
+
+      {/* Controles baixos para não competir com badge/ranking e deixar o swipe livre. */}
+      <div
+        className="absolute left-3 right-3 bottom-2.5 z-40 flex items-center gap-2.5 text-white"
+        onPointerDown={stopPointer}
+        onClick={(event) => event.stopPropagation()}
+      >
+        <button
+          type="button"
+          onClick={togglePlayback}
+          className="shrink-0 inline-flex items-center justify-center text-white/95 hover:text-white"
+          aria-label={playing ? 'Pausar vídeo' : 'Reproduzir vídeo'}
+        >
+          {playing ? <Pause size={18} fill="currentColor" /> : <Play size={18} fill="currentColor" />}
+        </button>
+
+        <input
+          type="range"
+          min={0}
+          max={Math.max(duration, 0.01)}
+          step="0.05"
+          value={Math.min(currentTime, Math.max(duration, 0.01))}
+          onChange={(event) => handleSeek(Number(event.target.value))}
+          aria-label="Progresso do vídeo"
+          className="min-w-0 flex-1 h-1 accent-white cursor-pointer"
+        />
+
+        <button
+          type="button"
+          onClick={toggleMute}
+          className="shrink-0 inline-flex items-center justify-center text-white/90 hover:text-white"
+          aria-label={muted || volume === 0 ? 'Ativar som' : 'Silenciar vídeo'}
+        >
+          {muted || volume === 0 ? <VolumeX size={18} /> : <Volume2 size={18} />}
+        </button>
+
+        <input
+          type="range"
+          min={0}
+          max={1}
+          step="0.05"
+          value={muted ? 0 : volume}
+          onChange={(event) => handleVolume(Number(event.target.value))}
+          aria-label="Volume do vídeo"
+          className="w-14 sm:w-20 h-1 accent-white cursor-pointer"
+        />
+      </div>
+    </div>
+  );
+};
+
+/**
  * Galeria editorial unificada de imagens e vídeos.
- * Imagens mantêm swipe/drag no mobile; vídeos usam controles nativos para play e volume.
+ * Imagens mantêm swipe/drag no mobile; vídeos também permitem swipe e usam controles próprios para play e volume.
  */
 const ProductMediaGallery: React.FC<{
   mediaItems: PublicBestSellerMediaItem[];
@@ -260,9 +436,10 @@ const ProductMediaGallery: React.FC<{
   };
 
   const currentMedia = mediaItems[currentIndex];
+  const fallbackVideoPoster = mediaItems.find((item) => item.type === 'image' && item.url)?.url;
   const hasError = failedMedia[currentIndex];
   const unavailableSet = new Set(outOfStockSizes);
-  const canSwipe = totalItems > 1 && currentMedia?.type !== 'video';
+  const canSwipe = totalItems > 1;
 
   return (
     <div className="relative w-full aspect-[4/5] bg-neutral-950 rounded-[10px] overflow-hidden mb-5 select-none touch-pan-y group">
@@ -282,14 +459,11 @@ const ProductMediaGallery: React.FC<{
         >
           {currentMedia && !hasError ? (
             currentMedia.type === 'video' ? (
-              <video
+              <GalleryVideo
                 src={currentMedia.url}
-                aria-label={`${productName} - vídeo ${currentIndex + 1}`}
-                controls
-                playsInline
-                preload="metadata"
+                label={`${productName} - vídeo ${currentIndex + 1}`}
                 onError={() => setFailedMedia((prev) => ({ ...prev, [currentIndex]: true }))}
-                className="w-full h-full object-cover object-center bg-black"
+                posterUrl={fallbackVideoPoster}
               />
             ) : (
               <img
@@ -320,7 +494,7 @@ const ProductMediaGallery: React.FC<{
       </div>
 
       {sizes.length > 0 && (
-        <div className={`absolute left-3.5 z-20 pointer-events-none ${currentMedia?.type === 'video' ? 'bottom-14' : 'bottom-4'}`}>
+        <div className={`absolute left-3.5 z-20 pointer-events-none ${currentMedia?.type === 'video' ? 'bottom-[76px]' : 'bottom-4'}`}>
           <div className="flex flex-col items-start gap-y-2">
             {sizes.map((size) => {
               const unavailable = unavailableSet.has(size);
@@ -345,7 +519,7 @@ const ProductMediaGallery: React.FC<{
         <>
           <button type="button" onClick={handlePrev} aria-label="Mídia anterior" className="absolute left-2.5 top-1/2 -translate-y-1/2 w-9 h-9 rounded-full bg-black/40 text-white hidden sm:flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity duration-200 hover:bg-black/65 z-30 cursor-pointer">‹</button>
           <button type="button" onClick={handleNext} aria-label="Próxima mídia" className="absolute right-2.5 top-1/2 -translate-y-1/2 w-9 h-9 rounded-full bg-black/40 text-white hidden sm:flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity duration-200 hover:bg-black/65 z-30 cursor-pointer">›</button>
-          <div className={`absolute left-1/2 -translate-x-1/2 z-30 flex items-center justify-center gap-1.5 ${currentMedia?.type === 'video' ? 'bottom-12' : 'bottom-3.5'}`} aria-label="Galeria de mídia">
+          <div className={`absolute left-1/2 -translate-x-1/2 z-30 flex items-center justify-center gap-1.5 ${currentMedia?.type === 'video' ? 'bottom-[58px]' : 'bottom-3.5'}`} aria-label="Galeria de mídia">
             {mediaItems.map((item, dotIndex) => (
               <button
                 key={item.id || dotIndex}
