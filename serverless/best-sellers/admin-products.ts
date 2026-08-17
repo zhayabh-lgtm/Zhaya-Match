@@ -146,6 +146,79 @@ function mediaItemsFromLegacy(imageUrl: any, imageUrls: any): Array<{ id: string
   }));
 }
 
+function reusableImageMediaItems(raw: any, imageUrl: any, imageUrls: any) {
+  const normalized = normalizeMediaItems(raw).filter((item) => item.type === 'image');
+  return normalized.length > 0 ? normalized : mediaItemsFromLegacy(imageUrl, imageUrls);
+}
+
+async function syncProductToLibrary(supabase: any, productRow: any): Promise<string | null> {
+  try {
+    const imageMedia = reusableImageMediaItems(productRow.media_items, productRow.image_url, productRow.image_urls);
+    const imageUrls = imageMedia.map((item: any) => item.url);
+    const payload: Record<string, any> = {
+      name: productRow.name || 'Produto',
+      category: productRow.category || 'Produto',
+      image_url: imageUrls[0] || null,
+      image_urls: imageUrls,
+      media_items: imageMedia,
+      product_url: productRow.product_url || null,
+      original_price: productRow.original_price ?? null,
+      promotional_price: productRow.promotional_price ?? null,
+      sizes: Array.isArray(productRow.sizes) ? productRow.sizes : [],
+      colors: Array.isArray(productRow.colors) ? productRow.colors : [],
+      installments_count: productRow.installments_count ?? null,
+      installment_value: productRow.installment_value ?? null,
+      badge_enabled: Boolean(productRow.badge_enabled),
+      badge_text: productRow.badge_text || null,
+      badge_color: productRow.badge_color || '#FFFFFF',
+      updated_at: new Date().toISOString(),
+    };
+
+    let libraryId = productRow.library_product_id || null;
+    // Se uma ocorrência temporária ficar apenas com vídeo, não apaga as imagens já
+    // guardadas no cadastro reutilizável. Vídeo nunca substitui a mídia permanente.
+    if (libraryId && imageMedia.length === 0) {
+      delete payload.image_url;
+      delete payload.image_urls;
+      delete payload.media_items;
+    }
+    if (libraryId) {
+      const { error } = await supabase.from('best_seller_product_library').update(payload).eq('id', libraryId);
+      if (!error) return libraryId;
+      if (!isTableMissingError(error)) console.warn('[BestSellerProducts] Falha ao atualizar biblioteca:', error.message);
+      return null;
+    }
+
+    // Reaproveita um cadastro existente quando o link da loja é idêntico.
+    if (payload.product_url) {
+      const { data: existing } = await supabase
+        .from('best_seller_product_library')
+        .select('id')
+        .eq('product_url', payload.product_url)
+        .limit(1)
+        .maybeSingle();
+      if (existing?.id) libraryId = existing.id;
+    }
+
+    if (libraryId) {
+      await supabase.from('best_seller_product_library').update(payload).eq('id', libraryId);
+    } else {
+      const { data: created, error } = await supabase.from('best_seller_product_library').insert(payload).select('id').single();
+      if (error) {
+        if (!isTableMissingError(error)) console.warn('[BestSellerProducts] Falha ao salvar biblioteca:', error.message);
+        return null;
+      }
+      libraryId = created.id;
+    }
+
+    await supabase.from('best_seller_products').update({ library_product_id: libraryId }).eq('id', productRow.id);
+    return libraryId;
+  } catch (error: any) {
+    console.warn('[BestSellerProducts] Biblioteca indisponível; produto da lista foi salvo normalmente:', error?.message || error);
+    return null;
+  }
+}
+
 export default async function handler(req: any, res: any) {
   const requestOrigin = typeof req.headers?.origin === 'string' ? req.headers.origin : '*';
   res.setHeader('Access-Control-Allow-Origin', requestOrigin);
@@ -198,6 +271,7 @@ export default async function handler(req: any, res: any) {
 
       const products: BestSellerProduct[] = (data || []).map((p) => ({
         id: p.id,
+        libraryProductId: p.library_product_id || null,
         listId: p.list_id,
         position: p.position,
         name: p.name,
@@ -399,6 +473,7 @@ export default async function handler(req: any, res: any) {
         .from('best_seller_products')
         .insert({
           list_id: listId,
+          library_product_id: body.libraryProductId || body.library_product_id || null,
           position,
           name: cleanName,
           category: cleanCategory,
@@ -441,8 +516,11 @@ export default async function handler(req: any, res: any) {
         return res.status(500).json({ success: false, error: 'DATABASE_ERROR', message: error.message });
       }
 
+      const syncedLibraryId = await syncProductToLibrary(supabase, data);
+
       const created: BestSellerProduct = {
         id: data.id,
+        libraryProductId: syncedLibraryId || data.library_product_id || null,
         listId: data.list_id,
         position: data.position,
         name: data.name,
@@ -686,8 +764,11 @@ export default async function handler(req: any, res: any) {
         return res.status(500).json({ success: false, error: 'DATABASE_ERROR', message: error.message });
       }
 
+      const syncedLibraryId = await syncProductToLibrary(supabase, data);
+
       const updated: BestSellerProduct = {
         id: data.id,
+        libraryProductId: syncedLibraryId || data.library_product_id || null,
         listId: data.list_id,
         position: data.position,
         name: data.name,

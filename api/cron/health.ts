@@ -50,8 +50,8 @@ export default async function handler(req: any, res: any) {
       try {
         mediaCleanup = await cleanupUnusedBestSellerVideos(url, serviceRoleKey);
       } catch (cleanupError: any) {
-        mediaCleanup = { ok: false, removed: 0, reason: cleanupError?.message || 'Falha na limpeza de vídeos' };
-        console.warn('[Cron] Falha ao limpar vídeos órfãos de Mais Vendidos:', cleanupError?.message || cleanupError);
+        mediaCleanup = { ok: false, removed: 0, reason: cleanupError?.message || 'Falha na limpeza de mídia temporária' };
+        console.warn('[Cron] Falha ao limpar mídia temporária órfã de Mais Vendidos:', cleanupError?.message || cleanupError);
       }
     }
 

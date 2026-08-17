@@ -15,6 +15,7 @@ import {
   PublicLiveInvite,
   BestSellerList,
   BestSellerProduct,
+  BestSellerLibraryProduct,
   PublicBestSellerList,
 } from '../types/zhaya';
 import { supabase, isSupabaseConfigured } from './supabase';
@@ -2044,7 +2045,7 @@ export const Repository = {
     mimeType: string;
     fileSize: number;
     mediaType: 'image' | 'video';
-    purpose?: 'product' | 'background' | 'logo';
+    purpose?: 'product' | 'background' | 'logo' | 'poster';
   }): Promise<{ success: boolean; path?: string; token?: string; publicUrl?: string; error?: string }> {
     try {
       const token = isSupabaseConfigured && supabase ? (await supabase.auth.getSession())?.data?.session?.access_token : undefined;
@@ -2063,6 +2064,50 @@ export const Repository = {
       return { success: false, error: json.message || json.error || 'Não foi possível preparar o upload.' };
     } catch (e: any) {
       return { success: false, error: e?.message || 'Erro de conexão ao preparar upload.' };
+    }
+  },
+
+  async getBestSellerProductLibrary(): Promise<{ products: BestSellerLibraryProduct[]; configured: boolean; error?: string }> {
+    try {
+      const token = isSupabaseConfigured && supabase ? (await supabase.auth.getSession())?.data?.session?.access_token : undefined;
+      const headers: Record<string, string> = {};
+      if (token) headers['Authorization'] = `Bearer ${token}`;
+      const res = await fetch('/api/best-sellers?mode=admin-library', { headers, cache: 'no-store' });
+      const json = await res.json().catch(() => ({}));
+      if (res.ok) return { products: Array.isArray(json.products) ? json.products : [], configured: json.configured !== false };
+      return { products: [], configured: false, error: json.message || json.error || 'Não foi possível carregar a biblioteca.' };
+    } catch (e: any) {
+      return { products: [], configured: false, error: e?.message || 'Erro ao carregar a biblioteca.' };
+    }
+  },
+
+  async syncBestSellerProductLibrary(): Promise<{ success: boolean; imported?: number; linked?: number; error?: string }> {
+    try {
+      const token = isSupabaseConfigured && supabase ? (await supabase.auth.getSession())?.data?.session?.access_token : undefined;
+      const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+      if (token) headers['Authorization'] = `Bearer ${token}`;
+      const res = await fetch('/api/best-sellers?mode=admin-library', {
+        method: 'POST', headers, body: JSON.stringify({ action: 'sync-existing' }),
+      });
+      const json = await res.json().catch(() => ({}));
+      return res.ok ? { success: true, imported: json.imported || 0, linked: json.linked || 0 } : { success: false, error: json.message || json.error };
+    } catch (e: any) {
+      return { success: false, error: e?.message || 'Erro ao sincronizar a biblioteca.' };
+    }
+  },
+
+  async addBestSellerProductFromLibrary(listId: string, libraryProductId: string): Promise<{ success: boolean; product?: BestSellerProduct; error?: string }> {
+    try {
+      const token = isSupabaseConfigured && supabase ? (await supabase.auth.getSession())?.data?.session?.access_token : undefined;
+      const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+      if (token) headers['Authorization'] = `Bearer ${token}`;
+      const res = await fetch('/api/best-sellers?mode=admin-library', {
+        method: 'POST', headers, body: JSON.stringify({ action: 'add-to-list', listId, libraryProductId }),
+      });
+      const json = await res.json().catch(() => ({}));
+      return res.ok && json.success ? { success: true, product: json.product } : { success: false, error: json.message || json.error || 'Não foi possível adicionar o produto.' };
+    } catch (e: any) {
+      return { success: false, error: e?.message || 'Erro ao reutilizar produto.' };
     }
   },
 

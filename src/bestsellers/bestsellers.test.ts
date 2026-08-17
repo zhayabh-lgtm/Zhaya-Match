@@ -46,6 +46,15 @@ export function runBestSellersTests() {
   assert(setupContent.includes('background_video_url'), 'SQL inclui vídeo de fundo da lista');
   assert(setupContent.includes('best_seller_media_assets'), 'SQL inclui registro de mídia para limpeza segura');
   assert(setupContent.includes('video/mp4'), 'Storage aceita vídeos MP4');
+  assert(setupContent.includes('best_seller_product_library'), 'SQL inclui biblioteca reutilizável de produtos');
+  assert(setupContent.includes('library_product_id'), 'Produtos de listas podem apontar para um cadastro reutilizável');
+  const libraryMigration = fs.readFileSync(path.join(projectRoot, 'supabase/mais_vendidos_product_library.sql'), 'utf8');
+  assert(libraryMigration.includes('media_items JSONB'), 'Biblioteca preserva a ordem das imagens');
+  assert(libraryMigration.includes('purpose TEXT'), 'Registry distingue mídia temporária para limpeza');
+  const cleanupContent = fs.readFileSync(path.join(projectRoot, 'serverless/best-sellers/media-cleanup.ts'), 'utf8');
+  assert(cleanupContent.includes('SEVEN_DAYS_MS'), 'Mídia temporária usa janela de retenção de 7 dias');
+  assert(cleanupContent.includes('logo_url'), 'Limpeza protege logos ainda referenciadas');
+  assert(cleanupContent.includes('posterStoragePath'), 'Limpeza inclui capas temporárias geradas para vídeos');
 
   // 2. Testes de Formatação de Data com Fuso Horário de São Paulo
   console.log('\n--- Teste 2: Formatação de Data da Lista ---');

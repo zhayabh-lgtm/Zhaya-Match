@@ -35,7 +35,7 @@ import {
 import { Repository } from '../../lib/repository';
 import { getReadableTextColor } from '../../lib/contrast';
 import { supabase, isSupabaseConfigured } from '../../lib/supabase';
-import type { BestSellerList, BestSellerProduct, BestSellerMediaItem } from '../../types/zhaya';
+import type { BestSellerList, BestSellerProduct, BestSellerMediaItem, BestSellerLibraryProduct } from '../../types/zhaya';
 
 const BEST_SELLERS_SQL = `-- ==============================================================================
 -- ZHAYA MATCH - SETUP DE MAIS VENDIDOS DO DIA (100% COMPLETO E IDEMPOTENTE)
@@ -331,6 +331,45 @@ END $$;
 -- Mantém políticas existentes do bucket para não quebrar outros módulos que o reutilizam.
 
 -- 10. Recarga do schema cache do PostgREST / Supabase API
+
+
+-- 12. Biblioteca reutilizável de produtos (vídeos não entram)
+CREATE TABLE IF NOT EXISTS public.best_seller_product_library (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  name TEXT NOT NULL,
+  category TEXT NOT NULL DEFAULT 'Produto',
+  image_url TEXT,
+  image_urls TEXT[] NOT NULL DEFAULT '{}'::text[],
+  media_items JSONB NOT NULL DEFAULT '[]'::jsonb,
+  product_url TEXT,
+  original_price NUMERIC(10,2),
+  promotional_price NUMERIC(10,2),
+  sizes TEXT[] NOT NULL DEFAULT '{}'::text[],
+  colors TEXT[] NOT NULL DEFAULT '{}'::text[],
+  installments_count INTEGER,
+  installment_value NUMERIC(10,2),
+  badge_enabled BOOLEAN NOT NULL DEFAULT false,
+  badge_text TEXT,
+  badge_color TEXT NOT NULL DEFAULT '#FFFFFF',
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+ALTER TABLE public.best_seller_product_library ADD COLUMN IF NOT EXISTS badge_enabled BOOLEAN NOT NULL DEFAULT false;
+ALTER TABLE public.best_seller_product_library ADD COLUMN IF NOT EXISTS badge_text TEXT;
+ALTER TABLE public.best_seller_product_library ADD COLUMN IF NOT EXISTS badge_color TEXT NOT NULL DEFAULT '#FFFFFF';
+ALTER TABLE public.best_seller_products ADD COLUMN IF NOT EXISTS library_product_id UUID;
+DO $$ BEGIN
+  IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'best_seller_products_library_product_id_fkey') THEN
+    ALTER TABLE public.best_seller_products ADD CONSTRAINT best_seller_products_library_product_id_fkey
+      FOREIGN KEY (library_product_id) REFERENCES public.best_seller_product_library(id) ON DELETE SET NULL;
+  END IF;
+END $$;
+CREATE INDEX IF NOT EXISTS idx_best_seller_products_library_product ON public.best_seller_products(library_product_id);
+ALTER TABLE public.best_seller_product_library ENABLE ROW LEVEL SECURITY;
+REVOKE ALL ON public.best_seller_product_library FROM anon, authenticated;
+GRANT ALL ON public.best_seller_product_library TO service_role;
+ALTER TABLE public.best_seller_media_assets ADD COLUMN IF NOT EXISTS purpose TEXT NOT NULL DEFAULT 'product_video';
+
 NOTIFY pgrst, 'reload schema';`;
 
 
@@ -381,6 +420,14 @@ export const MaisVendidos: React.FC = () => {
   const [selectedList, setSelectedList] = useState<BestSellerList | null>(null);
   const [products, setProducts] = useState<BestSellerProduct[]>([]);
   const [loadingProducts, setLoadingProducts] = useState<boolean>(false);
+
+  // Biblioteca reutilizável: guarda dados e imagens, nunca vídeos.
+  const [isLibraryModalOpen, setIsLibraryModalOpen] = useState<boolean>(false);
+  const [libraryProducts, setLibraryProducts] = useState<BestSellerLibraryProduct[]>([]);
+  const [librarySearch, setLibrarySearch] = useState('');
+  const [loadingLibrary, setLoadingLibrary] = useState(false);
+  const [libraryError, setLibraryError] = useState<string | null>(null);
+  const [addingLibraryProductId, setAddingLibraryProductId] = useState<string | null>(null);
 
   // State: List Modal (Create / Edit)
   const [isListModalOpen, setIsListModalOpen] = useState<boolean>(false);
@@ -603,7 +650,7 @@ export const MaisVendidos: React.FC = () => {
   const uploadBestSellerFile = async (
     file: File,
     mediaType: 'image' | 'video',
-    purpose: 'product' | 'background' | 'logo',
+    purpose: 'product' | 'background' | 'logo' | 'poster',
   ): Promise<{ url: string; storagePath: string }> => {
     if (!isSupabaseConfigured || !supabase) {
       throw new Error('Supabase não está configurado para upload persistente.');
@@ -790,7 +837,7 @@ export const MaisVendidos: React.FC = () => {
       try {
         const posterFile = await generateVideoPosterFromRemoteUrl(item.url, item.id || 'video');
         if (!posterFile) continue;
-        const uploaded = await uploadBestSellerFile(posterFile, 'image', 'product');
+        const uploaded = await uploadBestSellerFile(posterFile, 'image', 'poster');
         next = next.map((entry) => entry.id === item.id ? {
           ...entry,
           posterUrl: uploaded.url,
@@ -836,7 +883,7 @@ export const MaisVendidos: React.FC = () => {
       let posterUpload: { url: string; storagePath: string } | null = null;
       if (posterFile) {
         try {
-          posterUpload = await uploadBestSellerFile(posterFile, 'image', 'product');
+          posterUpload = await uploadBestSellerFile(posterFile, 'image', 'poster');
         } catch (posterError) {
           console.warn('Vídeo enviado, mas a capa automática não pôde ser salva:', posterError);
         }
@@ -1059,6 +1106,45 @@ export const MaisVendidos: React.FC = () => {
     await loadProducts(list.id);
   };
 
+  const handleOpenProductLibrary = async () => {
+    if (!selectedList) return;
+    setIsLibraryModalOpen(true);
+    setLibrarySearch('');
+    setLibraryError(null);
+    setLoadingLibrary(true);
+    try {
+      // Importa automaticamente produtos antigos que ainda não estavam ligados à biblioteca.
+      await Repository.syncBestSellerProductLibrary();
+      const result = await Repository.getBestSellerProductLibrary();
+      if (!result.configured) {
+        setLibraryError(result.error || 'Execute o SQL da Biblioteca de Produtos no Supabase.');
+        setLibraryProducts([]);
+      } else {
+        setLibraryProducts(result.products);
+      }
+    } catch (error: any) {
+      setLibraryError(error?.message || 'Não foi possível carregar a biblioteca.');
+    } finally {
+      setLoadingLibrary(false);
+    }
+  };
+
+  const handleAddLibraryProduct = async (libraryProduct: BestSellerLibraryProduct) => {
+    if (!selectedList || addingLibraryProductId) return;
+    setAddingLibraryProductId(libraryProduct.id);
+    setLibraryError(null);
+    try {
+      const result = await Repository.addBestSellerProductFromLibrary(selectedList.id, libraryProduct.id);
+      if (!result.success) {
+        setLibraryError(result.error || 'Não foi possível adicionar o produto salvo.');
+        return;
+      }
+      await loadProducts(selectedList.id);
+    } finally {
+      setAddingLibraryProductId(null);
+    }
+  };
+
   // Open Product Modal (Create)
   const handleOpenCreateProduct = () => {
     if (!selectedList) return;
@@ -1180,7 +1266,7 @@ export const MaisVendidos: React.FC = () => {
         setUploadingProductMedia(true);
         const posterFile = await generateVideoPosterFromRemoteUrl(trimmed, mediaId);
         if (posterFile) {
-          const uploadedPoster = await uploadBestSellerFile(posterFile, 'image', 'product');
+          const uploadedPoster = await uploadBestSellerFile(posterFile, 'image', 'poster');
           posterUrl = uploadedPoster.url;
           posterStoragePath = uploadedPoster.storagePath;
         }
@@ -1867,14 +1953,24 @@ export const MaisVendidos: React.FC = () => {
                     A posição (#1, #2, #3...) é controlada manualmente através das setas de ordenação.
                   </p>
                 </div>
-                <button
-                  type="button"
-                  onClick={handleOpenCreateProduct}
-                  className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold text-white bg-neutral-900 rounded hover:bg-neutral-800 transition-colors cursor-pointer shadow-sm"
-                >
-                  <Plus className="w-3.5 h-3.5" />
-                  Novo Produto
-                </button>
+                <div className="flex items-center gap-2">
+                  <button
+                    type="button"
+                    onClick={handleOpenProductLibrary}
+                    className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold text-neutral-700 bg-white border border-neutral-300 rounded hover:bg-neutral-50 transition-colors cursor-pointer"
+                  >
+                    <Database className="w-3.5 h-3.5" />
+                    Produtos salvos
+                  </button>
+                  <button
+                    type="button"
+                    onClick={handleOpenCreateProduct}
+                    className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold text-white bg-neutral-900 rounded hover:bg-neutral-800 transition-colors cursor-pointer shadow-sm"
+                  >
+                    <Plus className="w-3.5 h-3.5" />
+                    Novo Produto
+                  </button>
+                </div>
               </div>
 
               {loadingProducts ? (
@@ -1895,6 +1991,14 @@ export const MaisVendidos: React.FC = () => {
                   >
                     <Plus className="w-3.5 h-3.5" />
                     Adicionar Produto #1
+                  </button>
+                  <button
+                    type="button"
+                    onClick={handleOpenProductLibrary}
+                    className="ml-2 inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold text-neutral-700 bg-white border border-neutral-300 rounded hover:bg-neutral-50 transition-colors cursor-pointer mt-2"
+                  >
+                    <Database className="w-3.5 h-3.5" />
+                    Reaproveitar salvo
                   </button>
                 </div>
               ) : (
@@ -1985,6 +2089,13 @@ export const MaisVendidos: React.FC = () => {
                                 >
                                   <Tag className="w-2.5 h-2.5" />
                                   {prod.badgeText}
+                                </span>
+                              )}
+
+                              {prod.libraryProductId && (
+                                <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-medium bg-blue-50 text-blue-700 border border-blue-100" title="Dados e imagens deste produto estão disponíveis para reaproveitamento">
+                                  <Database className="w-2.5 h-2.5" />
+                                  Salvo
                                 </span>
                               )}
 
@@ -3445,6 +3556,52 @@ export const MaisVendidos: React.FC = () => {
                 </button>
               </div>
             </form>
+          </div>
+        </div>
+      )}
+
+      {/* ========================================================================= */}
+      {/* MODAL: Biblioteca de Produtos                                             */}
+      {/* ========================================================================= */}
+      {isLibraryModalOpen && (
+        <div className="fixed inset-0 z-[60] flex items-center justify-center p-4 bg-black/50 backdrop-blur-xs">
+          <div className="bg-white rounded-lg border border-neutral-200 shadow-xl max-w-2xl w-full max-h-[88vh] flex flex-col overflow-hidden">
+            <div className="px-5 py-4 border-b border-neutral-200 flex items-center justify-between shrink-0">
+              <div>
+                <h3 className="text-sm font-bold text-neutral-900 flex items-center gap-2"><Database className="w-4 h-4" /> Biblioteca de Produtos</h3>
+                <p className="text-[10px] text-neutral-500 mt-0.5">Dados e imagens ficam salvos. Vídeos ficam somente nas listas e nunca entram aqui.</p>
+              </div>
+              <button type="button" onClick={() => setIsLibraryModalOpen(false)} className="text-neutral-400 hover:text-neutral-700 p-1 cursor-pointer"><X className="w-4 h-4" /></button>
+            </div>
+            <div className="p-4 border-b border-neutral-100 shrink-0">
+              <input type="search" value={librarySearch} onChange={(e) => setLibrarySearch(e.target.value)} placeholder="Buscar produto salvo..." className="w-full px-3 py-2 border border-neutral-300 rounded text-xs focus:outline-none focus:ring-1 focus:ring-neutral-900" />
+            </div>
+            <div className="p-4 overflow-y-auto flex-1 min-h-0">
+              {libraryError && <div className="mb-3 p-3 rounded bg-amber-50 border border-amber-200 text-amber-800 text-xs">{libraryError}</div>}
+              {loadingLibrary ? (
+                <div className="py-12 text-center text-xs text-neutral-500"><Loader2 className="w-5 h-5 animate-spin mx-auto mb-2" />Carregando produtos salvos...</div>
+              ) : (() => {
+                const query = librarySearch.trim().toLowerCase();
+                const visible = libraryProducts.filter((item) => !query || item.name.toLowerCase().includes(query) || (item.productUrl || '').toLowerCase().includes(query));
+                if (visible.length === 0) return <div className="py-12 text-center text-xs text-neutral-500"><Package className="w-8 h-8 text-neutral-300 mx-auto mb-2" />Nenhum produto salvo encontrado.</div>;
+                return <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">{visible.map((item) => {
+                  const cover = item.mediaItems?.[0]?.url || item.imageUrl || item.imageUrls?.[0] || '';
+                  const alreadyInList = products.some((product) => product.libraryProductId === item.id);
+                  const shownPrice = item.promotionalPrice ?? item.originalPrice;
+                  return (
+                    <div key={item.id} className="border border-neutral-200 rounded-lg p-3 flex gap-3 bg-white">
+                      <div className="w-16 h-20 rounded bg-neutral-100 overflow-hidden shrink-0 flex items-center justify-center">{cover ? <img src={cover} alt={item.name} className="w-full h-full object-cover" /> : <ImageIcon className="w-5 h-5 text-neutral-300" />}</div>
+                      <div className="min-w-0 flex-1 flex flex-col">
+                        <p className="text-xs font-bold text-neutral-900 line-clamp-2">{item.name}</p>
+                        {shownPrice !== null && shownPrice !== undefined && <p className="text-[11px] font-semibold text-neutral-700 mt-1">{new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(shownPrice)}</p>}
+                        {item.sizes.length > 0 && <p className="text-[10px] text-neutral-500 mt-1 truncate">{item.sizes.join(' · ')}</p>}
+                        <div className="mt-auto pt-2"><button type="button" disabled={addingLibraryProductId === item.id || alreadyInList} onClick={() => handleAddLibraryProduct(item)} className="w-full px-2.5 py-1.5 rounded bg-neutral-900 text-white text-[10px] font-semibold disabled:bg-neutral-200 disabled:text-neutral-500 cursor-pointer disabled:cursor-default">{alreadyInList ? 'Já está nesta lista' : addingLibraryProductId === item.id ? 'Adicionando...' : 'Usar nesta lista'}</button></div>
+                      </div>
+                    </div>
+                  );
+                })}</div>;
+              })()}
+            </div>
           </div>
         </div>
       )}

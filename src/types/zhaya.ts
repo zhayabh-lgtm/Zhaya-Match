@@ -499,6 +499,7 @@ export interface BestSellerList {
 
 export interface BestSellerProduct {
   id: string;
+  libraryProductId?: string | null;
   listId: string;
   position: number;
   name: string;
@@ -526,6 +527,28 @@ export interface BestSellerProduct {
   timerDurationMinutes?: number | null;
   timerColor?: string;
   clicks?: number;
+  createdAt?: string;
+  updatedAt?: string;
+}
+
+
+export interface BestSellerLibraryProduct {
+  id: string;
+  name: string;
+  category?: string;
+  imageUrl?: string | null;
+  imageUrls: string[];
+  mediaItems: BestSellerMediaItem[]; // somente imagens; vídeos nunca entram na biblioteca
+  productUrl?: string | null;
+  originalPrice?: number | null;
+  promotionalPrice?: number | null;
+  sizes: string[];
+  colors: string[];
+  installmentsCount?: number | null;
+  installmentValue?: number | null;
+  badgeEnabled?: boolean;
+  badgeText?: string | null;
+  badgeColor?: string;
   createdAt?: string;
   updatedAt?: string;
 }

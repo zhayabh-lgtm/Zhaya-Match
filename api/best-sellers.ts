@@ -3,6 +3,7 @@ import adminProductsHandler from '../serverless/best-sellers/admin-products.js';
 import publicListHandler from '../serverless/best-sellers/public-list.js';
 import publicClickHandler from '../serverless/best-sellers/public-click.js';
 import adminMediaHandler from '../serverless/best-sellers/admin-media.js';
+import adminLibraryHandler from '../serverless/best-sellers/admin-library.js';
 
 /**
  * Consolida as rotas de Mais Vendidos em uma única Vercel Function.
@@ -23,6 +24,8 @@ export default async function handler(req: any, res: any) {
       return publicClickHandler(req, res);
     case 'admin-media':
       return adminMediaHandler(req, res);
+    case 'admin-library':
+      return adminLibraryHandler(req, res);
     default:
       res.setHeader('Cache-Control', 'no-store');
       return res.status(404).json({

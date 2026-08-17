@@ -637,7 +637,7 @@ const ProductMediaGallery: React.FC<{
       )}
 
       {sizes.length > 0 && (
-        <div className={`absolute left-3.5 z-20 pointer-events-none ${currentMedia?.type === 'video' ? 'bottom-[76px]' : 'bottom-4'}`}>
+        <div className="absolute left-3.5 bottom-4 z-20 pointer-events-none">
           <div className="flex flex-col items-start gap-y-2">
             {sizes.map((size) => {
               const unavailable = unavailableSet.has(size);

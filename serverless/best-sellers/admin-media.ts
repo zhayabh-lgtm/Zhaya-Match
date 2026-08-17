@@ -71,7 +71,8 @@ export default async function handler(req: any, res: any) {
   const mimeType = String(body.mimeType || '').toLowerCase();
   const fileSize = Number(body.fileSize || 0);
   const fileName = sanitizeFileName(String(body.fileName || 'media'));
-  const purpose = body.purpose === 'background' ? 'backgrounds' : body.purpose === 'logo' ? 'logos' : 'products';
+  const purposeKey = body.purpose === 'background' ? 'background' : body.purpose === 'logo' ? 'logo' : body.purpose === 'poster' ? 'poster' : 'product';
+  const purpose = purposeKey === 'background' ? 'backgrounds' : purposeKey === 'logo' ? 'logos' : purposeKey === 'poster' ? 'posters' : 'products';
 
   if (!isAllowedMime(mediaType, mimeType)) {
     return res.status(400).json({
@@ -105,14 +106,17 @@ export default async function handler(req: any, res: any) {
     const { data: publicUrlData } = supabase.storage.from(BUCKET).getPublicUrl(storagePath);
     const publicUrl = publicUrlData.publicUrl;
 
-    // Só vídeos entram no registro de limpeza. Imagens não precisam de retenção automática.
-    if (mediaType === 'video') {
+    // Vídeos, logos e capas automáticas de vídeo são temporários e entram no registro de limpeza.
+    // Imagens normais de produto ficam permanentes porque podem ser reaproveitadas pela Biblioteca de Produtos.
+    const shouldRegisterForCleanup = mediaType === 'video' || purposeKey === 'logo' || purposeKey === 'poster';
+    if (shouldRegisterForCleanup) {
       const { error: registryError } = await supabase.from('best_seller_media_assets').upsert({
         storage_path: storagePath,
         public_url: publicUrl,
         media_type: mediaType,
         mime_type: mimeType,
         file_size: Math.round(fileSize),
+        purpose: mediaType === 'video' ? (purposeKey === 'background' ? 'background_video' : 'product_video') : (purposeKey === 'logo' ? 'logo' : 'video_poster'),
         last_used_at: new Date().toISOString(),
       }, { onConflict: 'storage_path' });
 
