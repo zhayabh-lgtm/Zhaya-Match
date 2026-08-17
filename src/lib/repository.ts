@@ -2039,6 +2039,33 @@ export const Repository = {
     }
   },
 
+  async prepareBestSellerMediaUpload(input: {
+    fileName: string;
+    mimeType: string;
+    fileSize: number;
+    mediaType: 'image' | 'video';
+    purpose?: 'product' | 'background' | 'logo';
+  }): Promise<{ success: boolean; path?: string; token?: string; publicUrl?: string; error?: string }> {
+    try {
+      const token = isSupabaseConfigured && supabase ? (await supabase.auth.getSession())?.data?.session?.access_token : undefined;
+      const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+      if (token) headers['Authorization'] = `Bearer ${token}`;
+
+      const res = await fetch('/api/best-sellers?mode=admin-media', {
+        method: 'POST',
+        headers,
+        body: JSON.stringify({ action: 'sign-upload', ...input }),
+      });
+      const json = await res.json().catch(() => ({}));
+      if (res.ok && json.success && json.path && json.token && json.publicUrl) {
+        return { success: true, path: json.path, token: json.token, publicUrl: json.publicUrl };
+      }
+      return { success: false, error: json.message || json.error || 'Não foi possível preparar o upload.' };
+    } catch (e: any) {
+      return { success: false, error: e?.message || 'Erro de conexão ao preparar upload.' };
+    }
+  },
+
   async getPublicBestSellers(): Promise<PublicBestSellerList | null> {
     try {
       const res = await fetch(`/api/best-sellers?mode=public-list&_=${Date.now()}`, {

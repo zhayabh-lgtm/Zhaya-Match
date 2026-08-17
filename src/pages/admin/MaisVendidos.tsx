@@ -28,11 +28,14 @@ import {
   Upload,
   Loader2,
   GripVertical,
+  Video,
+  ImagePlus,
+  Link2,
 } from 'lucide-react';
 import { Repository } from '../../lib/repository';
 import { getReadableTextColor } from '../../lib/contrast';
 import { supabase, isSupabaseConfigured } from '../../lib/supabase';
-import type { BestSellerList, BestSellerProduct } from '../../types/zhaya';
+import type { BestSellerList, BestSellerProduct, BestSellerMediaItem } from '../../types/zhaya';
 
 const BEST_SELLERS_SQL = `-- ==============================================================================
 -- ZHAYA MATCH - SETUP DE MAIS VENDIDOS DO DIA (100% COMPLETO E IDEMPOTENTE)
@@ -50,6 +53,9 @@ CREATE TABLE IF NOT EXISTS public.best_seller_lists (
   cta_text TEXT,
   rank_color TEXT NOT NULL DEFAULT '#FFFFFF',
   size_color TEXT NOT NULL DEFAULT '#FFFFFF',
+  background_video_url TEXT,
+  background_video_path TEXT,
+  background_video_opacity NUMERIC(4,3) NOT NULL DEFAULT 0.22 CHECK (background_video_opacity >= 0 AND background_video_opacity <= 0.9),
   list_date DATE NOT NULL DEFAULT CURRENT_DATE,
   active BOOLEAN NOT NULL DEFAULT false,
   timer_enabled BOOLEAN NOT NULL DEFAULT false,
@@ -69,8 +75,9 @@ CREATE TABLE IF NOT EXISTS public.best_seller_products (
   position INTEGER NOT NULL DEFAULT 1,
   name TEXT NOT NULL,
   category TEXT NOT NULL DEFAULT 'Produto',
-  image_url TEXT NOT NULL,
+  image_url TEXT,
   image_urls TEXT[] NOT NULL DEFAULT '{}'::text[],
+  media_items JSONB NOT NULL DEFAULT '[]'::jsonb,
   product_url TEXT,
   original_price NUMERIC(10, 2) CHECK (original_price IS NULL OR original_price >= 0),
   promotional_price NUMERIC(10, 2) CHECK (promotional_price IS NULL OR promotional_price >= 0),
@@ -96,6 +103,9 @@ ALTER TABLE public.best_seller_lists ADD COLUMN IF NOT EXISTS subtitle TEXT;
 ALTER TABLE public.best_seller_lists ADD COLUMN IF NOT EXISTS cta_text TEXT;
 ALTER TABLE public.best_seller_lists ADD COLUMN IF NOT EXISTS rank_color TEXT NOT NULL DEFAULT '#FFFFFF';
 ALTER TABLE public.best_seller_lists ADD COLUMN IF NOT EXISTS size_color TEXT NOT NULL DEFAULT '#FFFFFF';
+ALTER TABLE public.best_seller_lists ADD COLUMN IF NOT EXISTS background_video_url TEXT;
+ALTER TABLE public.best_seller_lists ADD COLUMN IF NOT EXISTS background_video_path TEXT;
+ALTER TABLE public.best_seller_lists ADD COLUMN IF NOT EXISTS background_video_opacity NUMERIC(4,3) NOT NULL DEFAULT 0.22;
 ALTER TABLE public.best_seller_lists ADD COLUMN IF NOT EXISTS timer_enabled BOOLEAN NOT NULL DEFAULT false;
 ALTER TABLE public.best_seller_lists ADD COLUMN IF NOT EXISTS timer_end TIMESTAMPTZ;
 ALTER TABLE public.best_seller_lists ADD COLUMN IF NOT EXISTS timer_looping BOOLEAN NOT NULL DEFAULT false;
@@ -104,6 +114,8 @@ ALTER TABLE public.best_seller_lists ADD COLUMN IF NOT EXISTS timezone TEXT NOT 
 ALTER TABLE public.best_seller_lists ADD COLUMN IF NOT EXISTS created_by TEXT;
 
 ALTER TABLE public.best_seller_products ADD COLUMN IF NOT EXISTS image_urls TEXT[] NOT NULL DEFAULT '{}'::text[];
+ALTER TABLE public.best_seller_products ADD COLUMN IF NOT EXISTS media_items JSONB NOT NULL DEFAULT '[]'::jsonb;
+ALTER TABLE public.best_seller_products ALTER COLUMN image_url DROP NOT NULL;
 ALTER TABLE public.best_seller_products ADD COLUMN IF NOT EXISTS product_url TEXT;
 ALTER TABLE public.best_seller_products ADD COLUMN IF NOT EXISTS original_price NUMERIC(10, 2);
 ALTER TABLE public.best_seller_products ADD COLUMN IF NOT EXISTS promotional_price NUMERIC(10, 2);
@@ -156,6 +168,30 @@ BEGIN
   END IF;
 END $$;
 
+-- 3.3 Mídia mista e limpeza de uploads órfãos
+DO $$
+BEGIN
+  IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'best_seller_lists_background_video_opacity_check') THEN
+    ALTER TABLE public.best_seller_lists
+      ADD CONSTRAINT best_seller_lists_background_video_opacity_check
+      CHECK (background_video_opacity >= 0 AND background_video_opacity <= 0.9);
+  END IF;
+END $$;
+
+CREATE TABLE IF NOT EXISTS public.best_seller_media_assets (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  storage_path TEXT NOT NULL UNIQUE,
+  public_url TEXT NOT NULL,
+  media_type TEXT NOT NULL CHECK (media_type IN ('image', 'video')),
+  mime_type TEXT,
+  file_size BIGINT,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  last_used_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+CREATE INDEX IF NOT EXISTS idx_best_seller_media_assets_cleanup
+  ON public.best_seller_media_assets(media_type, last_used_at);
+
 -- 4. Índices de performance
 CREATE INDEX IF NOT EXISTS idx_best_seller_lists_active ON public.best_seller_lists(active);
 CREATE INDEX IF NOT EXISTS idx_best_seller_lists_date ON public.best_seller_lists(list_date DESC);
@@ -164,6 +200,7 @@ CREATE INDEX IF NOT EXISTS idx_best_seller_products_list_pos ON public.best_sell
 -- 5. Habilitação de Segurança por Linha (RLS)
 ALTER TABLE public.best_seller_lists ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.best_seller_products ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.best_seller_media_assets ENABLE ROW LEVEL SECURITY;
 
 -- 6. Permissões de isolamento estrito (Gerenciamento via Service Role do Backend)
 REVOKE ALL ON public.best_seller_lists FROM anon, authenticated;
@@ -171,6 +208,9 @@ GRANT ALL ON public.best_seller_lists TO service_role;
 
 REVOKE ALL ON public.best_seller_products FROM anon, authenticated;
 GRANT ALL ON public.best_seller_products TO service_role;
+
+REVOKE ALL ON public.best_seller_media_assets FROM anon, authenticated;
+GRANT ALL ON public.best_seller_media_assets TO service_role;
 
 -- 7. Função atômica para ativar uma lista desativando todas as outras
 CREATE OR REPLACE FUNCTION public.set_active_best_seller_list(target_list_id UUID)
@@ -210,50 +250,33 @@ $$ LANGUAGE plpgsql SECURITY DEFINER;
 REVOKE ALL ON FUNCTION public.increment_best_seller_product_clicks(UUID) FROM public, anon, authenticated;
 GRANT EXECUTE ON FUNCTION public.increment_best_seller_product_clicks(UUID) TO service_role;
 
--- 9. Configuração do Storage (Bucket Público para Mídias e Logotipos)
+-- 9. Configuração do Storage (imagens + vídeos, upload por URL assinada)
 INSERT INTO storage.buckets (id, name, public, file_size_limit, allowed_mime_types)
 VALUES (
   'zhaya-match-media',
   'zhaya-match-media',
   true,
-  10485760, -- 10MB
-  ARRAY['image/png', 'image/jpeg', 'image/jpg', 'image/webp', 'image/svg+xml', 'image/gif']
+  104857600, -- 100MB
+  ARRAY['image/png', 'image/jpeg', 'image/jpg', 'image/webp', 'image/svg+xml', 'image/gif', 'video/mp4', 'video/webm', 'video/quicktime', 'video/ogg']
 )
 ON CONFLICT (id) DO UPDATE SET
   public = true,
-  file_size_limit = 10485760,
-  allowed_mime_types = ARRAY['image/png', 'image/jpeg', 'image/jpg', 'image/webp', 'image/svg+xml', 'image/gif'];
+  file_size_limit = 104857600,
+  allowed_mime_types = ARRAY['image/png', 'image/jpeg', 'image/jpg', 'image/webp', 'image/svg+xml', 'image/gif', 'video/mp4', 'video/webm', 'video/quicktime', 'video/ogg'];
 
--- Políticas de acesso para o Storage do Supabase (Leitura e Upload)
 DO $$
 BEGIN
   IF NOT EXISTS (
-    SELECT 1 FROM pg_policies 
+    SELECT 1 FROM pg_policies
     WHERE schemaname = 'storage' AND tablename = 'objects' AND policyname = 'Public Access zhaya-match-media'
   ) THEN
     CREATE POLICY "Public Access zhaya-match-media"
     ON storage.objects FOR SELECT
     USING (bucket_id = 'zhaya-match-media');
   END IF;
-
-  IF NOT EXISTS (
-    SELECT 1 FROM pg_policies 
-    WHERE schemaname = 'storage' AND tablename = 'objects' AND policyname = 'Allow Uploads zhaya-match-media'
-  ) THEN
-    CREATE POLICY "Allow Uploads zhaya-match-media"
-    ON storage.objects FOR INSERT
-    WITH CHECK (bucket_id = 'zhaya-match-media');
-  END IF;
-
-  IF NOT EXISTS (
-    SELECT 1 FROM pg_policies 
-    WHERE schemaname = 'storage' AND tablename = 'objects' AND policyname = 'Allow Updates zhaya-match-media'
-  ) THEN
-    CREATE POLICY "Allow Updates zhaya-match-media"
-    ON storage.objects FOR UPDATE
-    USING (bucket_id = 'zhaya-match-media');
-  END IF;
 END $$;
+
+-- Mantém políticas existentes do bucket para não quebrar outros módulos que o reutilizam.
 
 -- 10. Recarga do schema cache do PostgREST / Supabase API
 NOTIFY pgrst, 'reload schema';`;
@@ -316,6 +339,12 @@ export const MaisVendidos: React.FC = () => {
   const [listFormCtaText, setListFormCtaText] = useState('');
   const [listFormRankColor, setListFormRankColor] = useState('#FFFFFF');
   const [listFormSizeColor, setListFormSizeColor] = useState('#FFFFFF');
+  const [listFormBackgroundVideoUrl, setListFormBackgroundVideoUrl] = useState('');
+  const [listFormBackgroundVideoPath, setListFormBackgroundVideoPath] = useState('');
+  const [listFormBackgroundVideoOpacity, setListFormBackgroundVideoOpacity] = useState('0.22');
+  const [backgroundVideoInputMode, setBackgroundVideoInputMode] = useState<'upload' | 'url'>('upload');
+  const [uploadingBackgroundVideo, setUploadingBackgroundVideo] = useState(false);
+  const backgroundVideoFileInputRef = useRef<HTMLInputElement>(null);
   const [listFormDate, setListFormDate] = useState('');
   const [listFormActive, setListFormActive] = useState<boolean>(false);
   const [listFormTimerEnabled, setListFormTimerEnabled] = useState<boolean>(false);
@@ -342,6 +371,11 @@ export const MaisVendidos: React.FC = () => {
   const [prodFormImageUrl, setProdFormImageUrl] = useState('');
   const [prodFormImageUrls, setProdFormImageUrls] = useState<string[]>([]);
   const [prodFormImageUrlInput, setProdFormImageUrlInput] = useState('');
+  const [prodFormMediaItems, setProdFormMediaItems] = useState<BestSellerMediaItem[]>([]);
+  const [prodFormMediaUrlInput, setProdFormMediaUrlInput] = useState('');
+  const [prodFormMediaUrlType, setProdFormMediaUrlType] = useState<'image' | 'video'>('image');
+  const [uploadingProductMedia, setUploadingProductMedia] = useState(false);
+  const [draggedMediaIndex, setDraggedMediaIndex] = useState<number | null>(null);
   const [prodFormProductUrl, setProdFormProductUrl] = useState('');
   const [prodFormOriginalPrice, setProdFormOriginalPrice] = useState('');
   const [prodFormPromotionalPrice, setProdFormPromotionalPrice] = useState('');
@@ -363,6 +397,7 @@ export const MaisVendidos: React.FC = () => {
   const [productError, setProductError] = useState<string | null>(null);
   const [uploadingProdImage, setUploadingProdImage] = useState<boolean>(false);
   const prodFileInputRef = useRef<HTMLInputElement>(null);
+  const prodMediaFileInputRef = useRef<HTMLInputElement>(null);
 
   // State: Delete Confirmation
   const [deleteConfirm, setDeleteConfirm] = useState<{
@@ -429,6 +464,10 @@ export const MaisVendidos: React.FC = () => {
     setListFormCtaText('');
     setListFormRankColor('#FFFFFF');
     setListFormSizeColor('#FFFFFF');
+    setListFormBackgroundVideoUrl('');
+    setListFormBackgroundVideoPath('');
+    setListFormBackgroundVideoOpacity('0.22');
+    setBackgroundVideoInputMode('upload');
     const today = new Date().toISOString().slice(0, 10);
     setListFormDate(today);
     setListFormActive(lists.length === 0); // Ativa por padrão se for a primeira
@@ -454,6 +493,10 @@ export const MaisVendidos: React.FC = () => {
     setListFormCtaText(list.ctaText || '');
     setListFormRankColor(list.rankColor || '#FFFFFF');
     setListFormSizeColor(list.sizeColor || '#FFFFFF');
+    setListFormBackgroundVideoUrl(list.backgroundVideoUrl || '');
+    setListFormBackgroundVideoPath(list.backgroundVideoPath || '');
+    setListFormBackgroundVideoOpacity(String(list.backgroundVideoOpacity ?? 0.22));
+    setBackgroundVideoInputMode(list.backgroundVideoPath ? 'upload' : (list.backgroundVideoUrl ? 'url' : 'upload'));
     setListFormDate(list.listDate);
     setListFormActive(list.active);
     setListFormTimerEnabled(list.timerEnabled);
@@ -492,55 +535,57 @@ export const MaisVendidos: React.FC = () => {
     setIsListModalOpen(true);
   };
 
-  // Upload Logo to Supabase Storage
-  const handleLogoFileUpload = async (file: File) => {
-    if (!file) return;
-
-    const validTypes = ['image/svg+xml', 'image/png', 'image/jpeg', 'image/jpg', 'image/webp'];
-    if (!validTypes.includes(file.type) && !file.name.match(/\.(svg|png|jpe?g|webp)$/i)) {
-      setLogoUploadError('Formato inválido. Selecione um arquivo SVG, PNG, JPG ou WebP.');
-      return;
+  const uploadBestSellerFile = async (
+    file: File,
+    mediaType: 'image' | 'video',
+    purpose: 'product' | 'background' | 'logo',
+  ): Promise<{ url: string; storagePath: string }> => {
+    if (!isSupabaseConfigured || !supabase) {
+      throw new Error('Supabase não está configurado para upload persistente.');
     }
 
+    const prepared = await Repository.prepareBestSellerMediaUpload({
+      fileName: file.name,
+      mimeType: file.type,
+      fileSize: file.size,
+      mediaType,
+      purpose,
+    });
+
+    if (!prepared.success || !prepared.path || !prepared.token || !prepared.publicUrl) {
+      throw new Error(prepared.error || 'Não foi possível preparar o upload.');
+    }
+
+    const { error } = await supabase.storage
+      .from('zhaya-match-media')
+      .uploadToSignedUrl(prepared.path, prepared.token, file, {
+        cacheControl: '3600',
+        contentType: file.type,
+      });
+
+    if (error) throw new Error(`Falha no upload: ${error.message}`);
+    return { url: prepared.publicUrl, storagePath: prepared.path };
+  };
+
+  // Uploads usam URL assinada: o arquivo vai direto ao Supabase Storage sem passar pelo corpo da Function.
+  const handleLogoFileUpload = async (file: File) => {
+    if (!file) return;
+    const validTypes = ['image/svg+xml', 'image/png', 'image/jpeg', 'image/jpg', 'image/webp'];
+    if (!validTypes.includes(file.type) && !file.name.match(/\.(svg|png|jpe?g|webp)$/i)) {
+      setLogoUploadError('Formato inválido. Selecione SVG, PNG, JPG ou WebP.');
+      return;
+    }
     if (file.size > 5 * 1024 * 1024) {
       setLogoUploadError('O logotipo excede o limite máximo de 5MB.');
       return;
     }
-
     try {
       setUploadingLogo(true);
-      setLogoUploadProgress(20);
+      setLogoUploadProgress(25);
       setLogoUploadError(null);
-
-      const timestamp = Date.now();
-      const sanitizedName = file.name.replace(/[^a-zA-Z0-9.-]/g, '_');
-      const storagePath = `logos/${timestamp}_${sanitizedName}`;
-
-      if (isSupabaseConfigured && supabase) {
-        setLogoUploadProgress(50);
-        const { error } = await supabase.storage
-          .from('zhaya-match-media')
-          .upload(storagePath, file, {
-            cacheControl: '3600',
-            upsert: true,
-          });
-
-        if (error) {
-          throw new Error(`Falha no upload para Supabase Storage: ${error.message}`);
-        }
-
-        setLogoUploadProgress(85);
-        const { data: publicUrlData } = supabase.storage
-          .from('zhaya-match-media')
-          .getPublicUrl(storagePath);
-
-        setListFormLogoUrl(publicUrlData.publicUrl);
-      } else {
-        // Fallback local caso Supabase não esteja conectado no client
-        const objectUrl = URL.createObjectURL(file);
-        setListFormLogoUrl(objectUrl);
-      }
-
+      const uploaded = await uploadBestSellerFile(file, 'image', 'logo');
+      setLogoUploadProgress(90);
+      setListFormLogoUrl(uploaded.url);
       setLogoUploadProgress(100);
     } catch (err: any) {
       console.error('Erro no upload do logotipo:', err);
@@ -551,64 +596,70 @@ export const MaisVendidos: React.FC = () => {
     }
   };
 
-  // Upload Product Image to Supabase Storage
-  const handleProdImageFileUpload = async (file: File, isMain: boolean = false) => {
+  const makeMediaId = () => `media-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+
+  const handleProductMediaFileUpload = async (file: File) => {
     if (!file) return;
-
-    const validTypes = ['image/svg+xml', 'image/png', 'image/jpeg', 'image/jpg', 'image/webp'];
-    if (!validTypes.includes(file.type) && !file.name.match(/\.(svg|png|jpe?g|webp)$/i)) {
-      setProductError('Formato de imagem inválido. Use PNG, JPG ou WebP.');
+    const isVideo = file.type.startsWith('video/');
+    const isImage = file.type.startsWith('image/');
+    if (!isVideo && !isImage) {
+      setProductError('Selecione uma imagem ou vídeo compatível.');
       return;
     }
-
-    if (file.size > 10 * 1024 * 1024) {
-      setProductError('A imagem excede o tamanho máximo de 10MB.');
+    if (isImage && file.size > 10 * 1024 * 1024) {
+      setProductError('A imagem deve ter no máximo 10MB.');
       return;
     }
-
+    if (isVideo && file.size > 100 * 1024 * 1024) {
+      setProductError('O vídeo deve ter no máximo 100MB.');
+      return;
+    }
     try {
-      setUploadingProdImage(true);
+      setUploadingProductMedia(true);
+      setUploadingProdImage(isImage);
       setProductError(null);
-
-      const timestamp = Date.now();
-      const sanitizedName = file.name.replace(/[^a-zA-Z0-9.-]/g, '_');
-      const storagePath = `bestsellers/${timestamp}_${sanitizedName}`;
-
-      let publicUrl = '';
-      if (isSupabaseConfigured && supabase) {
-        const { error } = await supabase.storage
-          .from('zhaya-match-media')
-          .upload(storagePath, file, {
-            cacheControl: '3600',
-            upsert: true,
-          });
-
-        if (error) {
-          throw new Error(`Falha no upload: ${error.message}`);
-        }
-
-        const { data: publicUrlData } = supabase.storage
-          .from('zhaya-match-media')
-          .getPublicUrl(storagePath);
-
-        publicUrl = publicUrlData.publicUrl;
-      } else {
-        publicUrl = URL.createObjectURL(file);
-      }
-
-      if (publicUrl) {
-        if (isMain || !prodFormImageUrl) {
-          setProdFormImageUrl(publicUrl);
-        }
-        if (!prodFormImageUrls.includes(publicUrl)) {
-          setProdFormImageUrls((prev) => [...prev, publicUrl]);
-        }
-      }
+      const type: 'image' | 'video' = isVideo ? 'video' : 'image';
+      const uploaded = await uploadBestSellerFile(file, type, 'product');
+      setProdFormMediaItems((prev) => [
+        ...prev,
+        { id: makeMediaId(), type, url: uploaded.url, storagePath: uploaded.storagePath, source: 'upload' },
+      ]);
     } catch (err: any) {
-      console.error('Erro no upload de foto de produto:', err);
-      setProductError(err?.message || 'Erro ao enviar foto para o Supabase Storage.');
+      console.error('Erro no upload de mídia do produto:', err);
+      setProductError(err?.message || 'Erro ao enviar mídia para o Supabase Storage.');
     } finally {
+      setUploadingProductMedia(false);
       setUploadingProdImage(false);
+    }
+  };
+
+  // Mantém compatibilidade com o botão antigo de imagem, mas adiciona na galeria unificada.
+  const handleProdImageFileUpload = async (file: File, _isMain: boolean = false) => {
+    await handleProductMediaFileUpload(file);
+  };
+
+  const handleBackgroundVideoUpload = async (file: File) => {
+    if (!file) return;
+    const validTypes = ['video/mp4', 'video/webm', 'video/quicktime', 'video/ogg'];
+    if (!validTypes.includes(file.type)) {
+      setListError('Vídeo de fundo inválido. Use MP4, WebM, MOV ou OGV.');
+      return;
+    }
+    if (file.size > 100 * 1024 * 1024) {
+      setListError('O vídeo de fundo deve ter no máximo 100MB.');
+      return;
+    }
+    try {
+      setUploadingBackgroundVideo(true);
+      setListError(null);
+      const uploaded = await uploadBestSellerFile(file, 'video', 'background');
+      setListFormBackgroundVideoUrl(uploaded.url);
+      setListFormBackgroundVideoPath(uploaded.storagePath);
+      setBackgroundVideoInputMode('upload');
+    } catch (err: any) {
+      setListError(err?.message || 'Erro ao enviar vídeo de fundo.');
+    } finally {
+      setUploadingBackgroundVideo(false);
     }
   };
 
@@ -674,6 +725,9 @@ export const MaisVendidos: React.FC = () => {
           ctaText: listFormCtaText.trim() || null,
           rankColor: listFormRankColor || '#FFFFFF',
           sizeColor: listFormSizeColor || '#FFFFFF',
+          backgroundVideoUrl: listFormBackgroundVideoUrl.trim() || null,
+          backgroundVideoPath: listFormBackgroundVideoPath.trim() || null,
+          backgroundVideoOpacity: Math.min(0.9, Math.max(0, Number(listFormBackgroundVideoOpacity || 0.22))),
           listDate: listFormDate,
           active: listFormActive,
           timerEnabled: listFormTimerEnabled,
@@ -698,6 +752,9 @@ export const MaisVendidos: React.FC = () => {
           ctaText: listFormCtaText.trim() || null,
           rankColor: listFormRankColor || '#FFFFFF',
           sizeColor: listFormSizeColor || '#FFFFFF',
+          backgroundVideoUrl: listFormBackgroundVideoUrl.trim() || null,
+          backgroundVideoPath: listFormBackgroundVideoPath.trim() || null,
+          backgroundVideoOpacity: Math.min(0.9, Math.max(0, Number(listFormBackgroundVideoOpacity || 0.22))),
           listDate: listFormDate,
           active: listFormActive,
           timerEnabled: listFormTimerEnabled,
@@ -774,6 +831,9 @@ export const MaisVendidos: React.FC = () => {
     setProdFormImageUrl('');
     setProdFormImageUrls([]);
     setProdFormImageUrlInput('');
+    setProdFormMediaItems([]);
+    setProdFormMediaUrlInput('');
+    setProdFormMediaUrlType('image');
     setProdFormProductUrl('');
     setProdFormOriginalPrice('');
     setProdFormPromotionalPrice('');
@@ -798,10 +858,16 @@ export const MaisVendidos: React.FC = () => {
   const handleOpenEditProduct = (prod: BestSellerProduct) => {
     setEditingProduct(prod);
     setProdFormName(prod.name);
-    setProdFormImageUrl(prod.imageUrl);
+    setProdFormImageUrl(prod.imageUrl || '');
     const existingImgs = Array.isArray(prod.imageUrls) && prod.imageUrls.length > 0 ? prod.imageUrls : (prod.imageUrl ? [prod.imageUrl] : []);
     setProdFormImageUrls(existingImgs);
     setProdFormImageUrlInput('');
+    const existingMedia = Array.isArray(prod.mediaItems) && prod.mediaItems.length > 0
+      ? prod.mediaItems
+      : existingImgs.map((url, index) => ({ id: `legacy-image-${index + 1}`, type: 'image' as const, url, source: 'url' as const }));
+    setProdFormMediaItems(existingMedia);
+    setProdFormMediaUrlInput('');
+    setProdFormMediaUrlType('image');
     setProdFormProductUrl(prod.productUrl || '');
     setProdFormOriginalPrice(prod.originalPrice !== null && prod.originalPrice !== undefined ? String(prod.originalPrice) : '');
     setProdFormPromotionalPrice(prod.promotionalPrice !== null && prod.promotionalPrice !== undefined ? String(prod.promotionalPrice) : '');
@@ -822,25 +888,71 @@ export const MaisVendidos: React.FC = () => {
     setIsProductModalOpen(true);
   };
 
-  // Add Additional Image URL
-  const handleAddImageUrl = () => {
-    const trimmed = prodFormImageUrlInput.trim();
-    if (trimmed && !prodFormImageUrls.includes(trimmed)) {
-      setProdFormImageUrls([...prodFormImageUrls, trimmed]);
-      setProdFormImageUrlInput('');
-      if (!prodFormImageUrl) {
-        setProdFormImageUrl(trimmed);
-      }
+  const handleAddMediaUrl = () => {
+    const trimmed = prodFormMediaUrlInput.trim();
+    if (!trimmed) return;
+    try {
+      const parsed = new URL(trimmed);
+      if (!['http:', 'https:'].includes(parsed.protocol)) throw new Error('invalid');
+    } catch {
+      setProductError('Informe uma URL válida iniciando com http:// ou https://.');
+      return;
     }
+    if (prodFormMediaItems.some((item) => item.url === trimmed && item.type === prodFormMediaUrlType)) {
+      setProdFormMediaUrlInput('');
+      return;
+    }
+    setProdFormMediaItems((prev) => [
+      ...prev,
+      { id: makeMediaId(), type: prodFormMediaUrlType, url: trimmed, storagePath: null, source: 'url' },
+    ]);
+    setProdFormMediaUrlInput('');
+    setProductError(null);
   };
 
-  // Remove Image URL
-  const handleRemoveImageUrl = (urlToRemove: string) => {
-    const updated = prodFormImageUrls.filter((u) => u !== urlToRemove);
-    setProdFormImageUrls(updated);
-    if (prodFormImageUrl === urlToRemove) {
-      setProdFormImageUrl(updated[0] || '');
+  const handleRemoveMediaItem = (id: string) => {
+    setProdFormMediaItems((prev) => prev.filter((item) => item.id !== id));
+  };
+
+  const handleDropMedia = (targetIndex: number) => {
+    if (draggedMediaIndex === null || draggedMediaIndex === targetIndex) {
+      setDraggedMediaIndex(null);
+      return;
     }
+    setProdFormMediaItems((prev) => {
+      const next = [...prev];
+      const [moved] = next.splice(draggedMediaIndex, 1);
+      next.splice(targetIndex, 0, moved);
+      return next;
+    });
+    setDraggedMediaIndex(null);
+  };
+
+  const handleMoveMedia = (index: number, direction: -1 | 1) => {
+    setProdFormMediaItems((prev) => {
+      const target = index + direction;
+      if (target < 0 || target >= prev.length) return prev;
+      const next = [...prev];
+      [next[index], next[target]] = [next[target], next[index]];
+      return next;
+    });
+  };
+
+  // Compatibilidade com handlers antigos enquanto o formulário usa a galeria unificada.
+  const handleAddImageUrl = () => {
+    const trimmed = prodFormImageUrlInput.trim();
+    if (!trimmed) return;
+    setProdFormMediaUrlType('image');
+    if (!prodFormMediaItems.some((item) => item.url === trimmed && item.type === 'image')) {
+      setProdFormMediaItems((prev) => [...prev, { id: makeMediaId(), type: 'image', url: trimmed, storagePath: null, source: 'url' }]);
+    }
+    setProdFormImageUrlInput('');
+  };
+
+  const handleRemoveImageUrl = (urlToRemove: string) => {
+    setProdFormMediaItems((prev) => prev.filter((item) => item.url !== urlToRemove));
+    setProdFormImageUrls((prev) => prev.filter((url) => url !== urlToRemove));
+    if (prodFormImageUrl === urlToRemove) setProdFormImageUrl('');
   };
 
   // Adiciona um tamanho por vez. Presets são usados para grupos prontos.
@@ -904,19 +1016,15 @@ export const MaisVendidos: React.FC = () => {
       return;
     }
 
-    const finalMainImage = prodFormImageUrl.trim() || (prodFormImageUrls[0] || '').trim();
-    if (!finalMainImage) {
-      setProductError('URL da imagem é obrigatória.');
+    const finalMediaItems = prodFormMediaItems
+      .map((item) => ({ ...item, url: (item.url || '').trim() }))
+      .filter((item) => item.url && (item.type === 'image' || item.type === 'video'));
+    if (finalMediaItems.length === 0) {
+      setProductError('Adicione pelo menos uma imagem ou vídeo ao produto.');
       return;
     }
-
-    // Garante que a lista de imagens contenha ao menos a imagem principal
-    let finalImageUrls = prodFormImageUrls.filter(Boolean);
-    if (finalImageUrls.length === 0 && finalMainImage) {
-      finalImageUrls = [finalMainImage];
-    } else if (finalMainImage && !finalImageUrls.includes(finalMainImage)) {
-      finalImageUrls = [finalMainImage, ...finalImageUrls];
-    }
+    const finalImageUrls = finalMediaItems.filter((item) => item.type === 'image').map((item) => item.url);
+    const finalMainImage = finalImageUrls[0] || null;
 
     let soldQtyParsed: number | null = null;
     if (prodFormSoldQty !== '') {
@@ -981,6 +1089,7 @@ export const MaisVendidos: React.FC = () => {
         name: prodFormName.trim(),
         imageUrl: finalMainImage,
         imageUrls: finalImageUrls,
+        mediaItems: finalMediaItems,
         productUrl: prodFormProductUrl.trim() || null,
         originalPrice: origPriceParsed,
         promotionalPrice: promoPriceParsed,
@@ -1478,9 +1587,13 @@ export const MaisVendidos: React.FC = () => {
 
                           {/* Image Thumbnail */}
                           <div className="relative w-12 h-12 rounded bg-neutral-100 border border-neutral-200 overflow-hidden shrink-0">
-                            {prod.imageUrl ? (
+                            {prod.mediaItems?.[0]?.type === 'video' ? (
+                              <div className="w-full h-full flex items-center justify-center bg-neutral-950 text-white">
+                                <Video className="w-5 h-5" />
+                              </div>
+                            ) : prod.imageUrl || prod.mediaItems?.[0]?.url ? (
                               <img
-                                src={prod.imageUrl}
+                                src={prod.imageUrl || prod.mediaItems?.[0]?.url || ''}
                                 alt={prod.name}
                                 className="w-full h-full object-cover"
                                 onError={(e) => {
@@ -1922,6 +2035,80 @@ export const MaisVendidos: React.FC = () => {
                 </div>
               </div>
 
+              <div className="space-y-3 p-3 rounded-lg bg-neutral-50 border border-neutral-200">
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <div>
+                    <label className="font-semibold text-neutral-800">Vídeo de fundo (Opcional)</label>
+                    <p className="text-[10px] text-neutral-500 mt-0.5">Fica fixo atrás da vitrine, sempre sem som, automático e em looping.</p>
+                  </div>
+                  <div className="flex items-center bg-neutral-200 p-0.5 rounded text-[10px]">
+                    <button type="button" onClick={() => setBackgroundVideoInputMode('upload')} className={`px-2 py-1 rounded ${backgroundVideoInputMode === 'upload' ? 'bg-white font-bold' : 'text-neutral-600'}`}>Upload</button>
+                    <button type="button" onClick={() => setBackgroundVideoInputMode('url')} className={`px-2 py-1 rounded ${backgroundVideoInputMode === 'url' ? 'bg-white font-bold' : 'text-neutral-600'}`}>URL</button>
+                  </div>
+                </div>
+
+                <input
+                  ref={backgroundVideoFileInputRef}
+                  type="file"
+                  accept="video/mp4,video/webm,video/quicktime,video/ogg"
+                  className="hidden"
+                  onChange={(e) => {
+                    const file = e.target.files?.[0];
+                    if (file) handleBackgroundVideoUpload(file);
+                    e.target.value = '';
+                  }}
+                />
+
+                {backgroundVideoInputMode === 'upload' ? (
+                  <button
+                    type="button"
+                    onClick={() => backgroundVideoFileInputRef.current?.click()}
+                    disabled={uploadingBackgroundVideo}
+                    className="w-full py-2.5 border border-dashed border-neutral-300 rounded bg-white text-[11px] font-semibold text-neutral-700 hover:border-neutral-500 disabled:opacity-50 cursor-pointer flex items-center justify-center gap-2"
+                  >
+                    {uploadingBackgroundVideo ? <Loader2 className="w-4 h-4 animate-spin" /> : <Video className="w-4 h-4" />}
+                    {uploadingBackgroundVideo ? 'Enviando vídeo...' : (listFormBackgroundVideoUrl ? 'Trocar vídeo de fundo' : 'Enviar vídeo de fundo')}
+                  </button>
+                ) : (
+                  <input
+                    type="url"
+                    value={listFormBackgroundVideoUrl}
+                    onChange={(e) => {
+                      setListFormBackgroundVideoUrl(e.target.value);
+                      setListFormBackgroundVideoPath('');
+                    }}
+                    placeholder="https://.../video.mp4"
+                    className="w-full px-3 py-2 border border-neutral-300 rounded bg-white text-xs focus:outline-none focus:ring-1 focus:ring-neutral-900"
+                  />
+                )}
+
+                {listFormBackgroundVideoUrl && (
+                  <div className="space-y-2">
+                    <div className="relative aspect-video overflow-hidden rounded bg-black">
+                      <video src={listFormBackgroundVideoUrl} muted autoPlay loop playsInline className="w-full h-full object-cover" style={{ opacity: Number(listFormBackgroundVideoOpacity || 0.22) }} />
+                      <button
+                        type="button"
+                        onClick={() => { setListFormBackgroundVideoUrl(''); setListFormBackgroundVideoPath(''); }}
+                        className="absolute top-2 right-2 p-1.5 rounded bg-black/70 text-white cursor-pointer"
+                        aria-label="Remover vídeo de fundo"
+                      ><X className="w-3.5 h-3.5" /></button>
+                    </div>
+                    <div className="flex items-center gap-3">
+                      <label className="text-[10px] font-semibold text-neutral-600 shrink-0">Opacidade {Math.round(Number(listFormBackgroundVideoOpacity || 0.22) * 100)}%</label>
+                      <input
+                        type="range"
+                        min="0"
+                        max="0.9"
+                        step="0.01"
+                        value={listFormBackgroundVideoOpacity}
+                        onChange={(e) => setListFormBackgroundVideoOpacity(e.target.value)}
+                        className="flex-1"
+                      />
+                    </div>
+                  </div>
+                )}
+              </div>
+
               <div className="space-y-1">
                 <label className="font-semibold text-neutral-700">Data da Lista *</label>
                 <input
@@ -2127,123 +2314,132 @@ export const MaisVendidos: React.FC = () => {
                   />
                 </div>
 
-                <div className="space-y-2">
-                  <div className="flex items-center justify-between">
-                    <label className="font-semibold text-neutral-700">URL da Imagem Principal (Capa) *</label>
+                <div className="space-y-3 p-3 rounded-lg bg-neutral-50 border border-neutral-200">
+                  <div className="flex flex-wrap items-center justify-between gap-2">
+                    <div>
+                      <label className="font-semibold text-neutral-800">Mídia do produto *</label>
+                      <p className="text-[10px] text-neutral-500 mt-0.5">Imagens e vídeos aparecem exatamente nesta ordem na vitrine.</p>
+                    </div>
                     <button
                       type="button"
-                      onClick={() => prodFileInputRef.current?.click()}
-                      disabled={uploadingProdImage}
-                      className="text-[11px] font-medium text-neutral-700 hover:text-neutral-900 flex items-center gap-1 cursor-pointer"
+                      onClick={() => prodMediaFileInputRef.current?.click()}
+                      disabled={uploadingProductMedia}
+                      className="px-3 py-2 bg-neutral-900 text-white rounded text-[11px] font-semibold inline-flex items-center gap-1.5 hover:bg-black disabled:opacity-50 cursor-pointer"
                     >
-                      {uploadingProdImage ? (
-                        <>
-                          <Loader2 className="w-3 h-3 animate-spin text-neutral-900" />
-                          <span>Enviando foto...</span>
-                        </>
-                      ) : (
-                        <>
-                          <Upload className="w-3 h-3" />
-                          <span>Upload p/ Supabase</span>
-                        </>
-                      )}
+                      {uploadingProductMedia ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Upload className="w-3.5 h-3.5" />}
+                      {uploadingProductMedia ? 'Enviando...' : 'Upload imagem/vídeo'}
                     </button>
+                    <input
+                      ref={prodMediaFileInputRef}
+                      type="file"
+                      accept="image/png,image/jpeg,image/webp,image/gif,image/svg+xml,video/mp4,video/webm,video/quicktime,video/ogg"
+                      className="hidden"
+                      onChange={(e) => {
+                        const file = e.target.files?.[0];
+                        if (file) handleProductMediaFileUpload(file);
+                        e.target.value = '';
+                      }}
+                    />
                   </div>
-                  <input
-                    ref={prodFileInputRef}
-                    type="file"
-                    accept="image/png,image/jpeg,image/webp,image/jpg"
-                    className="hidden"
-                    onChange={(e) => {
-                      const file = e.target.files?.[0];
-                      if (file) handleProdImageFileUpload(file, true);
-                      e.target.value = '';
-                    }}
-                  />
-                  <input
-                    type="url"
-                    value={prodFormImageUrl}
-                    onChange={(e) => {
-                      const val = e.target.value;
-                      setProdFormImageUrl(val);
-                      if (val && !prodFormImageUrls.includes(val)) {
-                        setProdFormImageUrls([val, ...prodFormImageUrls.filter((u) => u !== prodFormImageUrl)]);
-                      }
-                    }}
-                    placeholder="https://... (ou use o botão Upload p/ Supabase acima)"
-                    required
-                    className="w-full px-3 py-2 border border-neutral-300 rounded focus:ring-1 focus:ring-neutral-900 focus:outline-none text-xs bg-white"
-                  />
-                </div>
 
-                {/* Galeria de Fotos Adicionais (Carrossel / Swipe) */}
-                <div className="space-y-1.5 p-3 rounded bg-neutral-50 border border-neutral-200">
-                  <div className="flex items-center justify-between">
-                    <label className="font-semibold text-neutral-700">
-                      Galeria de Fotos (Swipe no Mobile)
-                    </label>
-                  </div>
-                  <p className="text-[11px] text-neutral-500">
-                    Adicione fotos adicionais com ângulos, detalhes ou pés para enriquecer a experiência editorial.
-                  </p>
-                  
-                  <div className="flex items-center gap-2 pt-1">
+                  <div className="grid grid-cols-[92px_1fr_auto] gap-2 items-center">
+                    <select
+                      value={prodFormMediaUrlType}
+                      onChange={(e) => setProdFormMediaUrlType(e.target.value === 'video' ? 'video' : 'image')}
+                      className="px-2 py-2 border border-neutral-300 rounded bg-white text-[11px]"
+                    >
+                      <option value="image">Imagem</option>
+                      <option value="video">Vídeo</option>
+                    </select>
                     <input
                       type="url"
-                      value={prodFormImageUrlInput}
-                      onChange={(e) => setProdFormImageUrlInput(e.target.value)}
+                      value={prodFormMediaUrlInput}
+                      onChange={(e) => setProdFormMediaUrlInput(e.target.value)}
                       onKeyDown={(e) => {
                         if (e.key === 'Enter') {
                           e.preventDefault();
-                          handleAddImageUrl();
+                          handleAddMediaUrl();
                         }
                       }}
-                      placeholder="https://... (URL da foto adicional)"
-                      className="flex-1 px-3 py-1.5 border border-neutral-300 rounded focus:ring-1 focus:ring-neutral-900 focus:outline-none text-xs bg-white"
+                      placeholder="https://..."
+                      className="min-w-0 px-3 py-2 border border-neutral-300 rounded bg-white text-xs focus:outline-none focus:ring-1 focus:ring-neutral-900"
                     />
                     <button
                       type="button"
-                      onClick={handleAddImageUrl}
-                      className="px-3 py-1.5 bg-neutral-900 text-white rounded text-xs font-semibold hover:bg-neutral-800 cursor-pointer shrink-0"
+                      onClick={handleAddMediaUrl}
+                      className="px-3 py-2 border border-neutral-300 bg-white text-neutral-900 rounded text-[11px] font-semibold hover:bg-neutral-100 cursor-pointer"
                     >
-                      Adicionar Foto
+                      Adicionar link
                     </button>
                   </div>
 
-                  {prodFormImageUrls.length > 0 && (
-                    <div className="flex flex-wrap gap-2 pt-2">
-                      {prodFormImageUrls.map((url, i) => (
+                  {prodFormMediaItems.length > 0 ? (
+                    <div className="space-y-2 pt-1">
+                      {prodFormMediaItems.map((item, index) => (
                         <div
-                          key={i}
-                          className={`relative group w-14 h-14 rounded border overflow-hidden shrink-0 ${
-                            url === prodFormImageUrl
-                              ? 'border-neutral-900 ring-2 ring-neutral-900/30'
-                              : 'border-neutral-300'
-                          }`}
+                          key={item.id}
+                          draggable
+                          onDragStart={() => setDraggedMediaIndex(index)}
+                          onDragOver={(e) => e.preventDefault()}
+                          onDrop={() => handleDropMedia(index)}
+                          onDragEnd={() => setDraggedMediaIndex(null)}
+                          className={`flex items-center gap-3 p-2 rounded border bg-white ${draggedMediaIndex === index ? 'opacity-50 border-neutral-500' : 'border-neutral-200'}`}
                         >
-                          <img
-                            src={url}
-                            alt={`Foto ${i + 1}`}
-                            className="w-full h-full object-cover"
-                            onError={(e) => {
-                              (e.target as HTMLElement).style.display = 'none';
-                            }}
-                          />
-                          {url === prodFormImageUrl && (
-                            <span className="absolute bottom-0 inset-x-0 bg-neutral-900 text-white text-[7px] font-bold text-center py-0.5 uppercase">
-                              Capa
-                            </span>
-                          )}
-                          <button
-                            type="button"
-                            onClick={() => handleRemoveImageUrl(url)}
-                            className="absolute top-0.5 right-0.5 w-4 h-4 bg-red-600 text-white rounded-full flex items-center justify-center text-[10px] opacity-80 hover:opacity-100 cursor-pointer shadow-xs"
-                            title="Remover foto"
-                          >
-                            ×
-                          </button>
+                          <div className="w-12 h-14 rounded overflow-hidden bg-neutral-950 shrink-0 flex items-center justify-center">
+                            {item.type === 'video' ? (
+                              <video src={item.url} muted playsInline preload="metadata" className="w-full h-full object-cover" />
+                            ) : (
+                              <img src={item.url} alt="" className="w-full h-full object-cover" />
+                            )}
+                          </div>
+                          <span className="text-neutral-400 cursor-grab active:cursor-grabbing" title="Arraste para mudar a ordem">
+                            <GripVertical className="w-4 h-4" />
+                          </span>
+                          <div className="min-w-0 flex-1">
+                            <div className="flex items-center gap-1.5 text-[11px] font-bold text-neutral-800">
+                              {item.type === 'video' ? <Video className="w-3.5 h-3.5" /> : <ImageIcon className="w-3.5 h-3.5" />}
+                              <span>{item.type === 'video' ? 'Vídeo' : 'Imagem'} {index + 1}</span>
+                              {index === 0 && <span className="text-[9px] text-neutral-500 font-medium">• primeira mídia</span>}
+                            </div>
+                            <p className="mt-0.5 text-[9px] text-neutral-400 truncate">{item.url}</p>
+                          </div>
+                          <div className="flex items-center gap-0.5 shrink-0">
+                            <button
+                              type="button"
+                              onClick={() => handleMoveMedia(index, -1)}
+                              disabled={index === 0}
+                              className="p-1.5 text-neutral-400 hover:text-neutral-900 disabled:opacity-25 disabled:cursor-not-allowed cursor-pointer"
+                              aria-label="Mover mídia para cima"
+                              title="Mover para cima"
+                            >
+                              <ArrowUp className="w-3.5 h-3.5" />
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => handleMoveMedia(index, 1)}
+                              disabled={index === prodFormMediaItems.length - 1}
+                              className="p-1.5 text-neutral-400 hover:text-neutral-900 disabled:opacity-25 disabled:cursor-not-allowed cursor-pointer"
+                              aria-label="Mover mídia para baixo"
+                              title="Mover para baixo"
+                            >
+                              <ArrowDown className="w-3.5 h-3.5" />
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => handleRemoveMediaItem(item.id)}
+                              className="p-1.5 text-neutral-400 hover:text-red-600 cursor-pointer"
+                              aria-label="Remover mídia"
+                            >
+                              <Trash2 className="w-4 h-4" />
+                            </button>
+                          </div>
                         </div>
                       ))}
+                      <p className="text-[10px] text-neutral-500">Arraste qualquer item para definir a ordem de imagens e vídeos na vitrine.</p>
+                    </div>
+                  ) : (
+                    <div className="py-5 text-center text-[11px] text-neutral-400 border border-dashed border-neutral-300 rounded">
+                      Nenhuma mídia adicionada.
                     </div>
                   )}
                 </div>
@@ -2627,18 +2823,29 @@ export const MaisVendidos: React.FC = () => {
                 <div className="bg-black text-white p-4 rounded-lg border border-neutral-800 max-w-xs mx-auto space-y-3 shadow-inner">
                   {/* Image container */}
                   <div className="relative w-full aspect-[4/5] bg-neutral-950 rounded-[4px] overflow-hidden border border-neutral-900 flex items-center justify-center">
-                    {prodFormImageUrl ? (
-                      <img
-                        src={prodFormImageUrl}
-                        alt="Preview"
-                        className="w-full h-full object-cover"
-                        onError={(e) => {
-                          (e.target as HTMLElement).style.display = 'none';
-                        }}
-                      />
+                    {prodFormMediaItems[0] ? (
+                      prodFormMediaItems[0].type === 'video' ? (
+                        <video
+                          src={prodFormMediaItems[0].url}
+                          muted
+                          playsInline
+                          controls
+                          preload="metadata"
+                          className="w-full h-full object-cover bg-black"
+                        />
+                      ) : (
+                        <img
+                          src={prodFormMediaItems[0].url}
+                          alt="Preview"
+                          className="w-full h-full object-cover"
+                          onError={(e) => {
+                            (e.target as HTMLElement).style.display = 'none';
+                          }}
+                        />
+                      )
                     ) : (
                       <span className="text-[10px] text-neutral-600 uppercase tracking-widest">
-                        Sem Imagem
+                        Sem mídia
                       </span>
                     )}
 

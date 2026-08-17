@@ -94,6 +94,50 @@ function isValidSafeUrl(urlStr: any): boolean {
   return false;
 }
 
+
+function normalizeMediaItems(input: any): Array<{ id: string; type: 'image' | 'video'; url: string; storagePath?: string | null; source?: 'upload' | 'url' }> {
+  const source = Array.isArray(input) ? input : [];
+  const seen = new Set<string>();
+  const result: Array<{ id: string; type: 'image' | 'video'; url: string; storagePath?: string | null; source?: 'upload' | 'url' }> = [];
+
+  for (let index = 0; index < source.length && result.length < 16; index += 1) {
+    const item = source[index] || {};
+    const type: 'image' | 'video' = item.type === 'video' ? 'video' : 'image';
+    const url = typeof item.url === 'string' ? item.url.trim() : '';
+    if (!url || !isValidSafeUrl(url)) continue;
+    const dedupeKey = `${type}:${url}`;
+    if (seen.has(dedupeKey)) continue;
+    seen.add(dedupeKey);
+
+    const storagePath = typeof item.storagePath === 'string' && item.storagePath.startsWith('bestsellers/')
+      ? item.storagePath.trim()
+      : null;
+
+    result.push({
+      id: sanitizeText(item.id) || `media-${index + 1}`,
+      type,
+      url,
+      storagePath,
+      source: storagePath ? 'upload' : 'url',
+    });
+  }
+
+  return result;
+}
+
+function mediaItemsFromLegacy(imageUrl: any, imageUrls: any): Array<{ id: string; type: 'image'; url: string; storagePath: null; source: 'url' }> {
+  const urls = [imageUrl, ...(Array.isArray(imageUrls) ? imageUrls : [])]
+    .map((value) => typeof value === 'string' ? value.trim() : '')
+    .filter((value) => value && isValidSafeUrl(value));
+  return Array.from(new Set(urls)).map((url, index) => ({
+    id: `legacy-image-${index + 1}`,
+    type: 'image' as const,
+    url,
+    storagePath: null,
+    source: 'url' as const,
+  }));
+}
+
 export default async function handler(req: any, res: any) {
   const requestOrigin = typeof req.headers?.origin === 'string' ? req.headers.origin : '*';
   res.setHeader('Access-Control-Allow-Origin', requestOrigin);
@@ -152,6 +196,7 @@ export default async function handler(req: any, res: any) {
         category: p.category,
         imageUrl: p.image_url,
         imageUrls: Array.isArray(p.image_urls) ? p.image_urls : [],
+        mediaItems: normalizeMediaItems(p.media_items).length > 0 ? normalizeMediaItems(p.media_items) : mediaItemsFromLegacy(p.image_url, p.image_urls),
         productUrl: p.product_url || null,
         originalPrice: p.original_price !== null && p.original_price !== undefined ? Number(p.original_price) : null,
         promotionalPrice: p.promotional_price !== null && p.promotional_price !== undefined ? Number(p.promotional_price) : null,
@@ -219,6 +264,7 @@ export default async function handler(req: any, res: any) {
         category,
         imageUrl,
         imageUrls,
+        mediaItems,
         productUrl,
         originalPrice,
         promotionalPrice,
@@ -253,29 +299,21 @@ export default async function handler(req: any, res: any) {
         return res.status(400).json({ success: false, message: 'Informe quantidade de parcelas e valor da parcela juntos.' });
       }
       
-      // Processa lista de imagens
-      let validImageUrls: string[] = [];
-      if (Array.isArray(imageUrls)) {
-        validImageUrls = imageUrls
-          .map((url: any) => String(url).trim())
-          .filter((url: string) => isValidSafeUrl(url));
+      // Galeria unificada: imagens e vídeos compartilham a mesma ordem.
+      let cleanMediaItems = normalizeMediaItems(mediaItems);
+      if (cleanMediaItems.length === 0) {
+        cleanMediaItems = mediaItemsFromLegacy(imageUrl, imageUrls);
       }
 
-      let cleanImageUrl = imageUrl ? String(imageUrl).trim() : '';
-      if (!cleanImageUrl && validImageUrls.length > 0) {
-        cleanImageUrl = validImageUrls[0];
-      }
-      if (cleanImageUrl && !validImageUrls.includes(cleanImageUrl)) {
-        validImageUrls.unshift(cleanImageUrl);
-      }
-
+      const validImageUrls = cleanMediaItems.filter((item) => item.type === 'image').map((item) => item.url);
+      const cleanImageUrl = validImageUrls[0] || null;
       const cleanProductUrl = productUrl ? String(productUrl).trim() : null;
 
       if (!cleanName) {
         return res.status(400).json({ success: false, message: 'Nome do produto é obrigatório.' });
       }
-      if (!cleanImageUrl || !isValidSafeUrl(cleanImageUrl)) {
-        return res.status(400).json({ success: false, message: 'URL da imagem é inválida ou contém protocolo inseguro.' });
+      if (cleanMediaItems.length === 0) {
+        return res.status(400).json({ success: false, message: 'Adicione pelo menos uma imagem ou vídeo ao produto.' });
       }
       if (cleanProductUrl && !isValidSafeUrl(cleanProductUrl)) {
         return res.status(400).json({ success: false, message: 'Link do produto contém protocolo inválido/inseguro.' });
@@ -330,6 +368,7 @@ export default async function handler(req: any, res: any) {
           category: cleanCategory,
           image_url: cleanImageUrl,
           image_urls: validImageUrls,
+          media_items: cleanMediaItems,
           product_url: cleanProductUrl,
           original_price: parsedOriginalPrice,
           promotional_price: parsedPromotionalPrice,
@@ -369,6 +408,7 @@ export default async function handler(req: any, res: any) {
         category: data.category,
         imageUrl: data.image_url,
         imageUrls: Array.isArray(data.image_urls) ? data.image_urls : validImageUrls,
+        mediaItems: normalizeMediaItems(data.media_items).length > 0 ? normalizeMediaItems(data.media_items) : cleanMediaItems,
         productUrl: data.product_url || null,
         originalPrice: data.original_price !== null && data.original_price !== undefined ? Number(data.original_price) : null,
         promotionalPrice: data.promotional_price !== null && data.promotional_price !== undefined ? Number(data.promotional_price) : null,
@@ -428,22 +468,30 @@ export default async function handler(req: any, res: any) {
         updates.category = cleanCat;
       }
 
-      if (body.imageUrls !== undefined && Array.isArray(body.imageUrls)) {
-        const cleanUrls = body.imageUrls
-          .map((url: any) => String(url).trim())
-          .filter((url: string) => isValidSafeUrl(url));
-        updates.image_urls = cleanUrls;
-        if (cleanUrls.length > 0 && body.imageUrl === undefined) {
-          updates.image_url = cleanUrls[0];
+      if (body.mediaItems !== undefined) {
+        const cleanMedia = normalizeMediaItems(body.mediaItems);
+        if (cleanMedia.length === 0) {
+          return res.status(400).json({ success: false, message: 'Adicione pelo menos uma imagem ou vídeo ao produto.' });
         }
-      }
-
-      if (body.imageUrl !== undefined) {
-        const cleanImg = String(body.imageUrl).trim();
-        if (!cleanImg || !isValidSafeUrl(cleanImg)) {
-          return res.status(400).json({ success: false, message: 'URL da imagem é inválida ou insegura.' });
+        const imageOnlyUrls = cleanMedia.filter((item) => item.type === 'image').map((item) => item.url);
+        updates.media_items = cleanMedia;
+        updates.image_urls = imageOnlyUrls;
+        updates.image_url = imageOnlyUrls[0] || null;
+      } else {
+        if (body.imageUrls !== undefined && Array.isArray(body.imageUrls)) {
+          const cleanUrls = body.imageUrls
+            .map((url: any) => String(url).trim())
+            .filter((url: string) => isValidSafeUrl(url));
+          updates.image_urls = cleanUrls;
+          if (cleanUrls.length > 0 && body.imageUrl === undefined) updates.image_url = cleanUrls[0];
         }
-        updates.image_url = cleanImg;
+        if (body.imageUrl !== undefined) {
+          const cleanImg = body.imageUrl ? String(body.imageUrl).trim() : '';
+          if (cleanImg && !isValidSafeUrl(cleanImg)) {
+            return res.status(400).json({ success: false, message: 'URL da imagem é inválida ou insegura.' });
+          }
+          updates.image_url = cleanImg || null;
+        }
       }
 
       if (body.badgeColor !== undefined) {
@@ -570,6 +618,7 @@ export default async function handler(req: any, res: any) {
         category: data.category,
         imageUrl: data.image_url,
         imageUrls: Array.isArray(data.image_urls) ? data.image_urls : [],
+        mediaItems: normalizeMediaItems(data.media_items).length > 0 ? normalizeMediaItems(data.media_items) : mediaItemsFromLegacy(data.image_url, data.image_urls),
         productUrl: data.product_url || null,
         originalPrice: data.original_price !== null && data.original_price !== undefined ? Number(data.original_price) : null,
         promotionalPrice: data.promotional_price !== null && data.promotional_price !== undefined ? Number(data.promotional_price) : null,

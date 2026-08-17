@@ -1,4 +1,5 @@
 import { createClient } from '@supabase/supabase-js';
+import { cleanupUnusedBestSellerVideos } from '../../serverless/best-sellers/media-cleanup.js';
 
 export default async function handler(req: any, res: any) {
   res.setHeader('Cache-Control', 'no-store');
@@ -43,6 +44,16 @@ export default async function handler(req: any, res: any) {
     });
 
     const nowIso = new Date().toISOString();
+    let mediaCleanup: any = null;
+    const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY || '';
+    if (serviceRoleKey) {
+      try {
+        mediaCleanup = await cleanupUnusedBestSellerVideos(url, serviceRoleKey);
+      } catch (cleanupError: any) {
+        mediaCleanup = { ok: false, removed: 0, reason: cleanupError?.message || 'Falha na limpeza de vídeos' };
+        console.warn('[Cron] Falha ao limpar vídeos órfãos de Mais Vendidos:', cleanupError?.message || cleanupError);
+      }
+    }
 
     // Tenta RPC primeiro
     const { data: rpcRes, error: rpcErr } = await supabase.rpc('execute_system_activity_check');
@@ -51,6 +62,7 @@ export default async function handler(req: any, res: any) {
       return res.status(200).json({
         success: true,
         executedAt: nowIso,
+        mediaCleanup,
         status: {
           id: 'supabase-activity-monitor',
           lastRunAt: nowIso,
@@ -87,6 +99,7 @@ export default async function handler(req: any, res: any) {
     return res.status(isHealthy ? 200 : 500).json({
       success: isHealthy,
       executedAt: nowIso,
+      mediaCleanup,
       status: {
         id: 'supabase-activity-monitor',
         lastRunAt: nowIso,

@@ -34,6 +34,21 @@ function normalizeHexColor(value: unknown, fallback = '#FFFFFF'): string {
   return /^#[0-9A-F]{6}$/.test(raw) ? raw : fallback;
 }
 
+
+function isValidSafeUrl(urlStr: unknown): boolean {
+  if (!urlStr || typeof urlStr !== 'string') return false;
+  const trimmed = urlStr.trim();
+  const lower = trimmed.toLowerCase();
+  if (lower.startsWith('javascript:') || lower.startsWith('data:') || lower.startsWith('vbscript:')) return false;
+  return trimmed.startsWith('https://') || trimmed.startsWith('http://') || trimmed.startsWith('/');
+}
+
+function normalizeOpacity(value: unknown, fallback = 0.22): number {
+  const parsed = Number(value);
+  if (!Number.isFinite(parsed)) return fallback;
+  return Math.min(0.9, Math.max(0, Math.round(parsed * 100) / 100));
+}
+
 export default async function handler(req: any, res: any) {
   const requestOrigin = typeof req.headers?.origin === 'string' ? req.headers.origin : '*';
   res.setHeader('Access-Control-Allow-Origin', requestOrigin);
@@ -99,6 +114,7 @@ export default async function handler(req: any, res: any) {
           category: p.category,
           imageUrl: p.image_url,
           imageUrls: Array.isArray(p.image_urls) ? p.image_urls : [],
+          mediaItems: Array.isArray(p.media_items) ? p.media_items : [],
           productUrl: p.product_url || null,
           originalPrice: p.original_price !== null && p.original_price !== undefined ? Number(p.original_price) : null,
           promotionalPrice: p.promotional_price !== null && p.promotional_price !== undefined ? Number(p.promotional_price) : null,
@@ -128,6 +144,9 @@ export default async function handler(req: any, res: any) {
           ctaText: listData.cta_text || null,
           rankColor: listData.rank_color || '#FFFFFF',
           sizeColor: listData.size_color || '#FFFFFF',
+          backgroundVideoUrl: listData.background_video_url || null,
+          backgroundVideoPath: listData.background_video_path || null,
+          backgroundVideoOpacity: normalizeOpacity(listData.background_video_opacity),
           listDate: listData.list_date,
           active: Boolean(listData.active),
           timerEnabled: Boolean(listData.timer_enabled),
@@ -180,6 +199,9 @@ export default async function handler(req: any, res: any) {
           ctaText: row.cta_text || null,
           rankColor: row.rank_color || '#FFFFFF',
           sizeColor: row.size_color || '#FFFFFF',
+          backgroundVideoUrl: row.background_video_url || null,
+          backgroundVideoPath: row.background_video_path || null,
+          backgroundVideoOpacity: normalizeOpacity(row.background_video_opacity),
           listDate: row.list_date,
           active: Boolean(row.active),
           timerEnabled: Boolean(row.timer_enabled),
@@ -253,6 +275,9 @@ export default async function handler(req: any, res: any) {
             cta_text: srcList.cta_text || null,
             rank_color: srcList.rank_color || '#FFFFFF',
             size_color: srcList.size_color || '#FFFFFF',
+            background_video_url: srcList.background_video_url || null,
+            background_video_path: srcList.background_video_path || null,
+            background_video_opacity: normalizeOpacity(srcList.background_video_opacity),
             list_date: targetDate,
             active: false,
             timer_enabled: false,
@@ -278,6 +303,7 @@ export default async function handler(req: any, res: any) {
             category: p.category,
             image_url: p.image_url,
             image_urls: Array.isArray(p.image_urls) ? p.image_urls : [],
+            media_items: Array.isArray(p.media_items) ? p.media_items : [],
             product_url: p.product_url || null,
             original_price: p.original_price ?? null,
             promotional_price: p.promotional_price ?? null,
@@ -312,6 +338,9 @@ export default async function handler(req: any, res: any) {
           ctaText: newListData.cta_text || null,
           rankColor: newListData.rank_color || '#FFFFFF',
           sizeColor: newListData.size_color || '#FFFFFF',
+          backgroundVideoUrl: newListData.background_video_url || null,
+          backgroundVideoPath: newListData.background_video_path || null,
+          backgroundVideoOpacity: normalizeOpacity(newListData.background_video_opacity),
           listDate: newListData.list_date,
           active: false,
           timerEnabled: false,
@@ -340,6 +369,9 @@ export default async function handler(req: any, res: any) {
       const ctaText = body.ctaText ? String(body.ctaText).trim() : null;
       const rankColor = normalizeHexColor(body.rankColor);
       const sizeColor = normalizeHexColor(body.sizeColor);
+      const backgroundVideoUrl = body.backgroundVideoUrl ? String(body.backgroundVideoUrl).trim() : null;
+      const backgroundVideoPath = body.backgroundVideoPath && String(body.backgroundVideoPath).startsWith('bestsellers/') ? String(body.backgroundVideoPath).trim() : null;
+      const backgroundVideoOpacity = normalizeOpacity(body.backgroundVideoOpacity);
       const listDate = body.listDate || new Date().toISOString().slice(0, 10);
       const active = Boolean(body.active);
       const timerEnabled = Boolean(body.timerEnabled);
@@ -356,6 +388,9 @@ export default async function handler(req: any, res: any) {
       }
       if (!listDate) {
         return res.status(400).json({ success: false, message: 'A data da lista é obrigatória.' });
+      }
+      if (backgroundVideoUrl && !isValidSafeUrl(backgroundVideoUrl)) {
+        return res.status(400).json({ success: false, message: 'URL do vídeo de fundo é inválida ou insegura.' });
       }
       if (timerLooping && (!Number.isInteger(timerDurationMinutes) || (timerDurationMinutes as number) < 1 || (timerDurationMinutes as number) > 10080)) {
         return res.status(400).json({
@@ -381,6 +416,9 @@ export default async function handler(req: any, res: any) {
           cta_text: ctaText,
           rank_color: rankColor,
           size_color: sizeColor,
+          background_video_url: backgroundVideoUrl,
+          background_video_path: backgroundVideoPath,
+          background_video_opacity: backgroundVideoOpacity,
           list_date: listDate,
           active,
           timer_enabled: timerEnabled,
@@ -413,6 +451,9 @@ export default async function handler(req: any, res: any) {
         ctaText: data.cta_text || null,
         rankColor: data.rank_color || '#FFFFFF',
         sizeColor: data.size_color || '#FFFFFF',
+        backgroundVideoUrl: data.background_video_url || null,
+        backgroundVideoPath: data.background_video_path || null,
+        backgroundVideoOpacity: normalizeOpacity(data.background_video_opacity),
         listDate: data.list_date,
         active: Boolean(data.active),
         timerEnabled: Boolean(data.timer_enabled),
@@ -457,6 +498,18 @@ export default async function handler(req: any, res: any) {
       if (body.ctaText !== undefined) updates.cta_text = body.ctaText ? String(body.ctaText).trim() : null;
       if (body.rankColor !== undefined) updates.rank_color = normalizeHexColor(body.rankColor);
       if (body.sizeColor !== undefined) updates.size_color = normalizeHexColor(body.sizeColor);
+      if (body.backgroundVideoUrl !== undefined) {
+        const value = body.backgroundVideoUrl ? String(body.backgroundVideoUrl).trim() : '';
+        if (value && !isValidSafeUrl(value)) {
+          return res.status(400).json({ success: false, message: 'URL do vídeo de fundo é inválida ou insegura.' });
+        }
+        updates.background_video_url = value || null;
+      }
+      if (body.backgroundVideoPath !== undefined) {
+        const path = body.backgroundVideoPath ? String(body.backgroundVideoPath).trim() : '';
+        updates.background_video_path = path.startsWith('bestsellers/') ? path : null;
+      }
+      if (body.backgroundVideoOpacity !== undefined) updates.background_video_opacity = normalizeOpacity(body.backgroundVideoOpacity);
       if (body.listDate !== undefined) updates.list_date = body.listDate;
       if (body.timezone !== undefined) updates.timezone = body.timezone;
       if (
@@ -537,6 +590,9 @@ export default async function handler(req: any, res: any) {
         ctaText: data.cta_text || null,
         rankColor: data.rank_color || '#FFFFFF',
         sizeColor: data.size_color || '#FFFFFF',
+        backgroundVideoUrl: data.background_video_url || null,
+        backgroundVideoPath: data.background_video_path || null,
+        backgroundVideoOpacity: normalizeOpacity(data.background_video_opacity),
         listDate: data.list_date,
         active: Boolean(data.active),
         timerEnabled: Boolean(data.timer_enabled),

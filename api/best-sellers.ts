@@ -2,9 +2,10 @@ import adminListsHandler from '../serverless/best-sellers/admin-lists.js';
 import adminProductsHandler from '../serverless/best-sellers/admin-products.js';
 import publicListHandler from '../serverless/best-sellers/public-list.js';
 import publicClickHandler from '../serverless/best-sellers/public-click.js';
+import adminMediaHandler from '../serverless/best-sellers/admin-media.js';
 
 /**
- * Consolida as quatro APIs de Mais Vendidos em uma única Vercel Function.
+ * Consolida as rotas de Mais Vendidos em uma única Vercel Function.
  * Isso mantém o projeto dentro do limite de Functions do plano Hobby.
  */
 export default async function handler(req: any, res: any) {
@@ -20,6 +21,8 @@ export default async function handler(req: any, res: any) {
       return publicListHandler(req, res);
     case 'public-click':
       return publicClickHandler(req, res);
+    case 'admin-media':
+      return adminMediaHandler(req, res);
     default:
       res.setHeader('Cache-Control', 'no-store');
       return res.status(404).json({

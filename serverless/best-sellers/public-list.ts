@@ -37,6 +37,43 @@ function normalizeSizeList(input: any): string[] {
   return Array.from(new Set(items));
 }
 
+
+function isSafeUrl(value: any): boolean {
+  if (!value || typeof value !== 'string') return false;
+  const trimmed = value.trim();
+  const lower = trimmed.toLowerCase();
+  if (lower.startsWith('javascript:') || lower.startsWith('data:') || lower.startsWith('vbscript:')) return false;
+  return trimmed.startsWith('https://') || trimmed.startsWith('http://') || trimmed.startsWith('/');
+}
+
+function normalizePublicMediaItems(raw: any, imageUrl: any, imageUrls: any) {
+  const source = Array.isArray(raw) ? raw : [];
+  const seen = new Set<string>();
+  const items: Array<{ id: string; type: 'image' | 'video'; url: string }> = [];
+  for (let i = 0; i < source.length && items.length < 16; i += 1) {
+    const item = source[i] || {};
+    const type: 'image' | 'video' = item.type === 'video' ? 'video' : 'image';
+    const url = typeof item.url === 'string' ? item.url.trim() : '';
+    if (!url || !isSafeUrl(url)) continue;
+    const key = `${type}:${url}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    items.push({ id: typeof item.id === 'string' && item.id.trim() ? item.id.trim() : `media-${i + 1}`, type, url });
+  }
+  if (items.length > 0) return items;
+
+  const legacy = [imageUrl, ...(Array.isArray(imageUrls) ? imageUrls : [])]
+    .map((v) => typeof v === 'string' ? v.trim() : '')
+    .filter((v) => v && isSafeUrl(v));
+  return Array.from(new Set(legacy)).map((url, i) => ({ id: `legacy-image-${i + 1}`, type: 'image' as const, url }));
+}
+
+function normalizeOpacity(value: any, fallback = 0.22): number {
+  const parsed = Number(value);
+  if (!Number.isFinite(parsed)) return fallback;
+  return Math.min(0.9, Math.max(0, Math.round(parsed * 100) / 100));
+}
+
 export default async function handler(req: any, res: any) {
   const requestOrigin = typeof req.headers?.origin === 'string' ? req.headers.origin : '*';
   res.setHeader('Access-Control-Allow-Origin', requestOrigin);
@@ -111,8 +148,9 @@ export default async function handler(req: any, res: any) {
         position: p.position,
         name: p.name,
         category: p.category,
-        imageUrl: p.image_url,
+        imageUrl: p.image_url || null,
         imageUrls,
+        mediaItems: normalizePublicMediaItems(p.media_items, p.image_url, p.image_urls),
         productUrl: p.product_url || null,
         originalPrice: p.original_price !== null && p.original_price !== undefined ? Number(p.original_price) : null,
         promotionalPrice: p.promotional_price !== null && p.promotional_price !== undefined ? Number(p.promotional_price) : null,
@@ -138,6 +176,8 @@ export default async function handler(req: any, res: any) {
       ctaText: activeList.cta_text || null,
       rankColor: activeList.rank_color || '#FFFFFF',
       sizeColor: activeList.size_color || '#FFFFFF',
+      backgroundVideoUrl: activeList.background_video_url || null,
+      backgroundVideoOpacity: normalizeOpacity(activeList.background_video_opacity),
       listDate: activeList.list_date,
       timerEnabled: Boolean(activeList.timer_enabled),
       timerEnd: activeList.timer_enabled && !activeList.timer_looping ? activeList.timer_end || null : null,

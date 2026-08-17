@@ -42,6 +42,10 @@ export function runBestSellersTests() {
   assert(setupContent.includes('ALTER TABLE public.best_seller_products ENABLE ROW LEVEL SECURITY'), 'RLS ativo em best_seller_products');
   assert(setupContent.includes('timer_looping BOOLEAN'), 'SQL inclui modo de timer em looping por visitante');
   assert(setupContent.includes('timer_duration_minutes'), 'SQL inclui duração do timer evergreen');
+  assert(setupContent.includes('media_items JSONB'), 'SQL inclui galeria ordenada de imagens e vídeos');
+  assert(setupContent.includes('background_video_url'), 'SQL inclui vídeo de fundo da lista');
+  assert(setupContent.includes('best_seller_media_assets'), 'SQL inclui registro de mídia para limpeza segura');
+  assert(setupContent.includes('video/mp4'), 'Storage aceita vídeos MP4');
 
   // 2. Testes de Formatação de Data com Fuso Horário de São Paulo
   console.log('\n--- Teste 2: Formatação de Data da Lista ---');
@@ -94,6 +98,10 @@ export function runBestSellersTests() {
     name: 'Scarpin Couro Preto Salto Fino',
     category: 'Calçado',
     imageUrl: 'https://images.unsplash.com/photo-1543163521-1bf539c55dd2?w=800',
+    mediaItems: [
+      { id: 'img-1', type: 'image', url: 'https://images.unsplash.com/photo-1543163521-1bf539c55dd2?w=800' },
+      { id: 'vid-1', type: 'video', url: 'https://cdn.example.com/scarpin.mp4' },
+    ],
     productUrl: 'https://zhaya.com.br/produtos/scarpin-preto',
     soldQuantity: 27,
     showSoldQuantity: true,
@@ -106,6 +114,7 @@ export function runBestSellersTests() {
   assert(cenarioAProduct.badgeEnabled && cenarioAProduct.badgeText === '50% OFF', 'Cenário A: Produto completo com badge 50% OFF');
   assert(cenarioAProduct.sizes.length === 5, 'Cenário A: 5 tamanhos');
   assert(cenarioAProduct.colors.length === 2, 'Cenário A: 2 cores');
+  assert(cenarioAProduct.mediaItems?.[1]?.type === 'video', 'Cenário A: galeria aceita vídeo ordenado junto das imagens');
 
   // Cenário B: Produto Minimalista (sem tamanho, cor, estoque, vendas, badge)
   const cenarioBProduct: PublicBestSellerProduct = {
@@ -170,10 +179,13 @@ export function runBestSellersTests() {
     listDate: '2026-08-17',
     timerEnabled: false,
     timerEnd: null,
+    backgroundVideoUrl: 'https://cdn.example.com/background.mp4',
+    backgroundVideoOpacity: 0.22,
     timezone: 'America/Sao_Paulo',
     products: [cenarioAProduct, cenarioBProduct],
   };
   assert(!cenarioGList.timerEnabled && cenarioGList.timerEnd === null, 'Cenário G: Lista sem timer');
+  assert(cenarioGList.backgroundVideoOpacity === 0.22, 'Lista aceita opacidade configurável para vídeo de fundo');
 
   const cenarioLoopingList: PublicBestSellerList = {
     ...cenarioGList,

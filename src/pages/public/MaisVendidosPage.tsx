@@ -2,7 +2,7 @@ import React, { useEffect, useState, useMemo, useRef } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import { Repository } from '../../lib/repository';
 import { getReadableTextColor } from '../../lib/contrast';
-import type { PublicBestSellerList, PublicBestSellerProduct } from '../../types/zhaya';
+import type { PublicBestSellerList, PublicBestSellerProduct, PublicBestSellerMediaItem } from '../../types/zhaya';
 
 /**
  * Formata a data no padrão '17 AGO 2026' ou '17 DE AGOSTO DE 2026' considerando fuso horário de São Paulo
@@ -211,10 +211,11 @@ function normalizePublicSizes(values: string[] | undefined): string[] {
 }
 
 /**
- * Galeria de imagens com drag/swipe real no mobile.
+ * Galeria editorial unificada de imagens e vídeos.
+ * Imagens mantêm swipe/drag no mobile; vídeos usam controles nativos para play e volume.
  */
-const ProductImageGallery: React.FC<{
-  images: string[];
+const ProductMediaGallery: React.FC<{
+  mediaItems: PublicBestSellerMediaItem[];
   productName: string;
   isFirst: boolean;
   rankLabel: string;
@@ -223,19 +224,19 @@ const ProductImageGallery: React.FC<{
   badgeContent?: React.ReactNode;
   sizes: string[];
   outOfStockSizes: string[];
-}> = ({ images, productName, isFirst, rankLabel, rankColor, sizeColor, badgeContent, sizes, outOfStockSizes }) => {
+}> = ({ mediaItems, productName, isFirst, rankLabel, rankColor, sizeColor, badgeContent, sizes, outOfStockSizes }) => {
   const [currentIndex, setCurrentIndex] = useState(0);
-  const [failedImages, setFailedImages] = useState<Record<number, boolean>>({});
+  const [failedMedia, setFailedMedia] = useState<Record<number, boolean>>({});
   const [direction, setDirection] = useState(0);
-  const totalImages = images.length;
+  const totalItems = mediaItems.length;
 
   useEffect(() => {
-    if (currentIndex >= totalImages) setCurrentIndex(0);
-  }, [currentIndex, totalImages]);
+    if (currentIndex >= totalItems) setCurrentIndex(0);
+  }, [currentIndex, totalItems]);
 
   const goToIndex = (nextIndex: number, nextDirection = 0) => {
-    if (totalImages <= 1) return;
-    const normalized = (nextIndex + totalImages) % totalImages;
+    if (totalItems <= 1) return;
+    const normalized = (nextIndex + totalItems) % totalItems;
     setDirection(nextDirection);
     setCurrentIndex(normalized);
   };
@@ -251,45 +252,58 @@ const ProductImageGallery: React.FC<{
   };
 
   const handleDragEnd = (_event: unknown, info: { offset: { x: number }; velocity: { x: number } }) => {
-    if (totalImages <= 1) return;
+    if (totalItems <= 1) return;
     const swipeStrength = Math.abs(info.offset.x) + Math.abs(info.velocity.x) * 0.08;
     if (swipeStrength < 48) return;
     if (info.offset.x < 0) handleNext();
     else handlePrev();
   };
 
-  const currentImageUrl = images[currentIndex];
-  const hasError = failedImages[currentIndex];
+  const currentMedia = mediaItems[currentIndex];
+  const hasError = failedMedia[currentIndex];
   const unavailableSet = new Set(outOfStockSizes);
+  const canSwipe = totalItems > 1 && currentMedia?.type !== 'video';
 
   return (
     <div className="relative w-full aspect-[4/5] bg-neutral-950 rounded-[10px] overflow-hidden mb-5 select-none touch-pan-y group">
       <AnimatePresence initial={false} mode="popLayout" custom={direction}>
         <motion.div
-          key={`${currentIndex}-${currentImageUrl || 'empty'}`}
+          key={`${currentIndex}-${currentMedia?.id || currentMedia?.url || 'empty'}`}
           className="absolute inset-0"
           custom={direction}
           initial={{ opacity: 0, x: direction === 0 ? 0 : direction * 28 }}
           animate={{ opacity: 1, x: 0 }}
           exit={{ opacity: 0, x: direction === 0 ? 0 : direction * -22 }}
           transition={{ duration: 0.2, ease: 'easeOut' }}
-          drag={totalImages > 1 ? 'x' : false}
+          drag={canSwipe ? 'x' : false}
           dragConstraints={{ left: 0, right: 0 }}
           dragElastic={0.22}
           onDragEnd={handleDragEnd}
         >
-          {currentImageUrl && !hasError ? (
-            <img
-              src={currentImageUrl}
-              alt={`${productName} - imagem ${currentIndex + 1}`}
-              loading={isFirst && currentIndex === 0 ? 'eager' : 'lazy'}
-              onError={() => setFailedImages((prev) => ({ ...prev, [currentIndex]: true }))}
-              className="w-full h-full object-cover object-center pointer-events-none"
-              draggable={false}
-            />
+          {currentMedia && !hasError ? (
+            currentMedia.type === 'video' ? (
+              <video
+                src={currentMedia.url}
+                aria-label={`${productName} - vídeo ${currentIndex + 1}`}
+                controls
+                playsInline
+                preload="metadata"
+                onError={() => setFailedMedia((prev) => ({ ...prev, [currentIndex]: true }))}
+                className="w-full h-full object-cover object-center bg-black"
+              />
+            ) : (
+              <img
+                src={currentMedia.url}
+                alt={`${productName} - imagem ${currentIndex + 1}`}
+                loading={isFirst && currentIndex === 0 ? 'eager' : 'lazy'}
+                onError={() => setFailedMedia((prev) => ({ ...prev, [currentIndex]: true }))}
+                className="w-full h-full object-cover object-center pointer-events-none"
+                draggable={false}
+              />
+            )
           ) : (
             <div className="w-full h-full flex items-center justify-center bg-neutral-950 text-neutral-600 px-4 text-center">
-              <span className="text-xs tracking-[0.14em] uppercase">Imagem indisponível</span>
+              <span className="text-xs tracking-[0.14em] uppercase">Mídia indisponível</span>
             </div>
           )}
         </motion.div>
@@ -297,23 +311,16 @@ const ProductImageGallery: React.FC<{
 
       {badgeContent}
 
-      {/* Ranking: todos usam o mesmo tamanho e a mesma cor definida na lista. */}
       <div
         className="absolute left-3.5 top-3 z-20 pointer-events-none text-[27px] sm:text-[29px] leading-none font-black tracking-[-0.055em]"
-        style={{
-          color: rankColor,
-          textShadow: 'none',
-          WebkitTextStroke: '0px transparent',
-          filter: 'none',
-        }}
+        style={{ color: rankColor, textShadow: 'none', WebkitTextStroke: '0px transparent', filter: 'none' }}
         aria-label={`Posição ${rankLabel}`}
       >
         #{rankLabel}
       </div>
 
-      {/* Tamanhos: texto puro em coluna na lateral esquerda da foto. */}
       {sizes.length > 0 && (
-        <div className="absolute left-3.5 bottom-4 z-20 pointer-events-none">
+        <div className={`absolute left-3.5 z-20 pointer-events-none ${currentMedia?.type === 'video' ? 'bottom-14' : 'bottom-4'}`}>
           <div className="flex flex-col items-start gap-y-2">
             {sizes.map((size) => {
               const unavailable = unavailableSet.has(size);
@@ -321,22 +328,11 @@ const ProductImageGallery: React.FC<{
                 <span
                   key={size}
                   className="relative inline-flex items-center text-[12px] sm:text-[13px] leading-none font-bold"
-                  style={{
-                    color: sizeColor,
-                    opacity: unavailable ? 0.38 : 1,
-                    textShadow: 'none',
-                    filter: 'none',
-                  }}
+                  style={{ color: sizeColor, opacity: unavailable ? 0.38 : 1, textShadow: 'none', filter: 'none' }}
                 >
                   {size}
                   {unavailable && (
-                    <span
-                      className="absolute left-full ml-1 -top-1 text-[12px] leading-none font-semibold text-red-500"
-                      style={{ textShadow: 'none', filter: 'none' }}
-                      aria-label="Fora de estoque"
-                    >
-                      ×
-                    </span>
+                    <span className="absolute left-full ml-1 -top-1 text-[12px] leading-none font-semibold text-red-500" style={{ textShadow: 'none', filter: 'none' }} aria-label="Fora de estoque">×</span>
                   )}
                 </span>
               );
@@ -345,39 +341,18 @@ const ProductImageGallery: React.FC<{
         </div>
       )}
 
-      {totalImages > 1 && (
+      {totalItems > 1 && (
         <>
-          <button
-            type="button"
-            onClick={handlePrev}
-            aria-label="Imagem anterior"
-            className="absolute left-2.5 top-1/2 -translate-y-1/2 w-9 h-9 rounded-full bg-black/40 text-white hidden sm:flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity duration-200 hover:bg-black/65 z-30 cursor-pointer"
-          >
-            ‹
-          </button>
-          <button
-            type="button"
-            onClick={handleNext}
-            aria-label="Próxima imagem"
-            className="absolute right-2.5 top-1/2 -translate-y-1/2 w-9 h-9 rounded-full bg-black/40 text-white hidden sm:flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity duration-200 hover:bg-black/65 z-30 cursor-pointer"
-          >
-            ›
-          </button>
-
-          {/* Sem contador numérico: apenas pontos discretos. */}
-          <div className="absolute left-1/2 -translate-x-1/2 bottom-3.5 z-20 flex items-center justify-center gap-1.5" aria-label="Galeria de imagens">
-            {images.map((_, dotIndex) => (
+          <button type="button" onClick={handlePrev} aria-label="Mídia anterior" className="absolute left-2.5 top-1/2 -translate-y-1/2 w-9 h-9 rounded-full bg-black/40 text-white hidden sm:flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity duration-200 hover:bg-black/65 z-30 cursor-pointer">‹</button>
+          <button type="button" onClick={handleNext} aria-label="Próxima mídia" className="absolute right-2.5 top-1/2 -translate-y-1/2 w-9 h-9 rounded-full bg-black/40 text-white hidden sm:flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity duration-200 hover:bg-black/65 z-30 cursor-pointer">›</button>
+          <div className={`absolute left-1/2 -translate-x-1/2 z-30 flex items-center justify-center gap-1.5 ${currentMedia?.type === 'video' ? 'bottom-12' : 'bottom-3.5'}`} aria-label="Galeria de mídia">
+            {mediaItems.map((item, dotIndex) => (
               <button
-                key={dotIndex}
+                key={item.id || dotIndex}
                 type="button"
-                onClick={(e) => {
-                  e.stopPropagation();
-                  goToIndex(dotIndex, dotIndex > currentIndex ? 1 : -1);
-                }}
-                aria-label={`Ver imagem ${dotIndex + 1}`}
-                className={`h-1.5 rounded-full transition-all duration-200 ${
-                  dotIndex === currentIndex ? 'w-5 bg-white' : 'w-1.5 bg-white/45 hover:bg-white/70'
-                }`}
+                onClick={(e) => { e.stopPropagation(); goToIndex(dotIndex, dotIndex > currentIndex ? 1 : -1); }}
+                aria-label={`Ver ${item.type === 'video' ? 'vídeo' : 'imagem'} ${dotIndex + 1}`}
+                className={`h-1.5 rounded-full transition-all duration-200 ${dotIndex === currentIndex ? 'w-5 bg-white' : 'w-1.5 bg-white/45 hover:bg-white/70'}`}
               />
             ))}
           </div>
@@ -405,12 +380,15 @@ const ProductItem: React.FC<{
   const sizes = useMemo(() => normalizePublicSizes(product.sizes), [product.sizes]);
   const outOfStockSizes = useMemo(() => normalizePublicSizes(product.outOfStockSizes), [product.outOfStockSizes]);
 
-  const galleryImages = useMemo(() => {
+  const galleryMedia = useMemo<PublicBestSellerMediaItem[]>(() => {
+    if (Array.isArray(product.mediaItems) && product.mediaItems.length > 0) {
+      return product.mediaItems.filter((item) => item && item.url && (item.type === 'image' || item.type === 'video'));
+    }
     const allImages = [product.imageUrl, ...(Array.isArray(product.imageUrls) ? product.imageUrls : [])]
       .map((url) => (url || '').trim())
       .filter(Boolean);
-    return Array.from(new Set(allImages));
-  }, [product.imageUrls, product.imageUrl]);
+    return Array.from(new Set(allImages)).map((url, index) => ({ id: `legacy-image-${index + 1}`, type: 'image' as const, url }));
+  }, [product.mediaItems, product.imageUrls, product.imageUrl]);
 
   const badgeBgColor = product.badgeColor || '#FFFFFF';
   const badgeTextColor = useMemo(() => getReadableTextColor(badgeBgColor), [badgeBgColor]);
@@ -445,8 +423,8 @@ const ProductItem: React.FC<{
       transition={{ duration: 0.32, ease: 'easeOut' }}
       className="w-full flex flex-col pb-12 last:pb-4"
     >
-      <ProductImageGallery
-        images={galleryImages}
+      <ProductMediaGallery
+        mediaItems={galleryMedia}
         productName={product.name}
         isFirst={isFirst}
         rankLabel={formattedPos}
@@ -663,7 +641,22 @@ export const MaisVendidosPage: React.FC = () => {
         fontFamily: '"Neue Einstellung", "Helvetica Neue", Helvetica, Arial, sans-serif',
       }}
     >
-      <main className="w-full max-w-[540px] px-4 sm:px-6 py-6 sm:py-10 flex flex-col items-center">
+      {listData?.backgroundVideoUrl && (
+        <div className="fixed inset-0 z-0 overflow-hidden pointer-events-none bg-black" aria-hidden="true">
+          <video
+            key={listData.backgroundVideoUrl}
+            src={listData.backgroundVideoUrl}
+            muted
+            autoPlay
+            loop
+            playsInline
+            preload="metadata"
+            className="w-full h-full object-cover"
+            style={{ opacity: Math.min(0.9, Math.max(0, Number(listData.backgroundVideoOpacity ?? 0.22))) }}
+          />
+        </div>
+      )}
+      <main className="relative z-10 w-full max-w-[540px] px-4 sm:px-6 py-6 sm:py-10 flex flex-col items-center">
         {/* ========================================================================= */}
         {/* ESTADO 1: LOADING                                                         */}
         {/* ========================================================================= */}

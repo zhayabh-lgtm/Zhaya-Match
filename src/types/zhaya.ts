@@ -449,6 +449,22 @@ export interface PublicLiveInvite {
 
 export type BestSellerCategory = 'Calçado' | 'Bolsa' | 'Cinto' | 'Acessório' | 'Outro' | string;
 
+export type BestSellerMediaType = 'image' | 'video';
+
+export interface BestSellerMediaItem {
+  id: string;
+  type: BestSellerMediaType;
+  url: string;
+  storagePath?: string | null;
+  source?: 'upload' | 'url';
+}
+
+export interface PublicBestSellerMediaItem {
+  id: string;
+  type: BestSellerMediaType;
+  url: string;
+}
+
 export interface BestSellerList {
   id: string;
   title: string;
@@ -457,6 +473,9 @@ export interface BestSellerList {
   ctaText?: string | null;
   rankColor?: string;
   sizeColor?: string;
+  backgroundVideoUrl?: string | null;
+  backgroundVideoPath?: string | null;
+  backgroundVideoOpacity?: number;
   listDate: string; // YYYY-MM-DD
   active: boolean;
   timerEnabled: boolean;
@@ -478,8 +497,9 @@ export interface BestSellerProduct {
   position: number;
   name: string;
   category: string;
-  imageUrl: string;
+  imageUrl?: string | null;
   imageUrls?: string[];
+  mediaItems?: BestSellerMediaItem[];
   productUrl?: string | null;
   originalPrice?: number | null;
   promotionalPrice?: number | null;
@@ -504,8 +524,9 @@ export interface PublicBestSellerProduct {
   position: number;
   name: string;
   category: string;
-  imageUrl: string;
+  imageUrl?: string | null;
   imageUrls?: string[];
+  mediaItems?: PublicBestSellerMediaItem[];
   productUrl?: string | null;
   originalPrice?: number | null;
   promotionalPrice?: number | null;
@@ -530,6 +551,8 @@ export interface PublicBestSellerList {
   ctaText?: string | null;
   rankColor?: string;
   sizeColor?: string;
+  backgroundVideoUrl?: string | null;
+  backgroundVideoOpacity?: number;
   listDate: string;
   timerEnabled: boolean;
   timerEnd?: string | null;

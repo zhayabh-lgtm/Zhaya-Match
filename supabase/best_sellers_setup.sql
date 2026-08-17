@@ -14,6 +14,9 @@ CREATE TABLE IF NOT EXISTS public.best_seller_lists (
   cta_text TEXT,
   rank_color TEXT NOT NULL DEFAULT '#FFFFFF',
   size_color TEXT NOT NULL DEFAULT '#FFFFFF',
+  background_video_url TEXT,
+  background_video_path TEXT,
+  background_video_opacity NUMERIC(4,3) NOT NULL DEFAULT 0.22 CHECK (background_video_opacity >= 0 AND background_video_opacity <= 0.9),
   list_date DATE NOT NULL DEFAULT CURRENT_DATE,
   active BOOLEAN NOT NULL DEFAULT false,
   timer_enabled BOOLEAN NOT NULL DEFAULT false,
@@ -33,8 +36,9 @@ CREATE TABLE IF NOT EXISTS public.best_seller_products (
   position INTEGER NOT NULL DEFAULT 1,
   name TEXT NOT NULL,
   category TEXT NOT NULL DEFAULT 'Produto',
-  image_url TEXT NOT NULL,
+  image_url TEXT,
   image_urls TEXT[] NOT NULL DEFAULT '{}'::text[],
+  media_items JSONB NOT NULL DEFAULT '[]'::jsonb,
   product_url TEXT,
   original_price NUMERIC(10, 2) CHECK (original_price IS NULL OR original_price >= 0),
   promotional_price NUMERIC(10, 2) CHECK (promotional_price IS NULL OR promotional_price >= 0),
@@ -60,6 +64,9 @@ ALTER TABLE public.best_seller_lists ADD COLUMN IF NOT EXISTS subtitle TEXT;
 ALTER TABLE public.best_seller_lists ADD COLUMN IF NOT EXISTS cta_text TEXT;
 ALTER TABLE public.best_seller_lists ADD COLUMN IF NOT EXISTS rank_color TEXT NOT NULL DEFAULT '#FFFFFF';
 ALTER TABLE public.best_seller_lists ADD COLUMN IF NOT EXISTS size_color TEXT NOT NULL DEFAULT '#FFFFFF';
+ALTER TABLE public.best_seller_lists ADD COLUMN IF NOT EXISTS background_video_url TEXT;
+ALTER TABLE public.best_seller_lists ADD COLUMN IF NOT EXISTS background_video_path TEXT;
+ALTER TABLE public.best_seller_lists ADD COLUMN IF NOT EXISTS background_video_opacity NUMERIC(4,3) NOT NULL DEFAULT 0.22;
 ALTER TABLE public.best_seller_lists ADD COLUMN IF NOT EXISTS timer_enabled BOOLEAN NOT NULL DEFAULT false;
 ALTER TABLE public.best_seller_lists ADD COLUMN IF NOT EXISTS timer_end TIMESTAMPTZ;
 ALTER TABLE public.best_seller_lists ADD COLUMN IF NOT EXISTS timer_looping BOOLEAN NOT NULL DEFAULT false;
@@ -68,6 +75,8 @@ ALTER TABLE public.best_seller_lists ADD COLUMN IF NOT EXISTS timezone TEXT NOT 
 ALTER TABLE public.best_seller_lists ADD COLUMN IF NOT EXISTS created_by TEXT;
 
 ALTER TABLE public.best_seller_products ADD COLUMN IF NOT EXISTS image_urls TEXT[] NOT NULL DEFAULT '{}'::text[];
+ALTER TABLE public.best_seller_products ADD COLUMN IF NOT EXISTS media_items JSONB NOT NULL DEFAULT '[]'::jsonb;
+ALTER TABLE public.best_seller_products ALTER COLUMN image_url DROP NOT NULL;
 ALTER TABLE public.best_seller_products ADD COLUMN IF NOT EXISTS product_url TEXT;
 ALTER TABLE public.best_seller_products ADD COLUMN IF NOT EXISTS original_price NUMERIC(10, 2);
 ALTER TABLE public.best_seller_products ADD COLUMN IF NOT EXISTS promotional_price NUMERIC(10, 2);
@@ -120,6 +129,30 @@ BEGIN
   END IF;
 END $$;
 
+-- 3.3 Mídia mista e limpeza de uploads órfãos
+DO $$
+BEGIN
+  IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'best_seller_lists_background_video_opacity_check') THEN
+    ALTER TABLE public.best_seller_lists
+      ADD CONSTRAINT best_seller_lists_background_video_opacity_check
+      CHECK (background_video_opacity >= 0 AND background_video_opacity <= 0.9);
+  END IF;
+END $$;
+
+CREATE TABLE IF NOT EXISTS public.best_seller_media_assets (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  storage_path TEXT NOT NULL UNIQUE,
+  public_url TEXT NOT NULL,
+  media_type TEXT NOT NULL CHECK (media_type IN ('image', 'video')),
+  mime_type TEXT,
+  file_size BIGINT,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  last_used_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+CREATE INDEX IF NOT EXISTS idx_best_seller_media_assets_cleanup
+  ON public.best_seller_media_assets(media_type, last_used_at);
+
 -- 4. Índices de performance
 CREATE INDEX IF NOT EXISTS idx_best_seller_lists_active ON public.best_seller_lists(active);
 CREATE INDEX IF NOT EXISTS idx_best_seller_lists_date ON public.best_seller_lists(list_date DESC);
@@ -128,6 +161,7 @@ CREATE INDEX IF NOT EXISTS idx_best_seller_products_list_pos ON public.best_sell
 -- 5. Habilitação de Segurança por Linha (RLS)
 ALTER TABLE public.best_seller_lists ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.best_seller_products ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.best_seller_media_assets ENABLE ROW LEVEL SECURITY;
 
 -- 6. Permissões de isolamento estrito (Gerenciamento via Service Role do Backend)
 REVOKE ALL ON public.best_seller_lists FROM anon, authenticated;
@@ -135,6 +169,9 @@ GRANT ALL ON public.best_seller_lists TO service_role;
 
 REVOKE ALL ON public.best_seller_products FROM anon, authenticated;
 GRANT ALL ON public.best_seller_products TO service_role;
+
+REVOKE ALL ON public.best_seller_media_assets FROM anon, authenticated;
+GRANT ALL ON public.best_seller_media_assets TO service_role;
 
 -- 7. Função atômica para ativar uma lista desativando todas as outras
 CREATE OR REPLACE FUNCTION public.set_active_best_seller_list(target_list_id UUID)
@@ -174,50 +211,33 @@ $$ LANGUAGE plpgsql SECURITY DEFINER;
 REVOKE ALL ON FUNCTION public.increment_best_seller_product_clicks(UUID) FROM public, anon, authenticated;
 GRANT EXECUTE ON FUNCTION public.increment_best_seller_product_clicks(UUID) TO service_role;
 
--- 9. Configuração do Storage (Bucket Público para Mídias e Logotipos)
+-- 9. Configuração do Storage (imagens + vídeos, upload por URL assinada)
 INSERT INTO storage.buckets (id, name, public, file_size_limit, allowed_mime_types)
 VALUES (
   'zhaya-match-media',
   'zhaya-match-media',
   true,
-  10485760, -- 10MB
-  ARRAY['image/png', 'image/jpeg', 'image/jpg', 'image/webp', 'image/svg+xml', 'image/gif']
+  104857600, -- 100MB
+  ARRAY['image/png', 'image/jpeg', 'image/jpg', 'image/webp', 'image/svg+xml', 'image/gif', 'video/mp4', 'video/webm', 'video/quicktime', 'video/ogg']
 )
 ON CONFLICT (id) DO UPDATE SET
   public = true,
-  file_size_limit = 10485760,
-  allowed_mime_types = ARRAY['image/png', 'image/jpeg', 'image/jpg', 'image/webp', 'image/svg+xml', 'image/gif'];
+  file_size_limit = 104857600,
+  allowed_mime_types = ARRAY['image/png', 'image/jpeg', 'image/jpg', 'image/webp', 'image/svg+xml', 'image/gif', 'video/mp4', 'video/webm', 'video/quicktime', 'video/ogg'];
 
--- Políticas de acesso para o Storage do Supabase (Leitura e Upload)
 DO $$
 BEGIN
   IF NOT EXISTS (
-    SELECT 1 FROM pg_policies 
+    SELECT 1 FROM pg_policies
     WHERE schemaname = 'storage' AND tablename = 'objects' AND policyname = 'Public Access zhaya-match-media'
   ) THEN
     CREATE POLICY "Public Access zhaya-match-media"
     ON storage.objects FOR SELECT
     USING (bucket_id = 'zhaya-match-media');
   END IF;
-
-  IF NOT EXISTS (
-    SELECT 1 FROM pg_policies 
-    WHERE schemaname = 'storage' AND tablename = 'objects' AND policyname = 'Allow Uploads zhaya-match-media'
-  ) THEN
-    CREATE POLICY "Allow Uploads zhaya-match-media"
-    ON storage.objects FOR INSERT
-    WITH CHECK (bucket_id = 'zhaya-match-media');
-  END IF;
-
-  IF NOT EXISTS (
-    SELECT 1 FROM pg_policies 
-    WHERE schemaname = 'storage' AND tablename = 'objects' AND policyname = 'Allow Updates zhaya-match-media'
-  ) THEN
-    CREATE POLICY "Allow Updates zhaya-match-media"
-    ON storage.objects FOR UPDATE
-    USING (bucket_id = 'zhaya-match-media');
-  END IF;
 END $$;
+
+-- Mantém políticas existentes do bucket para não quebrar outros módulos que o reutilizam.
 
 -- 10. Recarga do schema cache do PostgREST / Supabase API
 NOTIFY pgrst, 'reload schema';
