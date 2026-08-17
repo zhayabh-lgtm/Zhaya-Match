@@ -9,6 +9,7 @@
 CREATE TABLE IF NOT EXISTS public.best_seller_lists (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   title TEXT NOT NULL DEFAULT 'Mais Vendidos do Dia',
+  slug TEXT,
   logo_url TEXT,
   subtitle TEXT,
   cta_text TEXT,
@@ -64,6 +65,7 @@ CREATE TABLE IF NOT EXISTS public.best_seller_products (
 );
 
 -- 3. Garante colunas adicionais caso a tabela já tenha sido criada em versão prévia
+ALTER TABLE public.best_seller_lists ADD COLUMN IF NOT EXISTS slug TEXT;
 ALTER TABLE public.best_seller_lists ADD COLUMN IF NOT EXISTS logo_url TEXT;
 ALTER TABLE public.best_seller_lists ADD COLUMN IF NOT EXISTS subtitle TEXT;
 ALTER TABLE public.best_seller_lists ADD COLUMN IF NOT EXISTS cta_text TEXT;
@@ -183,6 +185,21 @@ CREATE TABLE IF NOT EXISTS public.best_seller_media_assets (
 
 CREATE INDEX IF NOT EXISTS idx_best_seller_media_assets_cleanup
   ON public.best_seller_media_assets(media_type, last_used_at);
+
+
+-- Slug público único para cada lista existente e futura
+UPDATE public.best_seller_lists
+SET slug = COALESCE(
+  NULLIF(trim(both '-' from regexp_replace(lower(COALESCE(title, 'lista')), '[^a-z0-9]+', '-', 'g')), ''),
+  'lista'
+) || '-' || substr(replace(id::text, '-', ''), 1, 8)
+WHERE slug IS NULL OR btrim(slug) = '';
+
+CREATE UNIQUE INDEX IF NOT EXISTS idx_best_seller_lists_slug
+  ON public.best_seller_lists(slug);
+
+ALTER TABLE public.best_seller_lists
+  ALTER COLUMN slug SET NOT NULL;
 
 -- 4. Índices de performance
 CREATE INDEX IF NOT EXISTS idx_best_seller_lists_active ON public.best_seller_lists(active);

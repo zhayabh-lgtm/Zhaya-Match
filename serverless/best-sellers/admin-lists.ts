@@ -2,6 +2,7 @@ import { createClient } from '@supabase/supabase-js';
 import { verifyAdminAuth } from '../../src/lib/adminAuth.js';
 import { isValidServiceRoleKey } from '../../src/lib/supabaseKeyValidator.js';
 import type { BestSellerList } from '../../src/types/zhaya.js';
+import { generateLiveSlug } from '../../src/lib/slugGenerator.js';
 
 function getSupabaseClient() {
   const supabaseUrl = process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL || '';
@@ -27,6 +28,17 @@ function isTableMissingError(error: any): boolean {
     msg.includes('could not find the table') ||
     msg.includes('schema cache')
   );
+}
+
+function buildBestSellerSlug(title: string): string {
+  const base = String(title || 'lista')
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-+|-+$/g, '')
+    .slice(0, 48) || 'lista';
+  return `${base}-${generateLiveSlug(8).toLowerCase()}`;
 }
 
 function normalizeHexColor(value: unknown, fallback = '#FFFFFF'): string {
@@ -138,6 +150,7 @@ export default async function handler(req: any, res: any) {
 
         const formattedList: BestSellerList = {
           id: listData.id,
+          slug: listData.slug || undefined,
           title: listData.title,
           logoUrl: listData.logo_url || null,
           subtitle: listData.subtitle || null,
@@ -193,6 +206,7 @@ export default async function handler(req: any, res: any) {
 
         return {
           id: row.id,
+          slug: row.slug || undefined,
           title: row.title,
           logoUrl: row.logo_url || null,
           subtitle: row.subtitle || null,
@@ -270,6 +284,7 @@ export default async function handler(req: any, res: any) {
           .from('best_seller_lists')
           .insert({
             title: targetTitle,
+            slug: buildBestSellerSlug(targetTitle),
             logo_url: srcList.logo_url || null,
             subtitle: srcList.subtitle || null,
             cta_text: srcList.cta_text || null,
@@ -332,6 +347,7 @@ export default async function handler(req: any, res: any) {
 
         const duplicated: BestSellerList = {
           id: newListData.id,
+          slug: newListData.slug || undefined,
           title: newListData.title,
           logoUrl: newListData.logo_url || null,
           subtitle: newListData.subtitle || null,
@@ -411,6 +427,7 @@ export default async function handler(req: any, res: any) {
         .from('best_seller_lists')
         .insert({
           title,
+          slug: buildBestSellerSlug(title),
           logo_url: logoUrl,
           subtitle,
           cta_text: ctaText,
@@ -445,6 +462,7 @@ export default async function handler(req: any, res: any) {
 
       const created: BestSellerList = {
         id: data.id,
+        slug: data.slug || undefined,
         title: data.title,
         logoUrl: data.logo_url || null,
         subtitle: data.subtitle || null,
@@ -584,6 +602,7 @@ export default async function handler(req: any, res: any) {
 
       const updated: BestSellerList = {
         id: data.id,
+        slug: data.slug || undefined,
         title: data.title,
         logoUrl: data.logo_url || null,
         subtitle: data.subtitle || null,

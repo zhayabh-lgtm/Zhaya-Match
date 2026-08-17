@@ -541,6 +541,7 @@ GRANT EXECUTE ON FUNCTION public.publish_all_config(jsonb, jsonb, jsonb, jsonb, 
 CREATE TABLE IF NOT EXISTS public.best_seller_lists (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   title TEXT NOT NULL DEFAULT 'Mais Vendidos do Dia',
+  slug TEXT,
   logo_url TEXT,
   subtitle TEXT,
   cta_text TEXT,
@@ -795,3 +796,18 @@ END $$;
 -- Mantém políticas existentes do bucket para não quebrar outros módulos que o reutilizam.
 
 NOTIFY pgrst, 'reload schema';
+
+
+-- Slug público único para cada lista existente e futura
+UPDATE public.best_seller_lists
+SET slug = COALESCE(
+  NULLIF(trim(both '-' from regexp_replace(lower(COALESCE(title, 'lista')), '[^a-z0-9]+', '-', 'g')), ''),
+  'lista'
+) || '-' || substr(replace(id::text, '-', ''), 1, 8)
+WHERE slug IS NULL OR btrim(slug) = '';
+
+CREATE UNIQUE INDEX IF NOT EXISTS idx_best_seller_lists_slug
+  ON public.best_seller_lists(slug);
+
+ALTER TABLE public.best_seller_lists
+  ALTER COLUMN slug SET NOT NULL;

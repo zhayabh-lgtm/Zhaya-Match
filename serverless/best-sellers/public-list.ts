@@ -107,14 +107,33 @@ export default async function handler(req: any, res: any) {
       });
     }
 
-    // Busca a lista única ativa
-    const { data: activeList, error: listError } = await supabase
-      .from('best_seller_lists')
-      .select('*')
-      .eq('active', true)
-      .order('list_date', { ascending: false })
-      .limit(1)
-      .maybeSingle();
+    const requestUrl = new URL(req.url || '/', `http://${req.headers?.host || 'localhost'}`);
+    const requestedSlug = String(req.query?.slug || requestUrl.searchParams.get('slug') || '').trim();
+
+    // Com slug, cada lista possui um link público independente. Sem slug,
+    // preserva /mais-vendidos como atalho para a lista marcada como padrão (active).
+    let activeList: any = null;
+    let listError: any = null;
+
+    if (requestedSlug) {
+      const result = await supabase
+        .from('best_seller_lists')
+        .select('*')
+        .eq('slug', requestedSlug)
+        .maybeSingle();
+      activeList = result.data;
+      listError = result.error;
+    } else {
+      const result = await supabase
+        .from('best_seller_lists')
+        .select('*')
+        .eq('active', true)
+        .order('list_date', { ascending: false })
+        .limit(1)
+        .maybeSingle();
+      activeList = result.data;
+      listError = result.error;
+    }
 
     if (listError) {
       if (isTableMissingError(listError)) {
@@ -178,6 +197,7 @@ export default async function handler(req: any, res: any) {
 
     const responseList: PublicBestSellerList = {
       id: activeList.id,
+      slug: activeList.slug || undefined,
       title: activeList.title,
       logoUrl: activeList.logo_url || null,
       subtitle: activeList.subtitle || null,

@@ -48,6 +48,7 @@ const BEST_SELLERS_SQL = `-- ===================================================
 CREATE TABLE IF NOT EXISTS public.best_seller_lists (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   title TEXT NOT NULL DEFAULT 'Mais Vendidos do Dia',
+  slug TEXT,
   logo_url TEXT,
   subtitle TEXT,
   cta_text TEXT,
@@ -103,6 +104,7 @@ CREATE TABLE IF NOT EXISTS public.best_seller_products (
 );
 
 -- 3. Garante colunas adicionais caso a tabela já tenha sido criada em versão prévia
+ALTER TABLE public.best_seller_lists ADD COLUMN IF NOT EXISTS slug TEXT;
 ALTER TABLE public.best_seller_lists ADD COLUMN IF NOT EXISTS logo_url TEXT;
 ALTER TABLE public.best_seller_lists ADD COLUMN IF NOT EXISTS subtitle TEXT;
 ALTER TABLE public.best_seller_lists ADD COLUMN IF NOT EXISTS cta_text TEXT;
@@ -222,6 +224,21 @@ CREATE TABLE IF NOT EXISTS public.best_seller_media_assets (
 
 CREATE INDEX IF NOT EXISTS idx_best_seller_media_assets_cleanup
   ON public.best_seller_media_assets(media_type, last_used_at);
+
+
+-- Slug público único para cada lista existente e futura
+UPDATE public.best_seller_lists
+SET slug = COALESCE(
+  NULLIF(trim(both '-' from regexp_replace(lower(COALESCE(title, 'lista')), '[^a-z0-9]+', '-', 'g')), ''),
+  'lista'
+) || '-' || substr(replace(id::text, '-', ''), 1, 8)
+WHERE slug IS NULL OR btrim(slug) = '';
+
+CREATE UNIQUE INDEX IF NOT EXISTS idx_best_seller_lists_slug
+  ON public.best_seller_lists(slug);
+
+ALTER TABLE public.best_seller_lists
+  ALTER COLUMN slug SET NOT NULL;
 
 -- 4. Índices de performance
 CREATE INDEX IF NOT EXISTS idx_best_seller_lists_active ON public.best_seller_lists(active);
@@ -1497,14 +1514,14 @@ export const MaisVendidos: React.FC = () => {
 
         <div className="flex items-center gap-2">
           <a
-            href="/mais-vendidos"
+            href={selectedList?.slug ? `/mais-vendidos/${selectedList.slug}` : "/mais-vendidos"}
             target="_blank"
             rel="noopener noreferrer"
             className="inline-flex items-center gap-1.5 px-3 py-2 text-xs font-semibold text-neutral-700 bg-white border border-neutral-300 rounded-md hover:bg-neutral-50 transition-colors shadow-sm"
-            title="Abrir página pública /mais-vendidos em nova aba"
+            title={selectedList?.slug ? `Abrir /mais-vendidos/${selectedList.slug}` : "Abrir página pública padrão /mais-vendidos"}
           >
             <ExternalLink className="w-3.5 h-3.5 text-neutral-500" />
-            <span>Ver Vitrine Pública</span>
+            <span>{selectedList?.slug ? "Abrir Link da Lista" : "Ver Vitrine Padrão"}</span>
           </a>
 
           {selectedList ? (
@@ -1596,7 +1613,7 @@ export const MaisVendidos: React.FC = () => {
               Histórico de Listas ({lists.length})
             </h2>
             <span className="text-[11px] text-neutral-400">
-              Apenas 1 lista fica ativa publicamente por vez
+              Cada lista tem link próprio; a ativa também responde em /mais-vendidos
             </span>
           </div>
 
@@ -1644,11 +1661,11 @@ export const MaisVendidos: React.FC = () => {
                         {list.active ? (
                           <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[10px] font-bold uppercase tracking-wider bg-emerald-600 text-white">
                             <span className="w-1.5 h-1.5 rounded-full bg-white animate-pulse" />
-                            Ativa Publicamente
+                            Link padrão
                           </span>
                         ) : (
                           <span className="inline-flex items-center px-2 py-0.5 rounded text-[10px] font-bold uppercase tracking-wider bg-neutral-200 text-neutral-700">
-                            Encerrada
+                            Link próprio
                           </span>
                         )}
 
@@ -1687,8 +1704,20 @@ export const MaisVendidos: React.FC = () => {
                             : 'bg-emerald-50 text-emerald-800 border-emerald-200 hover:bg-emerald-100'
                         }`}
                       >
-                        {list.active ? 'Desativar' : 'Definir como Ativa'}
+                        {list.active ? 'Remover do padrão' : 'Usar como padrão'}
                       </button>
+
+                      {list.slug && (
+                        <a
+                          href={`/mais-vendidos/${list.slug}`}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          title="Abrir link público desta lista"
+                          className="p-1.5 text-neutral-500 hover:text-neutral-900 hover:bg-neutral-100 rounded border border-neutral-200 transition-colors cursor-pointer"
+                        >
+                          <ExternalLink className="w-4 h-4" />
+                        </a>
+                      )}
 
                       <button
                         type="button"
@@ -1753,11 +1782,11 @@ export const MaisVendidos: React.FC = () => {
                   {selectedList.active ? (
                     <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[10px] font-bold uppercase tracking-wider bg-emerald-600 text-white">
                       <span className="w-1.5 h-1.5 rounded-full bg-white animate-pulse" />
-                      Ativa no Momento
+                      Link padrão
                     </span>
                   ) : (
                     <span className="inline-flex items-center px-2 py-0.5 rounded text-[10px] font-bold uppercase tracking-wider bg-neutral-200 text-neutral-700">
-                      Encerrada
+                      Link próprio
                     </span>
                   )}
                   {selectedList.timerEnabled && (
@@ -1773,6 +1802,20 @@ export const MaisVendidos: React.FC = () => {
                 {selectedList.subtitle && (
                   <p className="text-xs text-neutral-500 italic">{selectedList.subtitle}</p>
                 )}
+                {selectedList.slug && (
+                  <div className="flex items-center gap-1.5 text-[11px] text-neutral-500">
+                    <Link2 className="w-3 h-3 text-neutral-400" />
+                    <code className="font-mono">/mais-vendidos/{selectedList.slug}</code>
+                    <button
+                      type="button"
+                      onClick={() => navigator.clipboard?.writeText(`${window.location.origin}/mais-vendidos/${selectedList.slug}`)}
+                      className="p-1 text-neutral-400 hover:text-neutral-800 cursor-pointer"
+                      title="Copiar link público"
+                    >
+                      <Copy className="w-3 h-3" />
+                    </button>
+                  </div>
+                )}
               </div>
 
               <div className="flex items-center gap-2">
@@ -1785,7 +1828,7 @@ export const MaisVendidos: React.FC = () => {
                       : 'bg-emerald-50 text-emerald-800 border-emerald-200 hover:bg-emerald-100'
                   }`}
                 >
-                  {selectedList.active ? 'Desativar Lista' : 'Ativar esta Lista'}
+                  {selectedList.active ? 'Remover do link padrão' : 'Usar em /mais-vendidos'}
                 </button>
                 <button
                   type="button"
@@ -2423,9 +2466,9 @@ export const MaisVendidos: React.FC = () => {
                     className="mt-0.5 rounded border-neutral-300 text-neutral-900 focus:ring-neutral-900"
                   />
                   <div>
-                    <span className="font-semibold text-neutral-900">Definir como lista ativa publicamente</span>
+                    <span className="font-semibold text-neutral-900">Usar também como link padrão /mais-vendidos</span>
                     <p className="text-[11px] text-neutral-500">
-                      Ao ativar esta lista, qualquer outra lista ativa anterior será desativada automaticamente.
+                      Cada lista já possui seu próprio slug público. Esta opção apenas define qual delas também abre em /mais-vendidos.
                     </p>
                   </div>
                 </label>

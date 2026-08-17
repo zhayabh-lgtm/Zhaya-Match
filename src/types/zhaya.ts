@@ -470,6 +470,7 @@ export interface PublicBestSellerMediaItem {
 
 export interface BestSellerList {
   id: string;
+  slug?: string;
   title: string;
   logoUrl?: string | null;
   subtitle?: string | null;
@@ -558,6 +559,7 @@ export interface PublicBestSellerProduct {
 
 export interface PublicBestSellerList {
   id: string;
+  slug?: string;
   title: string;
   logoUrl?: string | null;
   subtitle?: string | null;

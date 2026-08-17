@@ -28,6 +28,7 @@ export default function App() {
             {/* 1. Fully Isolated Public Routes (No AdminLayout, No Zhaya Match chrome) */}
             <Route path="/live/:slug" element={<LiveInvitePage />} />
             <Route path="/mais-vendidos" element={<MaisVendidosPage />} />
+            <Route path="/mais-vendidos/:slug" element={<MaisVendidosPage />} />
 
             {/* 2. Internal / App Routes protected by VisitorLockGuard */}
             <Route

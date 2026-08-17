@@ -1,5 +1,6 @@
 import React, { useEffect, useState, useMemo, useRef } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
+import { useParams } from 'react-router-dom';
 import { Play, Pause, Volume2, VolumeX } from 'lucide-react';
 import { Repository } from '../../lib/repository';
 import { getReadableTextColor } from '../../lib/contrast';
@@ -304,6 +305,7 @@ const GalleryVideo: React.FC<{
 }> = ({ src, label, onError, posterUrl }) => {
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const [activated, setActivated] = useState(false);
+  const [videoReady, setVideoReady] = useState(false);
   const [playing, setPlaying] = useState(false);
   const [muted, setMuted] = useState(false);
   const [volume, setVolume] = useState(1);
@@ -315,6 +317,7 @@ const GalleryVideo: React.FC<{
 
   useEffect(() => {
     setActivated(false);
+    setVideoReady(false);
     setPlaying(false);
     setCurrentTime(0);
     setDuration(0);
@@ -324,13 +327,19 @@ const GalleryVideo: React.FC<{
   const stopPointer = (event: React.PointerEvent) => event.stopPropagation();
 
   const startPlayback = () => {
-    const video = videoRef.current;
-    if (!video) return;
+    // Antes do toque não existe <video> no DOM: só a capa estática é carregada.
     setActivated(true);
-    void video.play().catch(() => {
-      setPlaying(false);
-    });
   };
+
+  useEffect(() => {
+    if (!activated) return;
+    const frame = window.requestAnimationFrame(() => {
+      const video = videoRef.current;
+      if (!video) return;
+      void video.play().catch(() => setPlaying(false));
+    });
+    return () => window.cancelAnimationFrame(frame);
+  }, [activated, src]);
 
   const togglePlayback = () => {
     const video = videoRef.current;
@@ -373,37 +382,45 @@ const GalleryVideo: React.FC<{
 
   return (
     <div className="relative w-full h-full bg-neutral-950">
-      {/* O vídeo pode carregar em segundo plano, mas nunca fica visível antes do primeiro play. */}
-      <video
-        ref={videoRef}
-        src={src}
-        aria-label={label}
-        playsInline
-        preload="metadata"
-        controls={false}
-        onLoadedMetadata={(event) => {
-          const nextDuration = Number.isFinite(event.currentTarget.duration) ? event.currentTarget.duration : 0;
-          setDuration(nextDuration);
-        }}
-        onPlay={() => { setActivated(true); setPlaying(true); }}
-        onPause={() => setPlaying(false)}
-        onEnded={() => setPlaying(false)}
-        onTimeUpdate={(event) => setCurrentTime(event.currentTarget.currentTime || 0)}
-        onVolumeChange={(event) => {
-          setMuted(event.currentTarget.muted);
-          setVolume(event.currentTarget.volume);
-        }}
-        onError={onError}
-        className={`absolute inset-0 w-full h-full object-cover object-center bg-neutral-950 pointer-events-none transition-opacity duration-200 ${activated ? 'opacity-100' : 'opacity-0'}`}
-      />
+      {/* O player real só é criado depois do toque. No iPhone isso evita que
+          o download/decodificação do vídeo concorra com a capa estática. */}
+      {activated && (
+        <video
+          ref={videoRef}
+          src={src}
+          aria-label={label}
+          playsInline
+          preload="auto"
+          controls={false}
+          onLoadedData={() => setVideoReady(true)}
+          onLoadedMetadata={(event) => {
+            const nextDuration = Number.isFinite(event.currentTarget.duration) ? event.currentTarget.duration : 0;
+            setDuration(nextDuration);
+          }}
+          onPlay={() => { setPlaying(true); }}
+          onPause={() => setPlaying(false)}
+          onEnded={() => setPlaying(false)}
+          onTimeUpdate={(event) => setCurrentTime(event.currentTarget.currentTime || 0)}
+          onVolumeChange={(event) => {
+            setMuted(event.currentTarget.muted);
+            setVolume(event.currentTarget.volume);
+          }}
+          onError={onError}
+          className={`absolute inset-0 w-full h-full object-cover object-center bg-neutral-950 pointer-events-none transition-opacity duration-200 ${videoReady ? 'opacity-100' : 'opacity-0'}`}
+        />
+      )}
 
-      {/* Capa simulada: é uma <img>, não depende do poster/renderização do player. */}
-      {!activated && (
+      {/* Capa é uma imagem comum. Ela permanece visível inclusive enquanto o
+          player aberto ainda carrega o primeiro frame. */}
+      {(!activated || !videoReady) && (
         <div className="absolute inset-0 z-20 bg-neutral-900">
           {coverUrl ? (
             <img
               src={coverUrl}
               alt={`${label} - capa`}
+              loading="eager"
+              fetchPriority="high"
+              decoding="async"
               draggable={false}
               onError={() => setPosterFailed(true)}
               className="absolute inset-0 w-full h-full object-cover object-center pointer-events-none"
@@ -412,7 +429,7 @@ const GalleryVideo: React.FC<{
             <div className="absolute inset-0 bg-neutral-900" aria-hidden="true" />
           )}
 
-          <button
+          {!activated && <button
             type="button"
             onPointerDown={stopPointer}
             onClick={(event) => { event.stopPropagation(); startPlayback(); }}
@@ -420,11 +437,11 @@ const GalleryVideo: React.FC<{
             className="absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 z-30 flex h-20 w-20 items-center justify-center text-white transition-transform duration-150 active:scale-95"
           >
             <Play size={48} strokeWidth={1.8} fill="currentColor" />
-          </button>
+          </button>}
         </div>
       )}
 
-      {activated && !playing && (
+      {activated && videoReady && !playing && (
         <button
           type="button"
           onPointerDown={stopPointer}
@@ -437,7 +454,7 @@ const GalleryVideo: React.FC<{
       )}
 
       {/* Controles aparecem somente depois que o player foi realmente aberto. */}
-      {activated && (
+      {activated && videoReady && (
         <div
           className="absolute left-3 right-3 bottom-2.5 z-40 flex items-center gap-2.5 text-white"
           onPointerDown={stopPointer}
@@ -508,6 +525,27 @@ const ProductMediaGallery: React.FC<{
   const [failedMedia, setFailedMedia] = useState<Record<number, boolean>>({});
   const [direction, setDirection] = useState(0);
   const totalItems = mediaItems.length;
+
+  // Pré-carrega imagens e capas de vídeo como imagens comuns. Assim, no iPhone,
+  // a capa do vídeo entra na mesma fila das demais fotos e o arquivo de vídeo
+  // só começa a carregar depois do toque no Play.
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    const urls: string[] = Array.from(new Set<string>(
+      mediaItems
+        .map((item) => item.type === 'video' ? item.posterUrl : item.url)
+        .filter((url): url is string => typeof url === 'string' && url.length > 0),
+    ));
+    const preloaders = urls.map((url) => {
+      const image = new Image();
+      image.decoding = 'async';
+      image.src = url;
+      return image;
+    });
+    return () => {
+      preloaders.forEach((image) => { image.onload = null; image.onerror = null; });
+    };
+  }, [mediaItems]);
 
   useEffect(() => {
     if (currentIndex >= totalItems) setCurrentIndex(0);
@@ -691,8 +729,8 @@ const ProductItem: React.FC<{
   const productTimerElement = productTimeRemaining ? (
     <div className="flex flex-col items-end gap-1" aria-label={`Termina em ${productTimeRemaining.formattedString}`}>
       <span
-        className="text-[7px] sm:text-[8px] leading-none font-bold uppercase tracking-[0.16em] text-white/75"
-        style={{ textShadow: 'none', filter: 'none' }}
+        className="text-[7px] sm:text-[8px] leading-none font-bold uppercase tracking-[0.16em]"
+        style={{ color: productTimerBg, textShadow: 'none', filter: 'none' }}
       >
         TERMINA EM
       </span>
@@ -828,6 +866,7 @@ const ProductItem: React.FC<{
 };
 
 export const MaisVendidosPage: React.FC = () => {
+  const { slug } = useParams<{ slug?: string }>();
   const [listData, setListData] = useState<PublicBestSellerList | null>(null);
   const [loading, setLoading] = useState<boolean>(true);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
@@ -869,7 +908,7 @@ export const MaisVendidosPage: React.FC = () => {
     isFetchingRef.current = true;
 
     try {
-      const data = await Repository.getPublicBestSellers();
+      const data = await Repository.getPublicBestSellers(slug);
       const serialized = JSON.stringify(data ?? null);
 
       // Atualiza o estado somente se houver alteração real nos dados
@@ -898,6 +937,12 @@ export const MaisVendidosPage: React.FC = () => {
 
   // Carregamento inicial e Polling silencioso a cada ~3 segundos
   useEffect(() => {
+    // Ao trocar de slug, não reaproveita o snapshot da lista anterior.
+    lastDataRef.current = '';
+    hasLoadedInitiallyRef.current = false;
+    setListData(null);
+    setErrorMessage(null);
+
     // 1. Carregamento inicial explícito
     fetchPublicList({ silent: false });
 
@@ -927,7 +972,7 @@ export const MaisVendidosPage: React.FC = () => {
       document.removeEventListener('visibilitychange', handleVisibilityChange);
       window.removeEventListener('focus', handleWindowFocus);
     };
-  }, []);
+  }, [slug]);
 
   // Cálculo do timer fixo ou evergreen/looping por navegador.
   const timeRemaining = useMemo(() => {
