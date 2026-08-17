@@ -212,9 +212,89 @@ function normalizePublicSizes(values: string[] | undefined): string[] {
 }
 
 /**
- * Player de vídeo da galeria com controles próprios.
- * O elemento <video> não captura o gesto horizontal, então o swipe da galeria
- * continua funcionando inclusive quando a mídia atual é um vídeo.
+ * Tenta extrair um frame estático do vídeo no próprio navegador.
+ * É apenas fallback visual: a capa gerada no upload continua sendo a fonte preferida.
+ */
+function useRuntimeVideoCover(src: string, enabled: boolean): string | null {
+  const [cover, setCover] = useState<string | null>(null);
+
+  useEffect(() => {
+    setCover(null);
+    if (!enabled || !src || typeof document === 'undefined') return;
+
+    let disposed = false;
+    let timeoutId: number | null = null;
+    const probe = document.createElement('video');
+    probe.muted = true;
+    probe.playsInline = true;
+    probe.preload = 'auto';
+    probe.crossOrigin = 'anonymous';
+
+    const cleanup = () => {
+      if (timeoutId !== null) window.clearTimeout(timeoutId);
+      probe.onloadedmetadata = null;
+      probe.onseeked = null;
+      probe.onerror = null;
+      try {
+        probe.pause();
+        probe.removeAttribute('src');
+        probe.load();
+      } catch {
+        // noop
+      }
+    };
+
+    const capture = () => {
+      if (disposed || !probe.videoWidth || !probe.videoHeight) return;
+      try {
+        const maxWidth = 960;
+        const scale = Math.min(1, maxWidth / probe.videoWidth);
+        const canvas = document.createElement('canvas');
+        canvas.width = Math.max(1, Math.round(probe.videoWidth * scale));
+        canvas.height = Math.max(1, Math.round(probe.videoHeight * scale));
+        const ctx = canvas.getContext('2d');
+        if (!ctx) return;
+        ctx.drawImage(probe, 0, 0, canvas.width, canvas.height);
+        const dataUrl = canvas.toDataURL('image/jpeg', 0.82);
+        if (!disposed && dataUrl && dataUrl !== 'data:,') setCover(dataUrl);
+      } catch {
+        // Alguns hosts externos não permitem leitura do frame por CORS.
+      } finally {
+        cleanup();
+      }
+    };
+
+    probe.onloadedmetadata = () => {
+      try {
+        const duration = Number.isFinite(probe.duration) ? probe.duration : 0;
+        probe.currentTime = duration > 0.2 ? Math.min(0.35, duration * 0.08) : 0;
+        if (probe.currentTime === 0) {
+          window.setTimeout(capture, 120);
+        }
+      } catch {
+        cleanup();
+      }
+    };
+    probe.onseeked = capture;
+    probe.onerror = cleanup;
+    timeoutId = window.setTimeout(cleanup, 7000);
+    probe.src = src;
+    probe.load();
+
+    return () => {
+      disposed = true;
+      cleanup();
+    };
+  }, [src, enabled]);
+
+  return cover;
+}
+
+/**
+ * Player de vídeo da galeria.
+ * Antes do primeiro play ele NÃO mostra o elemento de vídeo: exibe uma capa
+ * estática com um botão de play visual. Isso evita o quadro preto do player em
+ * navegadores mobile. O vídeo real só fica visível depois do toque do usuário.
  */
 const GalleryVideo: React.FC<{
   src: string;
@@ -223,25 +303,42 @@ const GalleryVideo: React.FC<{
   posterUrl?: string;
 }> = ({ src, label, onError, posterUrl }) => {
   const videoRef = useRef<HTMLVideoElement | null>(null);
+  const [activated, setActivated] = useState(false);
   const [playing, setPlaying] = useState(false);
   const [muted, setMuted] = useState(false);
   const [volume, setVolume] = useState(1);
   const [duration, setDuration] = useState(0);
   const [currentTime, setCurrentTime] = useState(0);
-  const [ready, setReady] = useState(false);
+  const [posterFailed, setPosterFailed] = useState(false);
+  const runtimeCover = useRuntimeVideoCover(src, !posterUrl || posterFailed);
+  const coverUrl = posterFailed ? runtimeCover : (posterUrl || runtimeCover);
 
   useEffect(() => {
+    setActivated(false);
     setPlaying(false);
     setCurrentTime(0);
     setDuration(0);
-    setReady(false);
-  }, [src]);
+    setPosterFailed(false);
+  }, [src, posterUrl]);
 
   const stopPointer = (event: React.PointerEvent) => event.stopPropagation();
+
+  const startPlayback = () => {
+    const video = videoRef.current;
+    if (!video) return;
+    setActivated(true);
+    void video.play().catch(() => {
+      setPlaying(false);
+    });
+  };
 
   const togglePlayback = () => {
     const video = videoRef.current;
     if (!video) return;
+    if (!activated) {
+      startPlayback();
+      return;
+    }
     if (video.paused) {
       void video.play().catch(() => undefined);
     } else {
@@ -274,39 +371,21 @@ const GalleryVideo: React.FC<{
     setCurrentTime(value);
   };
 
-  const handleLoadedMetadata = () => {
-    const video = videoRef.current;
-    if (!video) return;
-    const nextDuration = Number.isFinite(video.duration) ? video.duration : 0;
-    setDuration(nextDuration);
-
-    // Força o navegador a decodificar um frame inicial para funcionar como
-    // capa visual antes do play, evitando a tela preta comum do preload=metadata.
-    if (nextDuration > 0.15 && video.currentTime < 0.02) {
-      try {
-        video.currentTime = Math.min(0.12, nextDuration * 0.05);
-      } catch {
-        setReady(true);
-      }
-    } else {
-      setReady(true);
-    }
-  };
-
   return (
     <div className="relative w-full h-full bg-neutral-950">
+      {/* O vídeo pode carregar em segundo plano, mas nunca fica visível antes do primeiro play. */}
       <video
         ref={videoRef}
         src={src}
         aria-label={label}
         playsInline
-        poster={posterUrl || undefined}
-        preload="auto"
+        preload="metadata"
         controls={false}
-        onLoadedMetadata={handleLoadedMetadata}
-        onLoadedData={() => setReady(true)}
-        onSeeked={() => setReady(true)}
-        onPlay={() => setPlaying(true)}
+        onLoadedMetadata={(event) => {
+          const nextDuration = Number.isFinite(event.currentTarget.duration) ? event.currentTarget.duration : 0;
+          setDuration(nextDuration);
+        }}
+        onPlay={() => { setActivated(true); setPlaying(true); }}
         onPause={() => setPlaying(false)}
         onEnded={() => setPlaying(false)}
         onTimeUpdate={(event) => setCurrentTime(event.currentTarget.currentTime || 0)}
@@ -315,73 +394,96 @@ const GalleryVideo: React.FC<{
           setVolume(event.currentTarget.volume);
         }}
         onError={onError}
-        className={`w-full h-full object-cover object-center bg-neutral-950 pointer-events-none transition-opacity duration-200 ${ready || posterUrl ? 'opacity-100' : 'opacity-0'}`}
+        className={`absolute inset-0 w-full h-full object-cover object-center bg-neutral-950 pointer-events-none transition-opacity duration-200 ${activated ? 'opacity-100' : 'opacity-0'}`}
       />
 
-      {!ready && !posterUrl && (
-        <div className="absolute inset-0 flex items-center justify-center bg-neutral-950 text-white/35 text-[10px] uppercase tracking-[0.18em] pointer-events-none">
-          Carregando vídeo
+      {/* Capa simulada: é uma <img>, não depende do poster/renderização do player. */}
+      {!activated && (
+        <div className="absolute inset-0 z-20 bg-neutral-900">
+          {coverUrl ? (
+            <img
+              src={coverUrl}
+              alt={`${label} - capa`}
+              draggable={false}
+              onError={() => setPosterFailed(true)}
+              className="absolute inset-0 w-full h-full object-cover object-center pointer-events-none"
+            />
+          ) : (
+            <div className="absolute inset-0 bg-neutral-900" aria-hidden="true" />
+          )}
+
+          <button
+            type="button"
+            onPointerDown={stopPointer}
+            onClick={(event) => { event.stopPropagation(); startPlayback(); }}
+            aria-label="Reproduzir vídeo"
+            className="absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 z-30 flex h-20 w-20 items-center justify-center text-white transition-transform duration-150 active:scale-95"
+          >
+            <Play size={48} strokeWidth={1.8} fill="currentColor" />
+          </button>
         </div>
       )}
 
-      {!playing && ready && (
+      {activated && !playing && (
         <button
           type="button"
           onPointerDown={stopPointer}
           onClick={(event) => { event.stopPropagation(); togglePlayback(); }}
           aria-label="Reproduzir vídeo"
-          className="absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 z-30 flex items-center justify-center text-white/95 transition-transform duration-150 active:scale-95"
+          className="absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 z-30 flex h-16 w-16 items-center justify-center text-white/95 transition-transform duration-150 active:scale-95"
         >
           <Play size={42} strokeWidth={1.7} fill="currentColor" />
         </button>
       )}
 
-      {/* Controles baixos para não competir com badge/ranking e deixar o swipe livre. */}
-      <div
-        className="absolute left-3 right-3 bottom-2.5 z-40 flex items-center gap-2.5 text-white"
-        onPointerDown={stopPointer}
-        onClick={(event) => event.stopPropagation()}
-      >
-        <button
-          type="button"
-          onClick={togglePlayback}
-          className="shrink-0 inline-flex items-center justify-center text-white/95 hover:text-white"
-          aria-label={playing ? 'Pausar vídeo' : 'Reproduzir vídeo'}
+      {/* Controles aparecem somente depois que o player foi realmente aberto. */}
+      {activated && (
+        <div
+          className="absolute left-3 right-3 bottom-2.5 z-40 flex items-center gap-2.5 text-white"
+          onPointerDown={stopPointer}
+          onClick={(event) => event.stopPropagation()}
         >
-          {playing ? <Pause size={18} fill="currentColor" /> : <Play size={18} fill="currentColor" />}
-        </button>
+          <button
+            type="button"
+            onClick={togglePlayback}
+            className="shrink-0 inline-flex items-center justify-center text-white/95 hover:text-white"
+            aria-label={playing ? 'Pausar vídeo' : 'Reproduzir vídeo'}
+          >
+            {playing ? <Pause size={18} fill="currentColor" /> : <Play size={18} fill="currentColor" />}
+          </button>
 
-        <input
-          type="range"
-          min={0}
-          max={Math.max(duration, 0.01)}
-          step="0.05"
-          value={Math.min(currentTime, Math.max(duration, 0.01))}
-          onChange={(event) => handleSeek(Number(event.target.value))}
-          aria-label="Progresso do vídeo"
-          className="min-w-0 flex-1 h-1 accent-white cursor-pointer"
-        />
+          <input
+            type="range"
+            min={0}
+            max={Math.max(duration, 0.01)}
+            step="0.05"
+            value={Math.min(currentTime, Math.max(duration, 0.01))}
+            onChange={(event) => handleSeek(Number(event.target.value))}
+            aria-label="Progresso do vídeo"
+            className="min-w-0 flex-1 h-1 accent-white cursor-pointer"
+          />
 
-        <button
-          type="button"
-          onClick={toggleMute}
-          className="shrink-0 inline-flex items-center justify-center text-white/90 hover:text-white"
-          aria-label={muted || volume === 0 ? 'Ativar som' : 'Silenciar vídeo'}
-        >
-          {muted || volume === 0 ? <VolumeX size={18} /> : <Volume2 size={18} />}
-        </button>
+          <button
+            type="button"
+            onClick={toggleMute}
+            className="shrink-0 inline-flex items-center justify-center text-white/90 hover:text-white"
+            aria-label={muted || volume === 0 ? 'Ativar som' : 'Silenciar vídeo'}
+          >
+            {muted || volume === 0 ? <VolumeX size={18} /> : <Volume2 size={18} />}
+          </button>
 
-        <input
-          type="range"
-          min={0}
-          max={1}
-          step="0.05"
-          value={muted ? 0 : volume}
-          onChange={(event) => handleVolume(Number(event.target.value))}
-          aria-label="Volume do vídeo"
-          className="w-14 sm:w-20 h-1 accent-white cursor-pointer"
-        />
-      </div>
+          <input
+            type="range"
+            min={0}
+            max={1}
+            step="0.05"
+            value={muted ? 0 : volume}
+            onChange={(event) => handleVolume(Number(event.target.value))}
+            aria-label="Volume do vídeo"
+            className="w-14 sm:w-20 h-1 accent-white cursor-pointer"
+          />
+        </div>
+      )}
     </div>
   );
 };
