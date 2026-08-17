@@ -140,7 +140,12 @@ export default async function handler(req: any, res: any) {
       sizeColor: activeList.size_color || '#FFFFFF',
       listDate: activeList.list_date,
       timerEnabled: Boolean(activeList.timer_enabled),
-      timerEnd: activeList.timer_enabled ? activeList.timer_end || null : null,
+      timerEnd: activeList.timer_enabled && !activeList.timer_looping ? activeList.timer_end || null : null,
+      timerLooping: Boolean(activeList.timer_enabled && activeList.timer_looping),
+      timerDurationMinutes:
+        activeList.timer_enabled && activeList.timer_looping && activeList.timer_duration_minutes
+          ? Number(activeList.timer_duration_minutes)
+          : null,
       timezone: activeList.timezone || 'America/Sao_Paulo',
       products: formattedProducts,
     };

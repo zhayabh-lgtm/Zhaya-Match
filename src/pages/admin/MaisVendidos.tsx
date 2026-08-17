@@ -54,6 +54,8 @@ CREATE TABLE IF NOT EXISTS public.best_seller_lists (
   active BOOLEAN NOT NULL DEFAULT false,
   timer_enabled BOOLEAN NOT NULL DEFAULT false,
   timer_end TIMESTAMPTZ,
+  timer_looping BOOLEAN NOT NULL DEFAULT false,
+  timer_duration_minutes INTEGER CHECK (timer_duration_minutes IS NULL OR (timer_duration_minutes >= 1 AND timer_duration_minutes <= 10080)),
   timezone TEXT NOT NULL DEFAULT 'America/Sao_Paulo',
   created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
   updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
@@ -96,6 +98,8 @@ ALTER TABLE public.best_seller_lists ADD COLUMN IF NOT EXISTS rank_color TEXT NO
 ALTER TABLE public.best_seller_lists ADD COLUMN IF NOT EXISTS size_color TEXT NOT NULL DEFAULT '#FFFFFF';
 ALTER TABLE public.best_seller_lists ADD COLUMN IF NOT EXISTS timer_enabled BOOLEAN NOT NULL DEFAULT false;
 ALTER TABLE public.best_seller_lists ADD COLUMN IF NOT EXISTS timer_end TIMESTAMPTZ;
+ALTER TABLE public.best_seller_lists ADD COLUMN IF NOT EXISTS timer_looping BOOLEAN NOT NULL DEFAULT false;
+ALTER TABLE public.best_seller_lists ADD COLUMN IF NOT EXISTS timer_duration_minutes INTEGER;
 ALTER TABLE public.best_seller_lists ADD COLUMN IF NOT EXISTS timezone TEXT NOT NULL DEFAULT 'America/Sao_Paulo';
 ALTER TABLE public.best_seller_lists ADD COLUMN IF NOT EXISTS created_by TEXT;
 
@@ -128,6 +132,27 @@ BEGIN
     ALTER TABLE public.best_seller_products
       ADD CONSTRAINT best_seller_products_installment_value_check
       CHECK (installment_value IS NULL OR installment_value >= 0);
+  END IF;
+END $$;
+
+-- 3.2 Constraint do timer evergreen/looping para instalações existentes
+UPDATE public.best_seller_lists
+SET timer_duration_minutes = NULL
+WHERE timer_duration_minutes IS NOT NULL
+  AND (timer_duration_minutes < 1 OR timer_duration_minutes > 10080);
+
+DO $$
+BEGIN
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_constraint
+    WHERE conname = 'best_seller_lists_timer_duration_minutes_check'
+  ) THEN
+    ALTER TABLE public.best_seller_lists
+      ADD CONSTRAINT best_seller_lists_timer_duration_minutes_check
+      CHECK (
+        timer_duration_minutes IS NULL
+        OR (timer_duration_minutes >= 1 AND timer_duration_minutes <= 10080)
+      );
   END IF;
 END $$;
 
@@ -294,6 +319,9 @@ export const MaisVendidos: React.FC = () => {
   const [listFormDate, setListFormDate] = useState('');
   const [listFormActive, setListFormActive] = useState<boolean>(false);
   const [listFormTimerEnabled, setListFormTimerEnabled] = useState<boolean>(false);
+  const [listFormTimerLooping, setListFormTimerLooping] = useState<boolean>(false);
+  const [listFormTimerDurationHours, setListFormTimerDurationHours] = useState('2');
+  const [listFormTimerDurationMinutes, setListFormTimerDurationMinutes] = useState('0');
   const [listFormTimerDate, setListFormTimerDate] = useState('');
   const [listFormTimerTime, setListFormTimerTime] = useState('23:59');
   const [savingList, setSavingList] = useState<boolean>(false);
@@ -405,6 +433,9 @@ export const MaisVendidos: React.FC = () => {
     setListFormDate(today);
     setListFormActive(lists.length === 0); // Ativa por padrão se for a primeira
     setListFormTimerEnabled(false);
+    setListFormTimerLooping(false);
+    setListFormTimerDurationHours('2');
+    setListFormTimerDurationMinutes('0');
     setListFormTimerDate(today);
     setListFormTimerTime('23:59');
     setListError(null);
@@ -426,6 +457,10 @@ export const MaisVendidos: React.FC = () => {
     setListFormDate(list.listDate);
     setListFormActive(list.active);
     setListFormTimerEnabled(list.timerEnabled);
+    setListFormTimerLooping(Boolean(list.timerLooping));
+    const storedDuration = Number(list.timerDurationMinutes || 120);
+    setListFormTimerDurationHours(String(Math.floor(storedDuration / 60)));
+    setListFormTimerDurationMinutes(String(storedDuration % 60));
     setLogoUploadError(null);
     setLogoInputMode(list.logoUrl ? 'url' : 'upload');
     if (list.timerEnd) {
@@ -590,24 +625,39 @@ export const MaisVendidos: React.FC = () => {
     }
 
     let timerEndIso: string | null = null;
+    let timerDurationMinutesValue: number | null = null;
+
     if (listFormTimerEnabled) {
-      if (!listFormTimerDate) {
-        setListError('Informe a data de encerramento do timer.');
-        return;
-      }
-      try {
-        const [yyyy, mm, dd] = listFormTimerDate.split('-').map((s) => s.padStart(2, '0'));
-        const [hh, min] = (listFormTimerTime || '23:59').split(':').map((s) => s.padStart(2, '0'));
-        // Converte com offset estrito de Brasília (America/Sao_Paulo UTC-3)
-        const isoWithOffset = `${yyyy}-${mm}-${dd}T${hh}:${min}:00-03:00`;
-        const timerDateObj = new Date(isoWithOffset);
-        if (isNaN(timerDateObj.getTime())) {
-          throw new Error('Invalid Date');
+      if (listFormTimerLooping) {
+        const hours = Number(listFormTimerDurationHours || 0);
+        const minutes = Number(listFormTimerDurationMinutes || 0);
+        const totalMinutes = Math.round(hours * 60 + minutes);
+
+        if (!Number.isFinite(totalMinutes) || totalMinutes < 1 || totalMinutes > 10080) {
+          setListError('Informe uma duração válida entre 1 minuto e 7 dias para o timer em looping.');
+          return;
         }
-        timerEndIso = timerDateObj.toISOString();
-      } catch {
-        setListError('Data/hora do timer inválida.');
-        return;
+
+        timerDurationMinutesValue = totalMinutes;
+      } else {
+        if (!listFormTimerDate) {
+          setListError('Informe a data de encerramento do timer.');
+          return;
+        }
+        try {
+          const [yyyy, mm, dd] = listFormTimerDate.split('-').map((s) => s.padStart(2, '0'));
+          const [hh, min] = (listFormTimerTime || '23:59').split(':').map((s) => s.padStart(2, '0'));
+          // Converte com offset estrito de Brasília (America/Sao_Paulo UTC-3)
+          const isoWithOffset = `${yyyy}-${mm}-${dd}T${hh}:${min}:00-03:00`;
+          const timerDateObj = new Date(isoWithOffset);
+          if (isNaN(timerDateObj.getTime())) {
+            throw new Error('Invalid Date');
+          }
+          timerEndIso = timerDateObj.toISOString();
+        } catch {
+          setListError('Data/hora do timer inválida.');
+          return;
+        }
       }
     }
 
@@ -628,6 +678,8 @@ export const MaisVendidos: React.FC = () => {
           active: listFormActive,
           timerEnabled: listFormTimerEnabled,
           timerEnd: timerEndIso,
+          timerLooping: listFormTimerEnabled && listFormTimerLooping,
+          timerDurationMinutes: listFormTimerEnabled && listFormTimerLooping ? timerDurationMinutesValue : null,
         });
 
         if (!res.success) {
@@ -650,6 +702,8 @@ export const MaisVendidos: React.FC = () => {
           active: listFormActive,
           timerEnabled: listFormTimerEnabled,
           timerEnd: timerEndIso,
+          timerLooping: listFormTimerEnabled && listFormTimerLooping,
+          timerDurationMinutes: listFormTimerEnabled && listFormTimerLooping ? timerDurationMinutesValue : null,
           timezone: 'America/Sao_Paulo',
         });
 
@@ -1204,7 +1258,9 @@ export const MaisVendidos: React.FC = () => {
                         {list.timerEnabled && (
                           <span className="inline-flex items-center gap-1 text-[11px] text-neutral-500 font-mono bg-neutral-50 border border-neutral-200 px-2 py-0.5 rounded">
                             <Clock className="w-3 h-3 text-neutral-400" />
-                            Timer ativado
+                            {list.timerLooping && list.timerDurationMinutes
+                              ? `Looping ${Math.floor(list.timerDurationMinutes / 60)}h${list.timerDurationMinutes % 60 ? ` ${list.timerDurationMinutes % 60}m` : ''}`
+                              : 'Timer fixo'}
                           </span>
                         )}
                       </div>
@@ -1305,7 +1361,9 @@ export const MaisVendidos: React.FC = () => {
                   {selectedList.timerEnabled && (
                     <span className="inline-flex items-center gap-1 text-[11px] text-neutral-500 font-mono bg-neutral-50 border border-neutral-200 px-2 py-0.5 rounded">
                       <Clock className="w-3 h-3 text-neutral-400" />
-                      Timer ativo
+                      {selectedList.timerLooping && selectedList.timerDurationMinutes
+                        ? `Looping ${Math.floor(selectedList.timerDurationMinutes / 60)}h${selectedList.timerDurationMinutes % 60 ? ` ${selectedList.timerDurationMinutes % 60}m` : ''}`
+                        : 'Timer fixo'}
                     </span>
                   )}
                 </div>
@@ -1893,8 +1951,8 @@ export const MaisVendidos: React.FC = () => {
                 </label>
               </div>
 
-              {/* Timer de Encerramento */}
-              <div className="pt-2 border-t border-neutral-100 space-y-2.5">
+              {/* Timer */}
+              <div className="pt-2 border-t border-neutral-100 space-y-3">
                 <label className="flex items-start gap-2.5 cursor-pointer">
                   <input
                     type="checkbox"
@@ -1903,33 +1961,103 @@ export const MaisVendidos: React.FC = () => {
                     className="mt-0.5 rounded border-neutral-300 text-neutral-900 focus:ring-neutral-900"
                   />
                   <div>
-                    <span className="font-semibold text-neutral-900">Ativar timer de encerramento</span>
+                    <span className="font-semibold text-neutral-900">Ativar timer</span>
                     <p className="text-[11px] text-neutral-500">
-                      Define uma data e horário limite para o countdown desta lista.
+                      Use um encerramento fixo ou um contador em looping por visitante.
                     </p>
                   </div>
                 </label>
 
                 {listFormTimerEnabled && (
-                  <div className="grid grid-cols-2 gap-2 pl-6 pt-1">
-                    <div>
-                      <label className="text-[11px] font-medium text-neutral-600">Data de Término</label>
-                      <input
-                        type="date"
-                        value={listFormTimerDate}
-                        onChange={(e) => setListFormTimerDate(e.target.value)}
-                        className="w-full px-2.5 py-1.5 border border-neutral-300 rounded text-xs focus:ring-1 focus:ring-neutral-900 focus:outline-none mt-0.5"
-                      />
+                  <div className="pl-6 space-y-3">
+                    <div className="grid grid-cols-2 gap-1 p-1 rounded-md bg-neutral-100">
+                      <button
+                        type="button"
+                        onClick={() => setListFormTimerLooping(false)}
+                        className={`px-3 py-2 rounded text-[11px] font-bold transition-colors cursor-pointer ${
+                          !listFormTimerLooping ? 'bg-white text-neutral-950' : 'text-neutral-500 hover:text-neutral-800'
+                        }`}
+                      >
+                        Data fixa
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setListFormTimerLooping(true)}
+                        className={`px-3 py-2 rounded text-[11px] font-bold transition-colors cursor-pointer ${
+                          listFormTimerLooping ? 'bg-white text-neutral-950' : 'text-neutral-500 hover:text-neutral-800'
+                        }`}
+                      >
+                        Looping por visitante
+                      </button>
                     </div>
-                    <div>
-                      <label className="text-[11px] font-medium text-neutral-600">Horário (America/Sao_Paulo)</label>
-                      <input
-                        type="time"
-                        value={listFormTimerTime}
-                        onChange={(e) => setListFormTimerTime(e.target.value)}
-                        className="w-full px-2.5 py-1.5 border border-neutral-300 rounded text-xs focus:ring-1 focus:ring-neutral-900 focus:outline-none mt-0.5"
-                      />
-                    </div>
+
+                    {listFormTimerLooping ? (
+                      <div className="space-y-2">
+                        <div className="grid grid-cols-2 gap-2">
+                          <div>
+                            <label className="text-[11px] font-semibold text-neutral-600">Horas</label>
+                            <input
+                              type="number"
+                              min="0"
+                              max="168"
+                              value={listFormTimerDurationHours}
+                              onChange={(e) => setListFormTimerDurationHours(e.target.value)}
+                              className="w-full px-2.5 py-2 border border-neutral-300 rounded text-xs focus:ring-1 focus:ring-neutral-900 focus:outline-none mt-0.5"
+                            />
+                          </div>
+                          <div>
+                            <label className="text-[11px] font-semibold text-neutral-600">Minutos</label>
+                            <input
+                              type="number"
+                              min="0"
+                              max="59"
+                              value={listFormTimerDurationMinutes}
+                              onChange={(e) => setListFormTimerDurationMinutes(e.target.value)}
+                              className="w-full px-2.5 py-2 border border-neutral-300 rounded text-xs focus:ring-1 focus:ring-neutral-900 focus:outline-none mt-0.5"
+                            />
+                          </div>
+                        </div>
+                        <div className="flex flex-wrap gap-1.5">
+                          {[60, 120, 180, 360].map((preset) => (
+                            <button
+                              key={preset}
+                              type="button"
+                              onClick={() => {
+                                setListFormTimerDurationHours(String(Math.floor(preset / 60)));
+                                setListFormTimerDurationMinutes(String(preset % 60));
+                              }}
+                              className="px-2.5 py-1.5 rounded bg-neutral-100 hover:bg-neutral-200 text-[10px] font-bold text-neutral-700 cursor-pointer"
+                            >
+                              {preset / 60}h
+                            </button>
+                          ))}
+                        </div>
+                        <p className="text-[10px] leading-relaxed text-neutral-500">
+                          Exemplo: com 2h, o mesmo navegador continua vendo o tempo restante ao voltar. O contador só inicia um novo ciclo depois de zerar. Limpar os dados do navegador ou usar outro dispositivo inicia um ciclo próprio.
+                        </p>
+                      </div>
+                    ) : (
+                      <div className="grid grid-cols-2 gap-2">
+                        <div>
+                          <label className="text-[11px] font-semibold text-neutral-600">Data de término</label>
+                          <input
+                            type="date"
+                            value={listFormTimerDate}
+                            onChange={(e) => setListFormTimerDate(e.target.value)}
+                            className="w-full px-2.5 py-2 border border-neutral-300 rounded text-xs focus:ring-1 focus:ring-neutral-900 focus:outline-none mt-0.5"
+                          />
+                        </div>
+                        <div>
+                          <label className="text-[11px] font-semibold text-neutral-600">Horário</label>
+                          <input
+                            type="time"
+                            value={listFormTimerTime}
+                            onChange={(e) => setListFormTimerTime(e.target.value)}
+                            className="w-full px-2.5 py-2 border border-neutral-300 rounded text-xs focus:ring-1 focus:ring-neutral-900 focus:outline-none mt-0.5"
+                          />
+                        </div>
+                      </div>
+                    )}
                   </div>
                 )}
               </div>
@@ -2170,7 +2298,7 @@ export const MaisVendidos: React.FC = () => {
 
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-1">
                   <div className="space-y-1">
-                    <label className="font-semibold text-neutral-700">Quantidade de parcelas</label>
+                    <label className="font-semibold text-neutral-700">Até quantas parcelas sem juros</label>
                     <input
                       type="number"
                       min="1"
@@ -2183,7 +2311,7 @@ export const MaisVendidos: React.FC = () => {
                     />
                   </div>
                   <div className="space-y-1">
-                    <label className="font-semibold text-neutral-700">Valor de cada parcela (R$)</label>
+                    <label className="font-semibold text-neutral-700">Valor de cada parcela sem juros (R$)</label>
                     <input
                       type="number"
                       min="0"
@@ -2195,7 +2323,7 @@ export const MaisVendidos: React.FC = () => {
                     />
                   </div>
                 </div>
-                <p className="text-[10px] text-neutral-500">Exibido como “Parcele em 6x de R$ 299,98”. Preencha os dois campos para mostrar.</p>
+                <p className="text-[10px] text-neutral-500">Exibido como “Até 6x de R$ 299,98 sem juros”. Preencha os dois campos para mostrar.</p>
               </div>
 
               {/* SEÇÃO 3: VENDAS E ESTOQUE */}
@@ -2582,7 +2710,7 @@ export const MaisVendidos: React.FC = () => {
                     )}
 
                     {prodFormInstallmentsCount && prodFormInstallmentValue && (
-                      <p className="text-[9px] text-neutral-400">Parcele em {prodFormInstallmentsCount}x de R$ {prodFormInstallmentValue}</p>
+                      <p className="text-[9px] text-neutral-400">Até {prodFormInstallmentsCount}x de R$ {prodFormInstallmentValue} sem juros</p>
                     )}
 
                     {/* Vendas */}

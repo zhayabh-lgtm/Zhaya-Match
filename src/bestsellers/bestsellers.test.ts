@@ -40,6 +40,8 @@ export function runBestSellersTests() {
   assert(setupContent.includes('ON DELETE CASCADE'), 'Integridade referencial com ON DELETE CASCADE presente');
   assert(setupContent.includes('ALTER TABLE public.best_seller_lists ENABLE ROW LEVEL SECURITY'), 'RLS ativo em best_seller_lists');
   assert(setupContent.includes('ALTER TABLE public.best_seller_products ENABLE ROW LEVEL SECURITY'), 'RLS ativo em best_seller_products');
+  assert(setupContent.includes('timer_looping BOOLEAN'), 'SQL inclui modo de timer em looping por visitante');
+  assert(setupContent.includes('timer_duration_minutes'), 'SQL inclui duração do timer evergreen');
 
   // 2. Testes de Formatação de Data com Fuso Horário de São Paulo
   console.log('\n--- Teste 2: Formatação de Data da Lista ---');
@@ -172,6 +174,18 @@ export function runBestSellersTests() {
     products: [cenarioAProduct, cenarioBProduct],
   };
   assert(!cenarioGList.timerEnabled && cenarioGList.timerEnd === null, 'Cenário G: Lista sem timer');
+
+  const cenarioLoopingList: PublicBestSellerList = {
+    ...cenarioGList,
+    id: 'list-loop',
+    timerEnabled: true,
+    timerLooping: true,
+    timerDurationMinutes: 120,
+  };
+  assert(
+    cenarioLoopingList.timerLooping === true && cenarioLoopingList.timerDurationMinutes === 120,
+    'Timer looping aceita duração persistente de 2 horas',
+  );
 
   // Cenário I: Sem lista ativa
   const cenarioIList = null;

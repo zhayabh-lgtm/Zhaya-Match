@@ -460,7 +460,9 @@ export interface BestSellerList {
   listDate: string; // YYYY-MM-DD
   active: boolean;
   timerEnabled: boolean;
-  timerEnd?: string | null; // ISO 8601
+  timerEnd?: string | null; // ISO 8601 para timer fixo
+  timerLooping?: boolean;
+  timerDurationMinutes?: number | null;
   timezone: string;
   createdAt: string;
   updatedAt?: string;
@@ -531,6 +533,8 @@ export interface PublicBestSellerList {
   listDate: string;
   timerEnabled: boolean;
   timerEnd?: string | null;
+  timerLooping?: boolean;
+  timerDurationMinutes?: number | null;
   timezone: string;
   products: PublicBestSellerProduct[];
 }

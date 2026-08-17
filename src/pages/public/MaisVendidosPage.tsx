@@ -95,6 +95,74 @@ export function calculateTimeRemaining(timerEndIso: string | null | undefined): 
   }
 }
 
+
+const EVERGREEN_TIMER_STORAGE_PREFIX = 'zhaya_best_seller_evergreen_timer_v1';
+const evergreenTimerMemoryFallback = new Map<string, { expiresAt: number; durationMinutes: number }>();
+
+function getEvergreenTimerEndMs(
+  listId: string,
+  durationMinutes: number,
+  nowMs: number,
+): number {
+  const safeDurationMinutes = Math.max(1, Math.min(10080, Math.round(durationMinutes)));
+  const durationMs = safeDurationMinutes * 60 * 1000;
+  const storageKey = `${EVERGREEN_TIMER_STORAGE_PREFIX}:${listId}`;
+
+  const resolveMemoryFallback = () => {
+    const current = evergreenTimerMemoryFallback.get(storageKey);
+    if (
+      current &&
+      current.durationMinutes === safeDurationMinutes &&
+      current.expiresAt > nowMs
+    ) {
+      return current.expiresAt;
+    }
+    const nextEnd = nowMs + durationMs;
+    evergreenTimerMemoryFallback.set(storageKey, {
+      expiresAt: nextEnd,
+      durationMinutes: safeDurationMinutes,
+    });
+    return nextEnd;
+  };
+
+  if (typeof window === 'undefined') {
+    return resolveMemoryFallback();
+  }
+
+  try {
+    const storage = window.localStorage;
+    const raw = storage.getItem(storageKey);
+    if (raw) {
+      const parsed = JSON.parse(raw);
+      const storedEnd = Number(parsed?.expiresAt);
+      const storedDuration = Number(parsed?.durationMinutes);
+
+      if (
+        Number.isFinite(storedEnd) &&
+        storedDuration === safeDurationMinutes &&
+        storedEnd > nowMs
+      ) {
+        return storedEnd;
+      }
+    }
+
+    // O ciclo só recomeça depois que o anterior termina.
+    const nextEnd = nowMs + durationMs;
+    storage.setItem(
+      storageKey,
+      JSON.stringify({
+        expiresAt: nextEnd,
+        durationMinutes: safeDurationMinutes,
+      }),
+    );
+    return nextEnd;
+  } catch {
+    // Se o navegador bloquear localStorage, preserva o ciclo enquanto
+    // a aba/sessão atual estiver aberta.
+    return resolveMemoryFallback();
+  }
+}
+
 /**
  * Formata texto de quantidade vendida com singular/plural
  */
@@ -195,7 +263,7 @@ const ProductImageGallery: React.FC<{
   const unavailableSet = new Set(outOfStockSizes);
 
   return (
-    <div className="relative w-full aspect-[4/5] bg-neutral-950 rounded-xl overflow-hidden border border-white/[0.08] mb-5 select-none touch-pan-y group shadow-[0_16px_45px_rgba(0,0,0,0.34)]">
+    <div className="relative w-full aspect-[4/5] bg-neutral-950 rounded-[10px] overflow-hidden mb-5 select-none touch-pan-y group">
       <AnimatePresence initial={false} mode="popLayout" custom={direction}>
         <motion.div
           key={`${currentIndex}-${currentImageUrl || 'empty'}`}
@@ -231,7 +299,7 @@ const ProductImageGallery: React.FC<{
 
       {/* Ranking: todos usam o mesmo tamanho e a mesma cor definida na lista. */}
       <div
-        className="absolute left-3.5 top-3 z-20 pointer-events-none text-[27px] sm:text-[29px] leading-none font-semibold tracking-[-0.045em]"
+        className="absolute left-3.5 top-3 z-20 pointer-events-none text-[27px] sm:text-[29px] leading-none font-black tracking-[-0.055em]"
         style={{
           color: rankColor,
           textShadow: 'none',
@@ -252,7 +320,7 @@ const ProductImageGallery: React.FC<{
               return (
                 <span
                   key={size}
-                  className="relative inline-flex items-center text-[12px] sm:text-[13px] leading-none font-medium"
+                  className="relative inline-flex items-center text-[12px] sm:text-[13px] leading-none font-bold"
                   style={{
                     color: sizeColor,
                     opacity: unavailable ? 0.38 : 1,
@@ -283,7 +351,7 @@ const ProductImageGallery: React.FC<{
             type="button"
             onClick={handlePrev}
             aria-label="Imagem anterior"
-            className="absolute left-2.5 top-1/2 -translate-y-1/2 w-9 h-9 rounded-full bg-black/45 border border-white/10 text-white hidden sm:flex items-center justify-center backdrop-blur-sm opacity-0 group-hover:opacity-100 transition-opacity duration-200 hover:bg-black/70 z-30 cursor-pointer"
+            className="absolute left-2.5 top-1/2 -translate-y-1/2 w-9 h-9 rounded-full bg-black/40 text-white hidden sm:flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity duration-200 hover:bg-black/65 z-30 cursor-pointer"
           >
             ‹
           </button>
@@ -291,7 +359,7 @@ const ProductImageGallery: React.FC<{
             type="button"
             onClick={handleNext}
             aria-label="Próxima imagem"
-            className="absolute right-2.5 top-1/2 -translate-y-1/2 w-9 h-9 rounded-full bg-black/45 border border-white/10 text-white hidden sm:flex items-center justify-center backdrop-blur-sm opacity-0 group-hover:opacity-100 transition-opacity duration-200 hover:bg-black/70 z-30 cursor-pointer"
+            className="absolute right-2.5 top-1/2 -translate-y-1/2 w-9 h-9 rounded-full bg-black/40 text-white hidden sm:flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity duration-200 hover:bg-black/65 z-30 cursor-pointer"
           >
             ›
           </button>
@@ -355,7 +423,7 @@ const ProductItem: React.FC<{
     <div
       id={`product-badge-${product.id}`}
       style={{ backgroundColor: badgeBgColor, color: badgeTextColor }}
-      className="absolute top-3 right-3 z-30 text-[9px] sm:text-[10px] font-bold tracking-[0.12em] uppercase px-2.5 py-1 rounded-[2px] shadow-md select-none pointer-events-none"
+      className="absolute top-3 right-3 z-30 text-[9px] sm:text-[10px] font-black tracking-[0.12em] uppercase px-2.5 py-1 rounded-[2px] select-none pointer-events-none"
     >
       {product.badgeText}
     </div>
@@ -371,7 +439,7 @@ const ProductItem: React.FC<{
   return (
     <motion.article
       id={`best-seller-product-${product.id}`}
-      initial={{ opacity: 0, y: 12 }}
+      initial={{ opacity: 0, y: 8 }}
       whileInView={{ opacity: 1, y: 0 }}
       viewport={{ once: true, amount: 0.08 }}
       transition={{ duration: 0.32, ease: 'easeOut' }}
@@ -390,7 +458,7 @@ const ProductItem: React.FC<{
       />
 
       <div className="flex flex-col items-center text-center px-2 sm:px-4">
-        <h2 className="max-w-md text-[18px] sm:text-[21px] font-semibold text-white tracking-[-0.01em] leading-[1.22] break-words">
+        <h2 className="max-w-md text-[19px] sm:text-[22px] font-bold text-white tracking-[-0.025em] leading-[1.16] break-words">
           {product.name}
         </h2>
 
@@ -402,16 +470,16 @@ const ProductItem: React.FC<{
                 {product.originalPrice !== null &&
                   product.originalPrice !== undefined &&
                   product.originalPrice > product.promotionalPrice && (
-                    <span className="text-[12px] text-neutral-500 line-through font-normal">
+                    <span className="text-[12px] text-neutral-500 line-through font-medium">
                       {formatPriceBRL(product.originalPrice)}
                     </span>
                   )}
-                <span className="text-[23px] sm:text-[26px] font-bold text-white tracking-[-0.03em] leading-none">
+                <span className="text-[26px] sm:text-[30px] font-black text-white tracking-[-0.045em] leading-none">
                   {formatPriceBRL(product.promotionalPrice)}
                 </span>
               </>
             ) : (
-              <span className="text-[23px] sm:text-[26px] font-bold text-white tracking-[-0.03em] leading-none">
+              <span className="text-[26px] sm:text-[30px] font-black text-white tracking-[-0.045em] leading-none">
                 {formatPriceBRL(product.originalPrice)}
               </span>
             )}
@@ -419,13 +487,13 @@ const ProductItem: React.FC<{
         )}
 
         {hasInstallment && (
-          <p className="mt-2 text-[12px] text-neutral-400 font-normal">
-            Parcele em {product.installmentsCount}x de {formatPriceBRL(product.installmentValue)}
+          <p className="mt-2 text-[12px] text-neutral-300 font-semibold tracking-[-0.01em]">
+            Até {product.installmentsCount}x de {formatPriceBRL(product.installmentValue)} sem juros
           </p>
         )}
 
         {(soldText || availableText) && (
-          <div className="mt-3 flex flex-wrap justify-center items-center gap-x-2 gap-y-1 text-[11px] text-neutral-500">
+          <div className="mt-3 flex flex-wrap justify-center items-center gap-x-2 gap-y-1 text-[10px] sm:text-[11px] text-neutral-500 font-medium">
             {soldText && <span className="text-neutral-300 font-medium">{soldText}</span>}
             {soldText && availableText && <span className="text-neutral-700">·</span>}
             {availableText && <span>{availableText}</span>}
@@ -433,18 +501,13 @@ const ProductItem: React.FC<{
         )}
 
         {product.colors && product.colors.length > 0 && (
-          <div className="mt-5 flex flex-col items-center">
-            <span className="text-[9px] uppercase tracking-[0.18em] text-neutral-500 font-semibold mb-2">Cores</span>
-            <div className="flex flex-wrap justify-center gap-1.5">
-              {product.colors.map((color, cIdx) => (
-                <span
-                  key={`${color}-${cIdx}`}
-                  className="px-2.5 py-1 rounded-[3px] bg-transparent text-neutral-300 border border-white/[0.12] text-[11px]"
-                >
-                  {color}
-                </span>
-              ))}
-            </div>
+          <div className="mt-4 flex flex-wrap justify-center items-center gap-x-2 gap-y-1 text-[10px] sm:text-[11px] uppercase tracking-[0.10em] text-neutral-400 font-semibold">
+            {product.colors.map((color, cIdx) => (
+              <React.Fragment key={`${color}-${cIdx}`}>
+                <span>{color}</span>
+                {cIdx < product.colors.length - 1 && <span className="text-neutral-700">·</span>}
+              </React.Fragment>
+            ))}
           </div>
         )}
 
@@ -456,7 +519,7 @@ const ProductItem: React.FC<{
               target="_blank"
               rel="noopener noreferrer"
               onClick={handleProductClick}
-              className="inline-flex min-h-12 items-center justify-center w-full py-3 px-6 rounded-[3px] bg-white text-black font-bold text-[11px] tracking-[0.14em] uppercase hover:bg-neutral-200 active:scale-[0.995] transition-all duration-150 text-center cursor-pointer"
+              className="inline-flex min-h-12 items-center justify-center w-full py-3.5 px-6 rounded-[2px] bg-white text-black font-black text-[11px] tracking-[0.12em] uppercase hover:bg-neutral-200 active:scale-[0.995] transition-all duration-150 text-center cursor-pointer"
             >
               {ctaText}
             </a>
@@ -569,9 +632,20 @@ export const MaisVendidosPage: React.FC = () => {
     };
   }, []);
 
-  // Cálculo do Timer
+  // Cálculo do timer fixo ou evergreen/looping por navegador.
   const timeRemaining = useMemo(() => {
-    if (!listData?.timerEnabled || !listData?.timerEnd) return null;
+    if (!listData?.timerEnabled) return null;
+
+    if (listData.timerLooping && listData.timerDurationMinutes && listData.timerDurationMinutes > 0) {
+      const evergreenEndMs = getEvergreenTimerEndMs(
+        listData.id,
+        listData.timerDurationMinutes,
+        now,
+      );
+      return calculateTimeRemaining(new Date(evergreenEndMs).toISOString());
+    }
+
+    if (!listData.timerEnd) return null;
     return calculateTimeRemaining(listData.timerEnd);
   }, [listData, now]);
 
@@ -589,7 +663,7 @@ export const MaisVendidosPage: React.FC = () => {
         fontFamily: '"Neue Einstellung", "Helvetica Neue", Helvetica, Arial, sans-serif',
       }}
     >
-      <main className="w-full max-w-xl px-4 sm:px-6 py-8 sm:py-12 flex flex-col items-center">
+      <main className="w-full max-w-[540px] px-4 sm:px-6 py-6 sm:py-10 flex flex-col items-center">
         {/* ========================================================================= */}
         {/* ESTADO 1: LOADING                                                         */}
         {/* ========================================================================= */}
@@ -643,9 +717,9 @@ export const MaisVendidosPage: React.FC = () => {
         {!loading && !errorMessage && listData && (
           <div className="w-full flex flex-col items-center">
             {/* Header Editorial: data primeiro, depois logo e timer. */}
-            <header className="w-full text-center mb-7 sm:mb-9">
+            <header className="w-full text-center mb-6 sm:mb-8">
               {formattedDate && (
-                <p className="mb-4 text-[10px] sm:text-[11px] tracking-[0.20em] text-neutral-500 font-medium leading-none">
+                <p className="mb-3 text-[10px] sm:text-[11px] tracking-[0.18em] text-neutral-500 font-bold leading-none">
                   {formattedDate}
                 </p>
               )}
@@ -660,7 +734,7 @@ export const MaisVendidosPage: React.FC = () => {
                 </div>
               ) : (
                 <div>
-                  <h1 className="text-2xl sm:text-3xl font-semibold tracking-[-0.02em] text-white uppercase leading-tight">
+                  <h1 className="text-2xl sm:text-3xl font-black tracking-[-0.035em] text-white uppercase leading-tight">
                     {listData.title || 'Mais Vendidos do Dia'}
                   </h1>
                 </div>
@@ -673,20 +747,34 @@ export const MaisVendidosPage: React.FC = () => {
               )}
 
               {listData.timerEnabled && timeRemaining && (
-                <div id="best-sellers-timer-container" className="mt-4 flex flex-col items-center text-center">
-                  <span className="text-[8px] sm:text-[9px] tracking-[0.24em] text-neutral-500 uppercase font-semibold leading-none mb-1.5">
+                <div
+                  id="best-sellers-timer-container"
+                  className="mt-3 flex flex-col items-center text-center"
+                  aria-live="polite"
+                >
+                  <span className="text-[8px] sm:text-[9px] tracking-[0.28em] text-neutral-500 uppercase font-bold leading-none mb-1.5">
                     {timeRemaining.isExpired ? 'ENCERRADO' : 'TERMINA EM'}
                   </span>
-                  <span className="text-[25px] sm:text-[29px] leading-none font-semibold text-white tracking-[0.06em] tabular-nums">
-                    {timeRemaining.formattedString}
-                  </span>
+                  <div
+                    className="flex items-baseline justify-center text-[35px] sm:text-[42px] leading-none font-black text-white tracking-[-0.045em] tabular-nums"
+                    aria-label={timeRemaining.formattedString}
+                  >
+                    {timeRemaining.formattedString.split(':').map((part, index, parts) => (
+                      <React.Fragment key={`${part}-${index}`}>
+                        <span>{part}</span>
+                        {index < parts.length - 1 && (
+                          <span className="mx-1 sm:mx-1.5 text-neutral-600 font-bold">:</span>
+                        )}
+                      </React.Fragment>
+                    ))}
+                  </div>
                 </div>
               )}
             </header>
 
             {/* Vitrine de Produtos */}
             {listData.products && listData.products.length > 0 ? (
-              <div className="w-full flex flex-col space-y-8 sm:space-y-12">
+              <div className="w-full flex flex-col space-y-6 sm:space-y-10">
                 {listData.products.map((prod, idx) => (
                   <ProductItem
                     key={prod.id}

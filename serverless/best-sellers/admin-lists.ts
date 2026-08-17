@@ -132,6 +132,8 @@ export default async function handler(req: any, res: any) {
           active: Boolean(listData.active),
           timerEnabled: Boolean(listData.timer_enabled),
           timerEnd: listData.timer_end || null,
+          timerLooping: Boolean(listData.timer_looping),
+          timerDurationMinutes: listData.timer_duration_minutes ?? null,
           timezone: listData.timezone || 'America/Sao_Paulo',
           createdAt: listData.created_at,
           updatedAt: listData.updated_at,
@@ -182,6 +184,8 @@ export default async function handler(req: any, res: any) {
           active: Boolean(row.active),
           timerEnabled: Boolean(row.timer_enabled),
           timerEnd: row.timer_end || null,
+          timerLooping: Boolean(row.timer_looping),
+          timerDurationMinutes: row.timer_duration_minutes ?? null,
           timezone: row.timezone || 'America/Sao_Paulo',
           createdAt: row.created_at,
           updatedAt: row.updated_at,
@@ -253,6 +257,8 @@ export default async function handler(req: any, res: any) {
             active: false,
             timer_enabled: false,
             timer_end: null,
+            timer_looping: false,
+            timer_duration_minutes: null,
             timezone: srcList.timezone || 'America/Sao_Paulo',
             created_by: auth.user?.email || null,
           })
@@ -310,6 +316,8 @@ export default async function handler(req: any, res: any) {
           active: false,
           timerEnabled: false,
           timerEnd: null,
+          timerLooping: false,
+          timerDurationMinutes: null,
           timezone: newListData.timezone,
           createdAt: newListData.created_at,
           updatedAt: newListData.updated_at,
@@ -335,7 +343,12 @@ export default async function handler(req: any, res: any) {
       const listDate = body.listDate || new Date().toISOString().slice(0, 10);
       const active = Boolean(body.active);
       const timerEnabled = Boolean(body.timerEnabled);
-      const timerEnd = timerEnabled && body.timerEnd ? body.timerEnd : null;
+      const timerLooping = timerEnabled && Boolean(body.timerLooping);
+      const rawDurationMinutes = body.timerDurationMinutes;
+      const timerDurationMinutes = timerLooping && rawDurationMinutes !== null && rawDurationMinutes !== undefined
+        ? Number(rawDurationMinutes)
+        : null;
+      const timerEnd = timerEnabled && !timerLooping && body.timerEnd ? body.timerEnd : null;
       const timezone = body.timezone || 'America/Sao_Paulo';
 
       if (!title) {
@@ -343,6 +356,12 @@ export default async function handler(req: any, res: any) {
       }
       if (!listDate) {
         return res.status(400).json({ success: false, message: 'A data da lista é obrigatória.' });
+      }
+      if (timerLooping && (!Number.isInteger(timerDurationMinutes) || (timerDurationMinutes as number) < 1 || (timerDurationMinutes as number) > 10080)) {
+        return res.status(400).json({
+          success: false,
+          message: 'A duração do timer em looping deve estar entre 1 minuto e 7 dias.',
+        });
       }
 
       // Regra: se esta lista estiver sendo criada como ativa, desativa todas as outras
@@ -366,6 +385,8 @@ export default async function handler(req: any, res: any) {
           active,
           timer_enabled: timerEnabled,
           timer_end: timerEnd,
+          timer_looping: timerLooping,
+          timer_duration_minutes: timerDurationMinutes,
           timezone,
           created_by: auth.user?.email || null,
         })
@@ -396,6 +417,8 @@ export default async function handler(req: any, res: any) {
         active: Boolean(data.active),
         timerEnabled: Boolean(data.timer_enabled),
         timerEnd: data.timer_end || null,
+        timerLooping: Boolean(data.timer_looping),
+        timerDurationMinutes: data.timer_duration_minutes ?? null,
         timezone: data.timezone,
         createdAt: data.created_at,
         updatedAt: data.updated_at,
@@ -436,11 +459,42 @@ export default async function handler(req: any, res: any) {
       if (body.sizeColor !== undefined) updates.size_color = normalizeHexColor(body.sizeColor);
       if (body.listDate !== undefined) updates.list_date = body.listDate;
       if (body.timezone !== undefined) updates.timezone = body.timezone;
-      if (body.timerEnabled !== undefined) {
-        updates.timer_enabled = Boolean(body.timerEnabled);
-        updates.timer_end = updates.timer_enabled && body.timerEnd ? body.timerEnd : null;
-      } else if (body.timerEnd !== undefined) {
-        updates.timer_end = body.timerEnd;
+      if (
+        body.timerEnabled !== undefined ||
+        body.timerLooping !== undefined ||
+        body.timerDurationMinutes !== undefined ||
+        body.timerEnd !== undefined
+      ) {
+        const nextTimerEnabled = body.timerEnabled !== undefined ? Boolean(body.timerEnabled) : undefined;
+        const nextTimerLooping = body.timerLooping !== undefined ? Boolean(body.timerLooping) : undefined;
+
+        if (nextTimerEnabled !== undefined) updates.timer_enabled = nextTimerEnabled;
+        if (nextTimerLooping !== undefined) updates.timer_looping = nextTimerLooping;
+
+        const effectiveTimerEnabled = nextTimerEnabled ?? true;
+        const effectiveTimerLooping = nextTimerLooping ?? false;
+
+        if (body.timerDurationMinutes !== undefined) {
+          const duration = body.timerDurationMinutes === null ? null : Number(body.timerDurationMinutes);
+          if (duration !== null && (!Number.isInteger(duration) || duration < 1 || duration > 10080)) {
+            return res.status(400).json({
+              success: false,
+              message: 'A duração do timer em looping deve estar entre 1 minuto e 7 dias.',
+            });
+          }
+          updates.timer_duration_minutes = duration;
+        }
+
+        if (nextTimerEnabled === false) {
+          updates.timer_end = null;
+          updates.timer_looping = false;
+          updates.timer_duration_minutes = null;
+        } else if (effectiveTimerLooping) {
+          updates.timer_end = null;
+        } else if (body.timerEnd !== undefined) {
+          updates.timer_end = body.timerEnd;
+          if (nextTimerLooping === false) updates.timer_duration_minutes = null;
+        }
       }
 
       if (body.active !== undefined) {
@@ -487,6 +541,8 @@ export default async function handler(req: any, res: any) {
         active: Boolean(data.active),
         timerEnabled: Boolean(data.timer_enabled),
         timerEnd: data.timer_end || null,
+        timerLooping: Boolean(data.timer_looping),
+        timerDurationMinutes: data.timer_duration_minutes ?? null,
         timezone: data.timezone,
         createdAt: data.created_at,
         updatedAt: data.updated_at,
