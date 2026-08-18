@@ -171,6 +171,27 @@ export default async function handler(req: any, res: any) {
       const rawImageUrls = Array.isArray(p.image_urls) ? p.image_urls.filter(Boolean) : [];
       const imageUrls = rawImageUrls.length > 0 ? rawImageUrls : (p.image_url ? [p.image_url] : []);
 
+      const useListBadge = Boolean(p.badge_use_list_default);
+      const effectiveBadgeEnabled = useListBadge ? Boolean(activeList.default_badge_enabled) : Boolean(p.badge_enabled);
+      const effectiveBadgeText = useListBadge
+        ? (activeList.default_badge_enabled ? activeList.default_badge_text || null : null)
+        : (p.badge_enabled ? p.badge_text || null : null);
+      const effectiveBadgeColor = useListBadge ? (activeList.default_badge_color || '#FFFFFF') : (p.badge_color || '#FFFFFF');
+
+      const giftMode = ['inherit', 'off', 'custom'].includes(String(p.gift_mode)) ? String(p.gift_mode) : 'inherit';
+      const useListGift = giftMode === 'inherit';
+      const effectiveGiftEnabled = giftMode === 'off'
+        ? false
+        : giftMode === 'custom'
+          ? Boolean(p.gift_image_url)
+          : Boolean(activeList.gift_enabled && activeList.gift_image_url);
+      const effectiveGiftImageUrl = effectiveGiftEnabled
+        ? (useListGift ? activeList.gift_image_url || null : p.gift_image_url || null)
+        : null;
+      const effectiveGiftTitle = effectiveGiftEnabled
+        ? (useListGift ? activeList.gift_title || null : p.gift_title || null)
+        : null;
+
       return {
         id: p.id,
         position: p.position,
@@ -190,9 +211,12 @@ export default async function handler(req: any, res: any) {
         colors: Array.isArray(p.colors) ? p.colors : [],
         installmentsCount: p.installments_count ?? null,
         installmentValue: p.installment_value !== null && p.installment_value !== undefined ? Number(p.installment_value) : null,
-        badgeEnabled: Boolean(p.badge_enabled),
-        badgeText: p.badge_enabled ? p.badge_text || null : null,
-        badgeColor: p.badge_color || '#FFFFFF',
+        badgeEnabled: effectiveBadgeEnabled,
+        badgeText: effectiveBadgeText,
+        badgeColor: effectiveBadgeColor,
+        giftEnabled: effectiveGiftEnabled,
+        giftImageUrl: effectiveGiftImageUrl,
+        giftTitle: effectiveGiftTitle,
         timerEnabled: Boolean(p.timer_enabled),
         timerEnd: p.timer_enabled && !p.timer_looping ? p.timer_end || null : null,
         timerLooping: Boolean(p.timer_enabled && p.timer_looping),
@@ -215,6 +239,12 @@ export default async function handler(req: any, res: any) {
       backgroundVideoUrl: activeList.background_video_url || null,
       backgroundVideoOpacity: normalizeOpacity(activeList.background_video_opacity),
       backgroundVideoBlur: normalizeBlur(activeList.background_video_blur),
+      defaultBadgeEnabled: Boolean(activeList.default_badge_enabled),
+      defaultBadgeText: activeList.default_badge_text || null,
+      defaultBadgeColor: activeList.default_badge_color || '#FFFFFF',
+      giftEnabled: Boolean(activeList.gift_enabled && activeList.gift_image_url),
+      giftImageUrl: activeList.gift_enabled ? activeList.gift_image_url || null : null,
+      giftTitle: activeList.gift_enabled ? activeList.gift_title || null : null,
       listDate: activeList.list_date,
       timerEnabled: Boolean(activeList.timer_enabled),
       timerEnd: activeList.timer_enabled && !activeList.timer_looping ? activeList.timer_end || null : null,

@@ -562,11 +562,13 @@ const ProductMediaGallery: React.FC<{
   sizeColor: string;
   showRanking: boolean;
   badgeContent?: React.ReactNode;
+  giftContent?: React.ReactNode;
   sizes: string[];
   outOfStockSizes: string[];
   timerContent?: React.ReactNode;
   onVideoPlay?: () => void;
-}> = ({ mediaItems, productName, isFirst, rankLabel, rankColor, sizeColor, showRanking, badgeContent, sizes, outOfStockSizes, timerContent, onVideoPlay }) => {
+  onSlideSeen?: (index: number, total: number) => void;
+}> = ({ mediaItems, productName, isFirst, rankLabel, rankColor, sizeColor, showRanking, badgeContent, giftContent, sizes, outOfStockSizes, timerContent, onVideoPlay, onSlideSeen }) => {
   const [currentIndex, setCurrentIndex] = useState(0);
   const [failedMedia, setFailedMedia] = useState<Record<number, boolean>>({});
   const [direction, setDirection] = useState(0);
@@ -595,6 +597,15 @@ const ProductMediaGallery: React.FC<{
 
   useEffect(() => {
     if (currentIndex >= totalItems) setCurrentIndex(0);
+  }, [currentIndex, totalItems]);
+
+  const onSlideSeenRef = useRef(onSlideSeen);
+  useEffect(() => {
+    onSlideSeenRef.current = onSlideSeen;
+  }, [onSlideSeen]);
+
+  useEffect(() => {
+    if (totalItems > 0) onSlideSeenRef.current?.(currentIndex, totalItems);
   }, [currentIndex, totalItems]);
 
   const goToIndex = (nextIndex: number, nextDirection = 0) => {
@@ -671,6 +682,7 @@ const ProductMediaGallery: React.FC<{
       </AnimatePresence>
 
       {badgeContent}
+      {giftContent}
 
       {showRanking && (
         <div
@@ -765,6 +777,7 @@ const ProductItem: React.FC<{
   const soldText = product.showSoldQuantity ? formatSoldQuantityText(product.soldQuantity) : null;
   const availableText = formatAvailableQuantityText(product.availableQuantity);
   const hasBadge = Boolean(product.badgeEnabled && product.badgeText && product.badgeText.trim());
+  const hasGift = Boolean(product.giftEnabled && product.giftImageUrl);
   const sizes = useMemo(() => normalizePublicSizes(product.sizes), [product.sizes]);
   const outOfStockSizes = useMemo(() => normalizePublicSizes(product.outOfStockSizes), [product.outOfStockSizes]);
 
@@ -834,6 +847,27 @@ const ProductItem: React.FC<{
     </div>
   ) : undefined;
 
+
+  const giftElement = hasGift ? (
+    <div
+      className={`absolute right-3 ${hasBadge ? 'top-12' : 'top-3'} z-30 w-12 sm:w-14 flex flex-col items-center pointer-events-none`}
+      aria-label={product.giftTitle ? `Presente: ${product.giftTitle}` : 'Presente'}
+    >
+      <img
+        src={product.giftImageUrl || ''}
+        alt={product.giftTitle || 'Presente'}
+        className="w-11 h-11 sm:w-12 sm:h-12 object-contain"
+        loading="lazy"
+        draggable={false}
+      />
+      {product.giftTitle && (
+        <span className="mt-1 max-w-[64px] text-center text-[8px] sm:text-[9px] leading-[1.05] font-bold text-white" style={{ textShadow: '0 1px 5px rgba(0,0,0,0.72)' }}>
+          {product.giftTitle}
+        </span>
+      )}
+    </div>
+  ) : undefined;
+
   const hasInstallment = Boolean(
     product.installmentsCount &&
       product.installmentsCount > 0 &&
@@ -844,6 +878,8 @@ const ProductItem: React.FC<{
   return (
     <motion.article
       id={`best-seller-product-${product.id}`}
+      data-best-seller-product-id={product.id}
+      data-best-seller-position={product.position || index + 1}
       initial={{ opacity: 0, y: 8 }}
       whileInView={{ opacity: 1, y: 0 }}
       viewport={{ once: true, amount: 0.08 }}
@@ -859,10 +895,20 @@ const ProductItem: React.FC<{
         sizeColor={sizeColor}
         showRanking={showRanking}
         badgeContent={badgeElement}
+        giftContent={giftElement}
         sizes={sizes}
         outOfStockSizes={outOfStockSizes}
         timerContent={productTimerElement}
         onVideoPlay={handleVideoPlay}
+        onSlideSeen={(slideIndex, slideCount) => {
+          Repository.trackBestSellerAnalyticsEvent({
+            eventType: 'product_behavior',
+            listId,
+            productId: product.id,
+            slidesSeen: [slideIndex],
+            slideCount,
+          });
+        }}
       />
 
       <div className="flex flex-col items-center text-center px-2 sm:px-4">
@@ -1236,6 +1282,93 @@ export const MaisVendidosPage: React.FC = () => {
       pauseAt(Date.now(), true);
     };
   }, [listData?.id]);
+
+  // Atenção por produto: mede somente o produto mais visível na tela e apenas
+  // enquanto existe atividade real. Isso permite saber quais peças seguraram
+  // mais atenção sem somar dois cards ao mesmo tempo ou tempo de tela abandonada.
+  useEffect(() => {
+    if (!listData?.id || !listData.products?.length || typeof window === 'undefined' || typeof document === 'undefined') return;
+
+    const listId = listData.id;
+    const storageKey = `zhaya_best_seller_product_attention_v1:${listId}`;
+    const IDLE_MS = 60_000;
+    const ratios = new Map<string, number>();
+    const seen = new Set<string>();
+    let lastActivityAt = Date.now();
+    let totals: Record<string, number> = {};
+    let lastReported: Record<string, number> = {};
+
+    try {
+      const parsed = JSON.parse(window.localStorage.getItem(storageKey) || '{}');
+      if (parsed && typeof parsed === 'object') totals = parsed;
+    } catch { /* noop */ }
+
+    const persist = () => {
+      try { window.localStorage.setItem(storageKey, JSON.stringify(totals)); } catch { /* noop */ }
+    };
+
+    const report = (productId: string, force = false) => {
+      const total = Math.max(0, Math.floor(Number(totals[productId] || 0)));
+      const previous = Math.max(0, Math.floor(Number(lastReported[productId] || 0)));
+      if (!force && total - previous < 5) return;
+      lastReported[productId] = total;
+      Repository.trackBestSellerAnalyticsEvent({
+        eventType: 'product_behavior',
+        listId,
+        productId,
+        visibleSecondsTotal: total,
+        seen: seen.has(productId),
+      });
+    };
+
+    const markActivity = () => { lastActivityAt = Date.now(); };
+    const events: Array<keyof WindowEventMap> = ['pointerdown', 'pointermove', 'scroll', 'wheel', 'keydown', 'touchstart'];
+    events.forEach((eventName) => window.addEventListener(eventName, markActivity, { passive: true }));
+    window.addEventListener(BEST_SELLER_ACTIVITY_EVENT, markActivity);
+
+    const nodes = Array.from(document.querySelectorAll<HTMLElement>('[data-best-seller-product-id]'));
+    const observer = new IntersectionObserver((entries) => {
+      for (const entry of entries) {
+        const node = entry.target as HTMLElement;
+        const productId = node.dataset.bestSellerProductId || '';
+        if (!productId) continue;
+        ratios.set(productId, entry.isIntersecting ? entry.intersectionRatio : 0);
+        if (entry.isIntersecting && entry.intersectionRatio >= 0.35 && !seen.has(productId)) {
+          seen.add(productId);
+          Repository.trackBestSellerAnalyticsEvent({ eventType: 'product_behavior', listId, productId, seen: true });
+        }
+      }
+    }, { threshold: [0, 0.25, 0.35, 0.5, 0.75, 1] });
+    nodes.forEach((node) => observer.observe(node));
+
+    const tick = window.setInterval(() => {
+      if (document.visibilityState !== 'visible' || Date.now() - lastActivityAt > IDLE_MS) return;
+      let bestId = '';
+      let bestRatio = 0;
+      ratios.forEach((ratio, productId) => {
+        if (ratio > bestRatio) { bestRatio = ratio; bestId = productId; }
+      });
+      if (!bestId || bestRatio < 0.4) return;
+      totals[bestId] = Math.max(0, Number(totals[bestId] || 0)) + 1;
+      persist();
+      report(bestId, false);
+    }, 1000);
+
+    const flush = () => {
+      persist();
+      Object.keys(totals).forEach((productId) => report(productId, true));
+    };
+    window.addEventListener('pagehide', flush);
+
+    return () => {
+      window.clearInterval(tick);
+      observer.disconnect();
+      events.forEach((eventName) => window.removeEventListener(eventName, markActivity));
+      window.removeEventListener(BEST_SELLER_ACTIVITY_EVENT, markActivity);
+      window.removeEventListener('pagehide', flush);
+      flush();
+    };
+  }, [listData?.id, listData?.products?.length]);
 
   return (
     <div

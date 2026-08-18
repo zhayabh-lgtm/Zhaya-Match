@@ -269,6 +269,21 @@ export default async function handler(req: any, res: any) {
         return res.status(500).json({ error: 'DATABASE_ERROR', message: error.message });
       }
 
+      const { data: clickEvents, error: clickEventsError } = await supabase
+        .from('best_seller_analytics_events')
+        .select('product_id, device_type')
+        .eq('list_id', listId)
+        .eq('event_type', 'product_click')
+        .limit(30000);
+      const clickMap = new Map<string, number>();
+      if (!clickEventsError) {
+        for (const event of clickEvents || []) {
+          if (String((event as any)?.device_type || '') === 'desktop') continue;
+          const id = String((event as any)?.product_id || '');
+          if (id) clickMap.set(id, (clickMap.get(id) || 0) + 1);
+        }
+      }
+
       const products: BestSellerProduct[] = (data || []).map((p) => ({
         id: p.id,
         libraryProductId: p.library_product_id || null,
@@ -293,12 +308,17 @@ export default async function handler(req: any, res: any) {
         badgeEnabled: Boolean(p.badge_enabled),
         badgeText: p.badge_text || null,
         badgeColor: p.badge_color || '#FFFFFF',
+        badgeUseListDefault: Boolean(p.badge_use_list_default),
+        giftMode: ['inherit', 'off', 'custom'].includes(String(p.gift_mode)) ? p.gift_mode : 'inherit',
+        giftImageUrl: p.gift_image_url || null,
+        giftImagePath: p.gift_image_path || null,
+        giftTitle: p.gift_title || null,
         timerEnabled: Boolean(p.timer_enabled),
         timerEnd: p.timer_end || null,
         timerLooping: Boolean(p.timer_looping),
         timerDurationMinutes: p.timer_duration_minutes ? Number(p.timer_duration_minutes) : null,
         timerColor: p.timer_color || '#FFFFFF',
-        clicks: typeof p.clicks === 'number' ? p.clicks : 0,
+        clicks: clickEventsError ? (typeof p.clicks === 'number' ? p.clicks : 0) : (clickMap.get(String(p.id)) || 0),
         createdAt: p.created_at,
         updatedAt: p.updated_at,
       }));
@@ -366,6 +386,11 @@ export default async function handler(req: any, res: any) {
         badgeEnabled,
         badgeText,
         badgeColor,
+        badgeUseListDefault,
+        giftMode,
+        giftImageUrl,
+        giftImagePath,
+        giftTitle,
         timerEnabled,
         timerEnd,
         timerLooping,
@@ -450,6 +475,14 @@ export default async function handler(req: any, res: any) {
       const isBadgeActive = Boolean(badgeEnabled);
       const cleanBadgeText = isBadgeActive && badgeText ? sanitizeText(String(badgeText)) : null;
       const cleanBadgeColor = normalizeHexColor(badgeColor);
+      const useListBadge = Boolean(badgeUseListDefault);
+      const cleanGiftMode = ['inherit', 'off', 'custom'].includes(String(giftMode)) ? String(giftMode) : 'inherit';
+      const cleanGiftImageUrl = cleanGiftMode === 'custom' && giftImageUrl && isValidSafeUrl(String(giftImageUrl)) ? String(giftImageUrl).trim() : null;
+      const cleanGiftImagePath = cleanGiftMode === 'custom' && giftImagePath && String(giftImagePath).startsWith('bestsellers/') ? String(giftImagePath).trim() : null;
+      const cleanGiftTitle = cleanGiftMode === 'custom' && giftTitle ? sanitizeText(String(giftTitle)).slice(0, 50) : null;
+      if (cleanGiftMode === 'custom' && giftImageUrl && !cleanGiftImageUrl) {
+        return res.status(400).json({ success: false, message: 'Imagem do presente é inválida.' });
+      }
       const isProductTimerEnabled = Boolean(timerEnabled);
       const isProductTimerLooping = Boolean(isProductTimerEnabled && timerLooping);
       let cleanProductTimerEnd: string | null = null;
@@ -494,6 +527,11 @@ export default async function handler(req: any, res: any) {
           badge_enabled: isBadgeActive,
           badge_text: cleanBadgeText,
           badge_color: cleanBadgeColor,
+          badge_use_list_default: useListBadge,
+          gift_mode: cleanGiftMode,
+          gift_image_url: cleanGiftImageUrl,
+          gift_image_path: cleanGiftImagePath,
+          gift_title: cleanGiftTitle,
           timer_enabled: isProductTimerEnabled,
           timer_end: isProductTimerEnabled && !isProductTimerLooping ? cleanProductTimerEnd : null,
           timer_looping: isProductTimerLooping,
@@ -542,6 +580,11 @@ export default async function handler(req: any, res: any) {
         badgeEnabled: Boolean(data.badge_enabled),
         badgeText: data.badge_text || null,
         badgeColor: data.badge_color || '#FFFFFF',
+        badgeUseListDefault: Boolean(data.badge_use_list_default),
+        giftMode: ['inherit', 'off', 'custom'].includes(String(data.gift_mode)) ? data.gift_mode : 'inherit',
+        giftImageUrl: data.gift_image_url || null,
+        giftImagePath: data.gift_image_path || null,
+        giftTitle: data.gift_title || null,
         timerEnabled: Boolean(data.timer_enabled),
         timerEnd: data.timer_end || null,
         timerLooping: Boolean(data.timer_looping),
@@ -621,6 +664,26 @@ export default async function handler(req: any, res: any) {
       if (body.badgeColor !== undefined) {
         updates.badge_color = normalizeHexColor(body.badgeColor);
       }
+      if (body.badgeUseListDefault !== undefined) updates.badge_use_list_default = Boolean(body.badgeUseListDefault);
+      if (body.giftMode !== undefined) {
+        const mode = ['inherit', 'off', 'custom'].includes(String(body.giftMode)) ? String(body.giftMode) : 'inherit';
+        updates.gift_mode = mode;
+        if (mode !== 'custom') {
+          updates.gift_image_url = null;
+          updates.gift_image_path = null;
+          updates.gift_title = null;
+        }
+      }
+      if (body.giftImageUrl !== undefined) {
+        const url = body.giftImageUrl ? String(body.giftImageUrl).trim() : '';
+        if (url && !isValidSafeUrl(url)) return res.status(400).json({ success: false, message: 'Imagem do presente é inválida.' });
+        updates.gift_image_url = url || null;
+      }
+      if (body.giftImagePath !== undefined) {
+        const path = body.giftImagePath ? String(body.giftImagePath).trim() : '';
+        updates.gift_image_path = path.startsWith('bestsellers/') ? path : null;
+      }
+      if (body.giftTitle !== undefined) updates.gift_title = body.giftTitle ? sanitizeText(String(body.giftTitle)).slice(0, 50) : null;
 
       if (body.timerEnabled !== undefined || body.timerLooping !== undefined || body.timerEnd !== undefined || body.timerDurationMinutes !== undefined || body.timerColor !== undefined) {
         const enabled = body.timerEnabled !== undefined ? Boolean(body.timerEnabled) : undefined;
@@ -790,6 +853,11 @@ export default async function handler(req: any, res: any) {
         badgeEnabled: Boolean(data.badge_enabled),
         badgeText: data.badge_text || null,
         badgeColor: data.badge_color || '#FFFFFF',
+        badgeUseListDefault: Boolean(data.badge_use_list_default),
+        giftMode: ['inherit', 'off', 'custom'].includes(String(data.gift_mode)) ? data.gift_mode : 'inherit',
+        giftImageUrl: data.gift_image_url || null,
+        giftImagePath: data.gift_image_path || null,
+        giftTitle: data.gift_title || null,
         timerEnabled: Boolean(data.timer_enabled),
         timerEnd: data.timer_end || null,
         timerLooping: Boolean(data.timer_looping),

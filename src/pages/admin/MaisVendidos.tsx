@@ -36,6 +36,8 @@ import {
   Monitor,
   MapPin,
   Play,
+  Gift,
+  SlidersHorizontal,
 } from 'lucide-react';
 import { Repository } from '../../lib/repository';
 import { getReadableTextColor } from '../../lib/contrast';
@@ -449,6 +451,125 @@ END; $$;
 REVOKE ALL ON FUNCTION public.upsert_best_seller_visitor_session(UUID, TEXT, INTEGER, TEXT, TEXT, TEXT, TEXT, TEXT) FROM PUBLIC, anon, authenticated;
 GRANT EXECUTE ON FUNCTION public.upsert_best_seller_visitor_session(UUID, TEXT, INTEGER, TEXT, TEXT, TEXT, TEXT, TEXT) TO service_role;
 
+-- VITRINE PERSONALIZADA — padrões, presentes e analytics comportamental
+-- Idempotente: pode rodar mais de uma vez.
+
+
+ALTER TABLE public.best_seller_lists
+  ADD COLUMN IF NOT EXISTS default_badge_enabled BOOLEAN NOT NULL DEFAULT false,
+  ADD COLUMN IF NOT EXISTS default_badge_text TEXT,
+  ADD COLUMN IF NOT EXISTS default_badge_color TEXT NOT NULL DEFAULT '#FFFFFF',
+  ADD COLUMN IF NOT EXISTS gift_enabled BOOLEAN NOT NULL DEFAULT false,
+  ADD COLUMN IF NOT EXISTS gift_image_url TEXT,
+  ADD COLUMN IF NOT EXISTS gift_image_path TEXT,
+  ADD COLUMN IF NOT EXISTS gift_title TEXT;
+
+ALTER TABLE public.best_seller_products
+  ADD COLUMN IF NOT EXISTS badge_use_list_default BOOLEAN NOT NULL DEFAULT false,
+  ADD COLUMN IF NOT EXISTS gift_mode TEXT NOT NULL DEFAULT 'inherit',
+  ADD COLUMN IF NOT EXISTS gift_image_url TEXT,
+  ADD COLUMN IF NOT EXISTS gift_image_path TEXT,
+  ADD COLUMN IF NOT EXISTS gift_title TEXT;
+
+DO $$
+BEGIN
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_constraint WHERE conname = 'best_seller_products_gift_mode_check'
+  ) THEN
+    ALTER TABLE public.best_seller_products
+      ADD CONSTRAINT best_seller_products_gift_mode_check
+      CHECK (gift_mode IN ('inherit', 'off', 'custom'));
+  END IF;
+END $$;
+
+CREATE TABLE IF NOT EXISTS public.best_seller_product_behavior (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  list_id UUID NOT NULL REFERENCES public.best_seller_lists(id) ON DELETE CASCADE,
+  product_id UUID NOT NULL REFERENCES public.best_seller_products(id) ON DELETE CASCADE,
+  visitor_id TEXT NOT NULL,
+  seen BOOLEAN NOT NULL DEFAULT false,
+  visible_seconds INTEGER NOT NULL DEFAULT 0 CHECK (visible_seconds >= 0),
+  slides_seen INTEGER[] NOT NULL DEFAULT '{}'::integer[],
+  slide_count INTEGER NOT NULL DEFAULT 0 CHECK (slide_count >= 0 AND slide_count <= 64),
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  UNIQUE (list_id, product_id, visitor_id)
+);
+
+CREATE INDEX IF NOT EXISTS idx_best_seller_product_behavior_list
+  ON public.best_seller_product_behavior(list_id);
+CREATE INDEX IF NOT EXISTS idx_best_seller_product_behavior_product
+  ON public.best_seller_product_behavior(product_id);
+CREATE INDEX IF NOT EXISTS idx_best_seller_product_behavior_visitor
+  ON public.best_seller_product_behavior(list_id, visitor_id);
+
+ALTER TABLE public.best_seller_product_behavior ENABLE ROW LEVEL SECURITY;
+REVOKE ALL ON public.best_seller_product_behavior FROM anon, authenticated;
+GRANT ALL ON public.best_seller_product_behavior TO service_role;
+
+CREATE OR REPLACE FUNCTION public.upsert_best_seller_product_behavior(
+  p_list_id UUID,
+  p_product_id UUID,
+  p_visitor_id TEXT,
+  p_visible_seconds_total INTEGER DEFAULT 0,
+  p_seen BOOLEAN DEFAULT false,
+  p_slides_seen INTEGER[] DEFAULT '{}'::integer[],
+  p_slide_count INTEGER DEFAULT 0
+)
+RETURNS VOID
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public
+AS $$
+BEGIN
+  INSERT INTO public.best_seller_product_behavior (
+    list_id,
+    product_id,
+    visitor_id,
+    seen,
+    visible_seconds,
+    slides_seen,
+    slide_count,
+    updated_at
+  ) VALUES (
+    p_list_id,
+    p_product_id,
+    p_visitor_id,
+    COALESCE(p_seen, false),
+    GREATEST(COALESCE(p_visible_seconds_total, 0), 0),
+    COALESCE(p_slides_seen, '{}'::integer[]),
+    GREATEST(COALESCE(p_slide_count, 0), 0),
+    now()
+  )
+  ON CONFLICT (list_id, product_id, visitor_id)
+  DO UPDATE SET
+    seen = public.best_seller_product_behavior.seen OR EXCLUDED.seen,
+    visible_seconds = GREATEST(
+      public.best_seller_product_behavior.visible_seconds,
+      EXCLUDED.visible_seconds
+    ),
+    slides_seen = ARRAY(
+      SELECT DISTINCT value
+      FROM unnest(
+        COALESCE(public.best_seller_product_behavior.slides_seen, '{}'::integer[])
+        || COALESCE(EXCLUDED.slides_seen, '{}'::integer[])
+      ) AS value
+      WHERE value >= 0 AND value < 64
+      ORDER BY value
+    ),
+    slide_count = GREATEST(
+      public.best_seller_product_behavior.slide_count,
+      EXCLUDED.slide_count
+    ),
+    updated_at = now();
+END;
+$$;
+
+REVOKE ALL ON FUNCTION public.upsert_best_seller_product_behavior(UUID, UUID, TEXT, INTEGER, BOOLEAN, INTEGER[], INTEGER)
+FROM PUBLIC, anon, authenticated;
+GRANT EXECUTE ON FUNCTION public.upsert_best_seller_product_behavior(UUID, UUID, TEXT, INTEGER, BOOLEAN, INTEGER[], INTEGER)
+TO service_role;
+
 NOTIFY pgrst, 'reload schema';`;
 
 
@@ -497,9 +618,17 @@ const BestSellerHourlyChart: React.FC<{ items: BestSellerAnalyticsHourItem[] }> 
       </div>
       <div className="h-28 flex items-end gap-[3px] sm:gap-1">
         {normalized.map((item) => {
-          const height = item.visitors > 0 ? Math.max(7, Math.round((item.visitors / max) * 100)) : 2;
+          const height = item.visitors > 0 ? Math.max(7, Math.round((item.visitors / max) * 82)) : 2;
           return (
             <div key={item.hour} className="group relative flex-1 h-full flex items-end">
+              {item.visitors > 0 && (
+                <span
+                  className="absolute left-1/2 -translate-x-1/2 text-[8px] sm:text-[9px] font-bold text-neutral-700 leading-none"
+                  style={{ bottom: `calc(${height}% + 3px)` }}
+                >
+                  {item.visitors}
+                </span>
+              )}
               <div
                 className={`w-full rounded-t-[2px] transition-colors ${item.visitors > 0 ? 'bg-neutral-800 group-hover:bg-black' : 'bg-neutral-200'}`}
                 style={{ height: `${height}%` }}
@@ -570,6 +699,16 @@ export const MaisVendidos: React.FC = () => {
   const [listFormBackgroundVideoPath, setListFormBackgroundVideoPath] = useState('');
   const [listFormBackgroundVideoOpacity, setListFormBackgroundVideoOpacity] = useState('0.22');
   const [listFormBackgroundVideoBlur, setListFormBackgroundVideoBlur] = useState('0');
+  const [listFormDefaultBadgeEnabled, setListFormDefaultBadgeEnabled] = useState<boolean>(false);
+  const [listFormDefaultBadgeText, setListFormDefaultBadgeText] = useState('50% OFF');
+  const [listFormDefaultBadgeColor, setListFormDefaultBadgeColor] = useState('#FFFFFF');
+  const [listFormApplyBadgeToAll, setListFormApplyBadgeToAll] = useState<boolean>(false);
+  const [listFormGiftEnabled, setListFormGiftEnabled] = useState<boolean>(false);
+  const [listFormGiftImageUrl, setListFormGiftImageUrl] = useState('');
+  const [listFormGiftImagePath, setListFormGiftImagePath] = useState('');
+  const [listFormGiftTitle, setListFormGiftTitle] = useState('');
+  const [uploadingListGift, setUploadingListGift] = useState(false);
+  const listGiftFileInputRef = useRef<HTMLInputElement>(null);
   const [backgroundVideoInputMode, setBackgroundVideoInputMode] = useState<'upload' | 'url'>('upload');
   const [uploadingBackgroundVideo, setUploadingBackgroundVideo] = useState(false);
   const backgroundVideoFileInputRef = useRef<HTMLInputElement>(null);
@@ -585,7 +724,7 @@ export const MaisVendidos: React.FC = () => {
   const [listError, setListError] = useState<string | null>(null);
 
   // Logo Upload State
-  const [logoInputMode, setLogoInputMode] = useState<'upload' | 'url'>('upload');
+  const [logoInputMode, setLogoInputMode] = useState<'upload' | 'url' | 'library'>('upload');
   const [uploadingLogo, setUploadingLogo] = useState<boolean>(false);
   const [logoUploadProgress, setLogoUploadProgress] = useState<number>(0);
   const [logoUploadError, setLogoUploadError] = useState<string | null>(null);
@@ -620,6 +759,13 @@ export const MaisVendidos: React.FC = () => {
   const [prodFormBadgeEnabled, setProdFormBadgeEnabled] = useState<boolean>(false);
   const [prodFormBadgeText, setProdFormBadgeText] = useState('50% OFF');
   const [prodFormBadgeColor, setProdFormBadgeColor] = useState('#FFFFFF');
+  const [prodFormBadgeUseListDefault, setProdFormBadgeUseListDefault] = useState<boolean>(false);
+  const [prodFormGiftMode, setProdFormGiftMode] = useState<'inherit' | 'off' | 'custom'>('inherit');
+  const [prodFormGiftImageUrl, setProdFormGiftImageUrl] = useState('');
+  const [prodFormGiftImagePath, setProdFormGiftImagePath] = useState('');
+  const [prodFormGiftTitle, setProdFormGiftTitle] = useState('');
+  const [uploadingProdGift, setUploadingProdGift] = useState(false);
+  const prodGiftFileInputRef = useRef<HTMLInputElement>(null);
   const [prodFormTimerEnabled, setProdFormTimerEnabled] = useState<boolean>(false);
   const [prodFormTimerLooping, setProdFormTimerLooping] = useState<boolean>(false);
   const [prodFormTimerDurationHours, setProdFormTimerDurationHours] = useState('2');
@@ -771,6 +917,14 @@ export const MaisVendidos: React.FC = () => {
     setListFormBackgroundVideoPath('');
     setListFormBackgroundVideoOpacity('0.22');
     setListFormBackgroundVideoBlur('0');
+    setListFormDefaultBadgeEnabled(false);
+    setListFormDefaultBadgeText('50% OFF');
+    setListFormDefaultBadgeColor('#FFFFFF');
+    setListFormApplyBadgeToAll(false);
+    setListFormGiftEnabled(false);
+    setListFormGiftImageUrl('');
+    setListFormGiftImagePath('');
+    setListFormGiftTitle('');
     setBackgroundVideoInputMode('upload');
     const today = new Date().toISOString().slice(0, 10);
     setListFormDate(today);
@@ -804,6 +958,14 @@ export const MaisVendidos: React.FC = () => {
     setListFormBackgroundVideoPath(list.backgroundVideoPath || '');
     setListFormBackgroundVideoOpacity(String(list.backgroundVideoOpacity ?? 0.22));
     setListFormBackgroundVideoBlur(String(list.backgroundVideoBlur ?? 0));
+    setListFormDefaultBadgeEnabled(Boolean(list.defaultBadgeEnabled));
+    setListFormDefaultBadgeText(list.defaultBadgeText || '50% OFF');
+    setListFormDefaultBadgeColor(list.defaultBadgeColor || '#FFFFFF');
+    setListFormApplyBadgeToAll(false);
+    setListFormGiftEnabled(Boolean(list.giftEnabled));
+    setListFormGiftImageUrl(list.giftImageUrl || '');
+    setListFormGiftImagePath(list.giftImagePath || '');
+    setListFormGiftTitle(list.giftTitle || '');
     setBackgroundVideoInputMode(list.backgroundVideoPath ? 'upload' : (list.backgroundVideoUrl ? 'url' : 'upload'));
     setListFormDate(list.listDate);
     setListFormActive(list.active);
@@ -846,7 +1008,7 @@ export const MaisVendidos: React.FC = () => {
   const uploadBestSellerFile = async (
     file: File,
     mediaType: 'image' | 'video',
-    purpose: 'product' | 'background' | 'logo' | 'poster',
+    purpose: 'product' | 'background' | 'logo' | 'poster' | 'gift',
   ): Promise<{ url: string; storagePath: string }> => {
     if (!isSupabaseConfigured || !supabase) {
       throw new Error('Supabase não está configurado para upload persistente.');
@@ -1138,6 +1300,48 @@ export const MaisVendidos: React.FC = () => {
     }
   };
 
+
+  const validateGiftFile = (file: File): string | null => {
+    const valid = ['image/png', 'image/jpeg', 'image/jpg'].includes(file.type) || /\.(png|jpe?g)$/i.test(file.name);
+    if (!valid) return 'Use apenas PNG ou JPEG para a imagem do presente.';
+    if (file.size > 5 * 1024 * 1024) return 'A imagem do presente deve ter no máximo 5MB.';
+    return null;
+  };
+
+  const handleListGiftUpload = async (file: File) => {
+    const invalid = validateGiftFile(file);
+    if (invalid) { setListError(invalid); return; }
+    try {
+      setUploadingListGift(true);
+      setListError(null);
+      const uploaded = await uploadBestSellerFile(file, 'image', 'gift');
+      setListFormGiftImageUrl(uploaded.url);
+      setListFormGiftImagePath(uploaded.storagePath);
+      setListFormGiftEnabled(true);
+    } catch (err: any) {
+      setListError(err?.message || 'Erro ao enviar imagem do presente.');
+    } finally {
+      setUploadingListGift(false);
+    }
+  };
+
+  const handleProductGiftUpload = async (file: File) => {
+    const invalid = validateGiftFile(file);
+    if (invalid) { setProductError(invalid); return; }
+    try {
+      setUploadingProdGift(true);
+      setProductError(null);
+      const uploaded = await uploadBestSellerFile(file, 'image', 'gift');
+      setProdFormGiftImageUrl(uploaded.url);
+      setProdFormGiftImagePath(uploaded.storagePath);
+      setProdFormGiftMode('custom');
+    } catch (err: any) {
+      setProductError(err?.message || 'Erro ao enviar imagem do presente.');
+    } finally {
+      setUploadingProdGift(false);
+    }
+  };
+
   // Save List (Create or Update)
   const handleSaveList = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -1207,6 +1411,14 @@ export const MaisVendidos: React.FC = () => {
           backgroundVideoPath: listFormBackgroundVideoPath.trim() || null,
           backgroundVideoOpacity: Math.min(0.9, Math.max(0, Number(listFormBackgroundVideoOpacity || 0.22))),
           backgroundVideoBlur: Math.min(30, Math.max(0, Number(listFormBackgroundVideoBlur || 0))),
+          defaultBadgeEnabled: listFormDefaultBadgeEnabled,
+          defaultBadgeText: listFormDefaultBadgeEnabled ? listFormDefaultBadgeText.trim() || null : null,
+          defaultBadgeColor: listFormDefaultBadgeColor || '#FFFFFF',
+          applyDefaultBadgeToAll: listFormDefaultBadgeEnabled && listFormApplyBadgeToAll,
+          giftEnabled: listFormGiftEnabled && Boolean(listFormGiftImageUrl),
+          giftImageUrl: listFormGiftImageUrl.trim() || null,
+          giftImagePath: listFormGiftImagePath.trim() || null,
+          giftTitle: listFormGiftEnabled ? listFormGiftTitle.trim() || null : null,
           listDate: listFormDate,
           active: listFormActive,
           timerEnabled: listFormTimerEnabled,
@@ -1238,6 +1450,13 @@ export const MaisVendidos: React.FC = () => {
           backgroundVideoPath: listFormBackgroundVideoPath.trim() || null,
           backgroundVideoOpacity: Math.min(0.9, Math.max(0, Number(listFormBackgroundVideoOpacity || 0.22))),
           backgroundVideoBlur: Math.min(30, Math.max(0, Number(listFormBackgroundVideoBlur || 0))),
+          defaultBadgeEnabled: listFormDefaultBadgeEnabled,
+          defaultBadgeText: listFormDefaultBadgeEnabled ? listFormDefaultBadgeText.trim() || null : null,
+          defaultBadgeColor: listFormDefaultBadgeColor || '#FFFFFF',
+          giftEnabled: listFormGiftEnabled && Boolean(listFormGiftImageUrl),
+          giftImageUrl: listFormGiftImageUrl.trim() || null,
+          giftImagePath: listFormGiftImagePath.trim() || null,
+          giftTitle: listFormGiftEnabled ? listFormGiftTitle.trim() || null : null,
           listDate: listFormDate,
           active: listFormActive,
           timerEnabled: listFormTimerEnabled,
@@ -1372,6 +1591,11 @@ export const MaisVendidos: React.FC = () => {
     setProdFormBadgeEnabled(false);
     setProdFormBadgeText('50% OFF');
     setProdFormBadgeColor('#FFFFFF');
+    setProdFormBadgeUseListDefault(Boolean(selectedList.defaultBadgeEnabled));
+    setProdFormGiftMode(selectedList.giftEnabled ? 'inherit' : 'off');
+    setProdFormGiftImageUrl('');
+    setProdFormGiftImagePath('');
+    setProdFormGiftTitle('');
     setProdFormTimerEnabled(false);
     setProdFormTimerLooping(false);
     setProdFormTimerDurationHours('2');
@@ -1414,6 +1638,11 @@ export const MaisVendidos: React.FC = () => {
     setProdFormBadgeEnabled(prod.badgeEnabled);
     setProdFormBadgeText(prod.badgeText || '50% OFF');
     setProdFormBadgeColor(prod.badgeColor || '#FFFFFF');
+    setProdFormBadgeUseListDefault(Boolean(prod.badgeUseListDefault));
+    setProdFormGiftMode(prod.giftMode || 'inherit');
+    setProdFormGiftImageUrl(prod.giftImageUrl || '');
+    setProdFormGiftImagePath(prod.giftImagePath || '');
+    setProdFormGiftTitle(prod.giftTitle || '');
     setProdFormTimerEnabled(Boolean(prod.timerEnabled));
     setProdFormTimerLooping(Boolean(prod.timerLooping));
     const productTimerDuration = Number(prod.timerDurationMinutes || 120);
@@ -1655,6 +1884,11 @@ export const MaisVendidos: React.FC = () => {
       return;
     }
 
+    if (prodFormGiftMode === 'custom' && !prodFormGiftImageUrl.trim()) {
+      setProductError('Envie uma imagem PNG/JPEG para o presente próprio ou escolha “Padrão da Vitrine” / “Sem presente”.');
+      return;
+    }
+
     let productTimerEndIso: string | null = null;
     let productTimerDurationValue: number | null = null;
     if (prodFormTimerEnabled) {
@@ -1709,6 +1943,11 @@ export const MaisVendidos: React.FC = () => {
         badgeEnabled: prodFormBadgeEnabled,
         badgeText: prodFormBadgeEnabled ? prodFormBadgeText.trim() : null,
         badgeColor: prodFormBadgeColor || '#FFFFFF',
+        badgeUseListDefault: prodFormBadgeUseListDefault,
+        giftMode: prodFormGiftMode,
+        giftImageUrl: prodFormGiftMode === 'custom' ? (prodFormGiftImageUrl.trim() || null) : null,
+        giftImagePath: prodFormGiftMode === 'custom' ? (prodFormGiftImagePath.trim() || null) : null,
+        giftTitle: prodFormGiftMode === 'custom' ? (prodFormGiftTitle.trim() || null) : null,
         timerEnabled: prodFormTimerEnabled,
         timerEnd: prodFormTimerEnabled && !prodFormTimerLooping ? productTimerEndIso : null,
         timerLooping: prodFormTimerEnabled && prodFormTimerLooping,
@@ -1785,6 +2024,11 @@ export const MaisVendidos: React.FC = () => {
     setDeleteConfirm(null);
   };
 
+
+  const reusableLogoUrls = Array.from(new Set(
+    lists.map((list) => (list.logoUrl || '').trim()).filter(Boolean),
+  ));
+
   return (
     <div className="space-y-6 max-w-6xl mx-auto pb-16">
       {/* Header */}
@@ -1793,7 +2037,7 @@ export const MaisVendidos: React.FC = () => {
           <div className="flex items-center gap-3">
             <h1 className="text-xl font-bold text-neutral-900 tracking-tight flex items-center gap-2">
               <TrendingUp className="w-5 h-5 text-neutral-900" />
-              Mais Vendidos do Dia
+              Vitrine Personalizada
             </h1>
             {tableConfigured ? (
               <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[11px] font-medium bg-emerald-50 text-emerald-700 border border-emerald-200">
@@ -1808,7 +2052,7 @@ export const MaisVendidos: React.FC = () => {
             )}
           </div>
           <p className="text-xs text-neutral-500 mt-1">
-            Crie listas de produtos mais vendidos com rankings manuais, variações e timers diários.
+            Crie vitrines por campanha, live, seleção ou lançamento e acompanhe o comportamento do público.
           </p>
         </div>
 
@@ -1821,7 +2065,7 @@ export const MaisVendidos: React.FC = () => {
             title={selectedList?.slug ? `Abrir /mais-vendidos/${selectedList.slug}` : "Abrir página pública padrão /mais-vendidos"}
           >
             <ExternalLink className="w-3.5 h-3.5 text-neutral-500" />
-            <span>{selectedList?.slug ? "Abrir Link da Lista" : "Ver Vitrine Padrão"}</span>
+            <span>{selectedList?.slug ? "Abrir Link da Vitrine" : "Ver Vitrine Padrão"}</span>
           </a>
 
           {selectedList ? (
@@ -1832,7 +2076,7 @@ export const MaisVendidos: React.FC = () => {
                 className="inline-flex items-center gap-2 px-3 py-2 text-xs font-semibold text-neutral-700 bg-white border border-neutral-300 rounded-md hover:bg-neutral-50 transition-colors shadow-sm cursor-pointer"
               >
                 <ChevronLeft className="w-4 h-4" />
-                Ver todas as listas
+                Ver todas as vitrines
               </button>
               <button
                 type="button"
@@ -1850,7 +2094,7 @@ export const MaisVendidos: React.FC = () => {
               className="inline-flex items-center gap-2 px-3.5 py-2 text-xs font-semibold text-white bg-neutral-900 rounded-md hover:bg-neutral-800 transition-colors shadow-sm cursor-pointer"
             >
               <Plus className="w-4 h-4" />
-              Nova Lista
+              Nova Vitrine
             </button>
           )}
         </div>
@@ -1928,7 +2172,7 @@ export const MaisVendidos: React.FC = () => {
               </div>
               <h3 className="text-sm font-semibold text-neutral-800">Nenhuma lista cadastrada</h3>
               <p className="text-xs text-neutral-500 max-w-sm mx-auto">
-                Crie a primeira lista de Mais Vendidos para começar a organizar os produtos e seu ranking diário.
+                Crie a primeira Vitrine Personalizada para reunir produtos, campanhas e seleções em um único link.
               </p>
               <button
                 type="button"
@@ -2149,7 +2393,7 @@ export const MaisVendidos: React.FC = () => {
                   className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold text-neutral-700 bg-white border border-neutral-300 rounded hover:bg-neutral-50 transition-colors cursor-pointer"
                 >
                   <Pencil className="w-3.5 h-3.5" />
-                  Editar Dados da Lista
+                  Editar Dados da Vitrine
                 </button>
               </div>
             </div>
@@ -2160,35 +2404,49 @@ export const MaisVendidos: React.FC = () => {
                 <div>
                   <h3 className="text-xs font-bold uppercase tracking-wider text-neutral-500 font-mono flex items-center gap-1.5">
                     <BarChart3 className="w-4 h-4 text-neutral-400" />
-                    Analytics da Lista
+                    Analytics da Vitrine
                   </h3>
                   <p className="text-[10px] text-neutral-400">Atualiza automaticamente enquanto esta tela estiver aberta.</p>
                 </div>
                 {analyticsLoading && <Loader2 className="w-4 h-4 text-neutral-400 animate-spin" />}
               </div>
 
-              <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-2">
+              <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-2">
                 <div className="rounded-lg border border-neutral-200 bg-neutral-50 p-3">
                   <div className="flex items-center gap-1.5 text-[10px] uppercase tracking-wider text-neutral-400 font-semibold"><Users className="w-3.5 h-3.5" /> Visitantes únicos</div>
                   <div className="mt-1 text-xl font-bold text-neutral-900">{listAnalytics?.uniqueVisitors ?? 0}</div>
                 </div>
                 <div className="rounded-lg border border-neutral-200 bg-neutral-50 p-3">
-                  <div className="flex items-center gap-1.5 text-[10px] uppercase tracking-wider text-neutral-400 font-semibold"><Clock className="w-3.5 h-3.5" /> Tempo médio</div>
+                  <div className="flex items-center gap-1.5 text-[10px] uppercase tracking-wider text-neutral-400 font-semibold"><Clock className="w-3.5 h-3.5" /> Tempo médio ativo</div>
                   <div className="mt-1 text-xl font-bold text-neutral-900">{formatEngagementDuration(listAnalytics?.averageEngagementSeconds ?? 0)}</div>
                 </div>
                 <div className="rounded-lg border border-neutral-200 bg-neutral-50 p-3">
-                  <div className="flex items-center gap-1.5 text-[10px] uppercase tracking-wider text-neutral-400 font-semibold"><Clock className="w-3.5 h-3.5" /> Tempo total</div>
-                  <div className="mt-1 text-xl font-bold text-neutral-900">{formatEngagementDuration(listAnalytics?.totalEngagementSeconds ?? 0)}</div>
+                  <div className="flex items-center gap-1.5 text-[10px] uppercase tracking-wider text-neutral-400 font-semibold"><Clock className="w-3.5 h-3.5" /> Mediana ativa</div>
+                  <div className="mt-1 text-xl font-bold text-neutral-900">{formatEngagementDuration(listAnalytics?.medianEngagementSeconds ?? 0)}</div>
                 </div>
                 <div className="rounded-lg border border-neutral-200 bg-neutral-50 p-3">
-                  <div className="flex items-center gap-1.5 text-[10px] uppercase tracking-wider text-neutral-400 font-semibold"><MousePointerClick className="w-3.5 h-3.5" /> Cliques</div>
+                  <div className="flex items-center gap-1.5 text-[10px] uppercase tracking-wider text-neutral-400 font-semibold"><MousePointerClick className="w-3.5 h-3.5" /> Cliques mobile</div>
                   <div className="mt-1 text-xl font-bold text-neutral-900">{listAnalytics?.totalClicks ?? selectedList.totalClicks ?? 0}</div>
                 </div>
                 <div className="rounded-lg border border-neutral-200 bg-neutral-50 p-3">
-                  <div className="flex items-center gap-1.5 text-[10px] uppercase tracking-wider text-neutral-400 font-semibold"><Play className="w-3.5 h-3.5" /> Plays</div>
+                  <div className="flex items-center gap-1.5 text-[10px] uppercase tracking-wider text-neutral-400 font-semibold"><Play className="w-3.5 h-3.5" /> Pessoas que deram play</div>
                   <div className="mt-1 text-xl font-bold text-neutral-900">{listAnalytics?.totalPlays ?? 0}</div>
                 </div>
+                <div className="rounded-lg border border-neutral-200 bg-neutral-50 p-3">
+                  <div className="flex items-center gap-1.5 text-[10px] uppercase tracking-wider text-neutral-400 font-semibold"><ShoppingBag className="w-3.5 h-3.5" /> Chegaram ao fim</div>
+                  <div className="mt-1 text-xl font-bold text-neutral-900">{listAnalytics?.reachedLastProductRate ?? 0}%</div>
+                </div>
               </div>
+
+              {listAnalytics && (
+                <div className="rounded-lg border border-neutral-200 bg-white px-3 py-2.5 text-[10px] text-neutral-500 flex flex-wrap gap-x-4 gap-y-1">
+                  <span><strong className="text-neutral-700">Tempo ativo total:</strong> {formatEngagementDuration(listAnalytics.totalEngagementSeconds || 0)} <span className="text-neutral-400">(soma dos visitantes)</span></span>
+                  <span><strong className="text-neutral-700">Viram todos os produtos:</strong> {listAnalytics.viewedAllProductsRate ?? 0}%</span>
+                  <span><strong className="text-neutral-700">Exploraram galerias:</strong> {listAnalytics.galleryExplorersRate ?? 0}%</span>
+                  <span><strong className="text-neutral-700">Play → clique:</strong> {listAnalytics.videoToClickRate ?? 0}%</span>
+                  <span className="text-neutral-400">Desktop é ignorado em todas as métricas.</span>
+                </div>
+              )}
 
               {listAnalytics?.configured === false ? (
                 <div className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-[11px] text-amber-800">
@@ -2219,8 +2477,8 @@ export const MaisVendidos: React.FC = () => {
 
                   <div className="rounded-lg border border-neutral-200 p-3">
                     <div className="flex items-center gap-1.5 text-[10px] font-bold uppercase tracking-wider text-neutral-500 mb-2"><MapPin className="w-3.5 h-3.5" /> Localização</div>
-                    <div className="space-y-1.5">
-                      {listAnalytics.locations.length > 0 ? listAnalytics.locations.slice(0, 5).map((item, idx) => {
+                    <div className="space-y-1.5 max-h-48 overflow-y-auto pr-1">
+                      {listAnalytics.locations.length > 0 ? listAnalytics.locations.map((item, idx) => {
                         const label = [item.city, item.region, item.countryCode].filter(Boolean).join(', ') || 'Não identificada';
                         return (
                           <div key={`${label}-${idx}`} className="flex items-center justify-between gap-2 text-[11px]">
@@ -2235,10 +2493,15 @@ export const MaisVendidos: React.FC = () => {
                   <div className="rounded-lg border border-neutral-200 p-3">
                     <div className="flex items-center gap-1.5 text-[10px] font-bold uppercase tracking-wider text-neutral-500 mb-2"><ShoppingBag className="w-3.5 h-3.5" /> Por produto</div>
                     <div className="space-y-2">
-                      {listAnalytics.products.length > 0 ? listAnalytics.products.slice(0, 6).map((item) => (
+                      {listAnalytics.products.length > 0 ? listAnalytics.products.map((item) => (
                         <div key={item.productId} className="text-[11px]">
                           <div className="font-semibold text-neutral-700 truncate" title={item.name}>{item.name}</div>
-                          <div className="text-neutral-400 flex items-center gap-2 mt-0.5"><span>{item.clicks} cliques</span><span>·</span><span>{item.plays} plays</span></div>
+                          <div className="text-neutral-400 flex flex-wrap items-center gap-x-2 gap-y-0.5 mt-0.5">
+                            <span>{item.viewers ?? 0} viram</span><span>·</span><span>{item.clicks} cliques</span><span>·</span><span>{item.plays} plays</span>
+                            <span>·</span><span>{formatEngagementDuration(item.averageAttentionSeconds ?? 0)} média olhando</span>
+                            {(item.galleryCompletedVisitors ?? 0) > 0 && <><span>·</span><span>{item.galleryCompletedRate ?? 0}% viram todos os slides</span></>}
+                            {(item.dropOffs ?? 0) > 0 && <><span>·</span><span>{item.dropOffs} pararam aqui</span></>}
+                          </div>
                         </div>
                       )) : <span className="text-[11px] text-neutral-400">Sem produtos.</span>}
                     </div>
@@ -2254,7 +2517,7 @@ export const MaisVendidos: React.FC = () => {
                 <div>
                   <h3 className="text-xs font-bold uppercase tracking-wider text-neutral-500 font-mono flex items-center gap-1.5">
                     <ShoppingBag className="w-4 h-4 text-neutral-400" />
-                    Produtos no Ranking ({products.length})
+                    Produtos da Vitrine ({products.length})
                   </h3>
                   <p className="text-[11px] text-neutral-400">
                     A posição (#1, #2, #3...) é controlada manualmente através das setas de ordenação.
@@ -2530,14 +2793,14 @@ export const MaisVendidos: React.FC = () => {
       )}
 
       {/* ========================================================================= */}
-      {/* MODAL 1: Nova Lista / Editar Lista                                        */}
+      {/* MODAL 1: Nova Vitrine / Editar Lista                                        */}
       {/* ========================================================================= */}
       {isListModalOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50 backdrop-blur-xs">
           <div className="bg-white rounded-lg border border-neutral-200 shadow-xl max-w-lg w-full max-h-[90vh] flex flex-col overflow-hidden animate-in fade-in zoom-in-95 duration-150">
             <div className="px-5 py-4 border-b border-neutral-200 flex items-center justify-between shrink-0">
               <h3 className="text-sm font-bold text-neutral-900">
-                {editingList ? 'Editar Lista de Mais Vendidos' : 'Criar Nova Lista de Mais Vendidos'}
+                {editingList ? 'Editar Vitrine Personalizada' : 'Criar Nova Vitrine Personalizada'}
               </h3>
               <button
                 type="button"
@@ -2555,13 +2818,18 @@ export const MaisVendidos: React.FC = () => {
                 </div>
               )}
 
+              <div className="pt-1 pb-1 border-b border-neutral-200">
+                <div className="flex items-center gap-1.5 text-[10px] font-bold uppercase tracking-wider text-neutral-500"><Layers className="w-3.5 h-3.5" /> 1. Identidade e link</div>
+                <p className="text-[10px] text-neutral-400 mt-0.5">Nome, endereço público e identidade visual da vitrine.</p>
+              </div>
+
               <div className="space-y-1">
-                <label className="font-semibold text-neutral-700">Título da Lista *</label>
+                <label className="font-semibold text-neutral-700">Título da Vitrine *</label>
                 <input
                   type="text"
                   value={listFormTitle}
                   onChange={(e) => setListFormTitle(e.target.value)}
-                  placeholder="Ex: Mais Vendidos do Dia"
+                  placeholder="Ex: Best Sellers da Semana"
                   required
                   className="w-full px-3 py-2 border border-neutral-300 rounded focus:ring-1 focus:ring-neutral-900 focus:outline-none text-xs"
                 />
@@ -2611,6 +2879,17 @@ export const MaisVendidos: React.FC = () => {
                       }`}
                     >
                       Digitar URL
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setLogoInputMode('library')}
+                      className={`px-2 py-0.5 rounded font-medium transition-colors cursor-pointer ${
+                        logoInputMode === 'library'
+                          ? 'bg-white text-neutral-900 shadow-xs'
+                          : 'text-neutral-600 hover:text-neutral-900'
+                      }`}
+                    >
+                      Já enviadas
                     </button>
                   </div>
                 </div>
@@ -2729,6 +3008,27 @@ export const MaisVendidos: React.FC = () => {
                       </div>
                     )}
                   </div>
+                ) : logoInputMode === 'library' ? (
+                  <div className="space-y-2">
+                    {reusableLogoUrls.length > 0 ? (
+                      <div className="grid grid-cols-2 gap-2 max-h-44 overflow-y-auto pr-1">
+                        {reusableLogoUrls.map((url) => (
+                          <button
+                            key={url}
+                            type="button"
+                            onClick={() => setListFormLogoUrl(url)}
+                            className={`h-20 rounded border p-2 bg-neutral-950 flex items-center justify-center cursor-pointer transition-colors ${listFormLogoUrl === url ? 'border-emerald-500' : 'border-neutral-800 hover:border-neutral-600'}`}
+                            title="Usar esta logo"
+                          >
+                            <img src={url} alt="Logo já enviada" className="max-h-12 max-w-full object-contain" />
+                          </button>
+                        ))}
+                      </div>
+                    ) : (
+                      <div className="rounded border border-dashed border-neutral-300 bg-white p-3 text-center text-[10px] text-neutral-500">Nenhuma logo usada em outra vitrine ainda.</div>
+                    )}
+                    <p className="text-[10px] text-neutral-500">Reaproveita uma logo já usada por outra Vitrine Personalizada sem novo upload.</p>
+                  </div>
                 ) : (
                   <div className="space-y-2">
                     <input
@@ -2766,6 +3066,11 @@ export const MaisVendidos: React.FC = () => {
                 />
               </div>
 
+              <div className="pt-2 pb-1 border-b border-neutral-200">
+                <div className="flex items-center gap-1.5 text-[10px] font-bold uppercase tracking-wider text-neutral-500"><SlidersHorizontal className="w-3.5 h-3.5" /> 2. Conversão e padrões</div>
+                <p className="text-[10px] text-neutral-400 mt-0.5">Defina padrões gerais. Cada produto ainda pode ter configuração própria.</p>
+              </div>
+
               <div className="space-y-1">
                 <label className="font-semibold text-neutral-700">Texto do botão dos produtos (Opcional)</label>
                 <input
@@ -2777,6 +3082,82 @@ export const MaisVendidos: React.FC = () => {
                   className="w-full px-3 py-2 border border-neutral-300 rounded focus:ring-1 focus:ring-neutral-900 focus:outline-none text-xs"
                 />
                 <p className="text-[10px] text-neutral-500">Se ficar vazio, todos os produtos usam “VER PRODUTO”.</p>
+              </div>
+
+              <div className="space-y-3 rounded-lg bg-neutral-50 border border-neutral-200 p-3">
+                <label className="flex items-start gap-2.5 cursor-pointer">
+                  <input type="checkbox" checked={listFormDefaultBadgeEnabled} onChange={(e) => setListFormDefaultBadgeEnabled(e.target.checked)} className="mt-0.5 rounded border-neutral-300 text-neutral-900 focus:ring-neutral-900" />
+                  <div>
+                    <span className="font-semibold text-neutral-800">Padrão de badge para a vitrine</span>
+                    <p className="text-[10px] text-neutral-500">Produtos marcados como “usar padrão” herdam este texto e esta cor.</p>
+                  </div>
+                </label>
+                {listFormDefaultBadgeEnabled && (
+                  <>
+                  <div className="pl-6 grid grid-cols-[1fr_auto] gap-2 items-end">
+                    <div className="space-y-1">
+                      <label className="text-[10px] font-semibold text-neutral-600">Texto padrão</label>
+                      <input type="text" maxLength={40} value={listFormDefaultBadgeText} onChange={(e) => setListFormDefaultBadgeText(e.target.value)} placeholder="Ex: ÚLTIMOS PARES" className="w-full px-3 py-2 border border-neutral-300 rounded text-xs bg-white" />
+                    </div>
+                    <div className="space-y-1">
+                      <label className="text-[10px] font-semibold text-neutral-600">Cor</label>
+                      <input type="color" value={listFormDefaultBadgeColor} onChange={(e) => setListFormDefaultBadgeColor(e.target.value.toUpperCase())} className="h-9 w-11 p-1 border border-neutral-300 rounded bg-white cursor-pointer" />
+                    </div>
+                  </div>
+                  {editingList && (
+                    <label className="ml-6 flex items-start gap-2 cursor-pointer rounded border border-neutral-200 bg-white px-2.5 py-2">
+                      <input type="checkbox" checked={listFormApplyBadgeToAll} onChange={(e) => setListFormApplyBadgeToAll(e.target.checked)} className="mt-0.5 rounded border-neutral-300 text-neutral-900 focus:ring-neutral-900" />
+                      <span>
+                        <span className="text-[10px] font-semibold text-neutral-700">Aplicar este padrão a todos os produtos ao salvar</span>
+                        <span className="block text-[9px] text-neutral-500 mt-0.5">Depois você ainda pode abrir um produto e desmarcar “usar padrão” para criar uma exceção.</span>
+                      </span>
+                    </label>
+                  )}
+                  </>
+                )}
+              </div>
+
+              <div className="space-y-3 rounded-lg bg-neutral-50 border border-neutral-200 p-3">
+                <div className="flex items-start justify-between gap-3">
+                  <label className="flex items-start gap-2.5 cursor-pointer">
+                    <input type="checkbox" checked={listFormGiftEnabled} onChange={(e) => setListFormGiftEnabled(e.target.checked)} className="mt-0.5 rounded border-neutral-300 text-neutral-900 focus:ring-neutral-900" />
+                    <div>
+                      <span className="font-semibold text-neutral-800 flex items-center gap-1.5"><Gift className="w-3.5 h-3.5" /> Presente padrão da vitrine</span>
+                      <p className="text-[10px] text-neutral-500">Pode ser herdado por todos os produtos ou substituído individualmente.</p>
+                    </div>
+                  </label>
+                </div>
+                {listFormGiftEnabled && (
+                  <div className="pl-6 space-y-2">
+                    <input ref={listGiftFileInputRef} type="file" accept="image/png,image/jpeg" className="hidden" onChange={(e) => { const file = e.target.files?.[0]; if (file) handleListGiftUpload(file); e.target.value = ''; }} />
+                    {listFormGiftImageUrl ? (
+                      <div className="flex items-center gap-3 rounded border border-neutral-200 bg-white p-2.5">
+                        <img src={listFormGiftImageUrl} alt="Presente" className="w-14 h-14 object-contain" />
+                        <div className="min-w-0 flex-1">
+                          <div className="text-[10px] font-semibold text-neutral-700">Imagem 1:1 do presente</div>
+                          <div className="flex gap-1.5 mt-1.5">
+                            <button type="button" onClick={() => listGiftFileInputRef.current?.click()} className="px-2 py-1 text-[10px] rounded border border-neutral-300 bg-white cursor-pointer">Trocar</button>
+                            <button type="button" onClick={() => { setListFormGiftImageUrl(''); setListFormGiftImagePath(''); }} className="px-2 py-1 text-[10px] rounded border border-neutral-300 bg-white text-red-600 cursor-pointer">Remover</button>
+                          </div>
+                        </div>
+                      </div>
+                    ) : (
+                      <button type="button" onClick={() => listGiftFileInputRef.current?.click()} disabled={uploadingListGift} className="w-full py-2.5 border border-dashed border-neutral-300 rounded bg-white text-[11px] font-semibold text-neutral-700 cursor-pointer flex items-center justify-center gap-2 disabled:opacity-50">
+                        {uploadingListGift ? <Loader2 className="w-4 h-4 animate-spin" /> : <ImagePlus className="w-4 h-4" />}
+                        {uploadingListGift ? 'Enviando...' : 'Enviar PNG ou JPEG'}
+                      </button>
+                    )}
+                    <div className="space-y-1">
+                      <label className="text-[10px] font-semibold text-neutral-600">Título pequeno abaixo da imagem (Opcional)</label>
+                      <input type="text" maxLength={50} value={listFormGiftTitle} onChange={(e) => setListFormGiftTitle(e.target.value)} placeholder="Ex: Presente exclusivo" className="w-full px-3 py-2 border border-neutral-300 rounded text-xs bg-white" />
+                    </div>
+                  </div>
+                )}
+              </div>
+
+              <div className="pt-2 pb-1 border-b border-neutral-200">
+                <div className="flex items-center gap-1.5 text-[10px] font-bold uppercase tracking-wider text-neutral-500"><Eye className="w-3.5 h-3.5" /> 3. Exibição</div>
+                <p className="text-[10px] text-neutral-400 mt-0.5">O que aparece na composição pública da vitrine.</p>
               </div>
 
               <div className="space-y-2 rounded-lg bg-neutral-50 border border-neutral-200 p-3">
@@ -2842,6 +3223,11 @@ export const MaisVendidos: React.FC = () => {
                   />
                   <span className="text-[10px] text-neutral-500">Define a cor dos números de tamanho exibidos sobre as fotos nesta lista.</span>
                 </div>
+              </div>
+
+              <div className="pt-2 pb-1 border-b border-neutral-200">
+                <div className="flex items-center gap-1.5 text-[10px] font-bold uppercase tracking-wider text-neutral-500"><Video className="w-3.5 h-3.5" /> 4. Fundo da vitrine</div>
+                <p className="text-[10px] text-neutral-400 mt-0.5">Configurações do vídeo decorativo fixo ao fundo.</p>
               </div>
 
               <div className="space-y-3 p-3 rounded-lg bg-neutral-50 border border-neutral-200">
@@ -2930,8 +3316,13 @@ export const MaisVendidos: React.FC = () => {
                 )}
               </div>
 
+              <div className="pt-2 pb-1 border-b border-neutral-200">
+                <div className="flex items-center gap-1.5 text-[10px] font-bold uppercase tracking-wider text-neutral-500"><Calendar className="w-3.5 h-3.5" /> 5. Publicação</div>
+                <p className="text-[10px] text-neutral-400 mt-0.5">Data de referência e definição do link padrão.</p>
+              </div>
+
               <div className="space-y-1">
-                <label className="font-semibold text-neutral-700">Data da Lista *</label>
+                <label className="font-semibold text-neutral-700">Data da Vitrine *</label>
                 <input
                   type="date"
                   value={listFormDate}
@@ -2959,8 +3350,13 @@ export const MaisVendidos: React.FC = () => {
                 </label>
               </div>
 
+              <div className="pt-2 pb-1 border-b border-neutral-200">
+                <div className="flex items-center gap-1.5 text-[10px] font-bold uppercase tracking-wider text-neutral-500"><Clock className="w-3.5 h-3.5" /> 6. Timer</div>
+                <p className="text-[10px] text-neutral-400 mt-0.5">Urgência geral da vitrine, quando a campanha precisar.</p>
+              </div>
+
               {/* Timer */}
-              <div className="pt-2 border-t border-neutral-100 space-y-3">
+              <div className="space-y-3">
                 <label className="flex items-start gap-2.5 cursor-pointer">
                   <input
                     type="checkbox"
@@ -3083,7 +3479,7 @@ export const MaisVendidos: React.FC = () => {
                   disabled={savingList}
                   className="px-4 py-2 rounded text-xs font-semibold text-white bg-neutral-900 hover:bg-neutral-800 disabled:opacity-50 transition-colors cursor-pointer shadow-sm"
                 >
-                  {savingList ? 'Salvando...' : editingList ? 'Salvar Alterações' : 'Criar Lista'}
+                  {savingList ? 'Salvando...' : editingList ? 'Salvar Alterações' : 'Criar Vitrine'}
                 </button>
               </div>
             </form>
@@ -3553,19 +3949,36 @@ export const MaisVendidos: React.FC = () => {
                   5. Destaque visual
                 </h4>
 
-                <label className="flex items-center gap-2 cursor-pointer text-xs">
+                <label className="flex items-start gap-2 cursor-pointer text-xs rounded bg-neutral-50 border border-neutral-200 p-2.5">
                   <input
                     type="checkbox"
-                    checked={prodFormBadgeEnabled}
-                    onChange={(e) => setProdFormBadgeEnabled(e.target.checked)}
-                    className="rounded border-neutral-300 text-neutral-900 focus:ring-neutral-900"
+                    checked={prodFormBadgeUseListDefault}
+                    onChange={(e) => setProdFormBadgeUseListDefault(e.target.checked)}
+                    className="mt-0.5 rounded border-neutral-300 text-neutral-900 focus:ring-neutral-900"
                   />
-                  <span className="font-semibold text-neutral-800">
-                    Ativar tag/badge de destaque na imagem
+                  <span>
+                    <span className="font-semibold text-neutral-800">Usar padrão de badge da Vitrine</span>
+                    <span className="block text-[10px] text-neutral-500 mt-0.5">
+                      {selectedList?.defaultBadgeEnabled ? `Padrão atual: ${selectedList.defaultBadgeText || 'badge ativo'}` : 'A Vitrine não tem um badge padrão ativo.'}
+                    </span>
                   </span>
                 </label>
 
-                {prodFormBadgeEnabled && (
+                {!prodFormBadgeUseListDefault && (
+                  <label className="flex items-center gap-2 cursor-pointer text-xs">
+                    <input
+                      type="checkbox"
+                      checked={prodFormBadgeEnabled}
+                      onChange={(e) => setProdFormBadgeEnabled(e.target.checked)}
+                      className="rounded border-neutral-300 text-neutral-900 focus:ring-neutral-900"
+                    />
+                    <span className="font-semibold text-neutral-800">
+                      Ativar badge próprio neste produto
+                    </span>
+                  </label>
+                )}
+
+                {!prodFormBadgeUseListDefault && prodFormBadgeEnabled && (
                   <div className="space-y-3 pl-6">
                     <div className="space-y-1">
                       <label className="font-semibold text-neutral-700">Texto do Badge</label>
@@ -3635,11 +4048,58 @@ export const MaisVendidos: React.FC = () => {
                 )}
               </div>
 
-              {/* SEÇÃO 6: TIMER DO PRODUTO */}
+              {/* SEÇÃO 6: PRESENTE */}
+              <div className="space-y-3 pt-3 border-t border-neutral-100">
+                <div>
+                  <h4 className="font-bold text-neutral-800 uppercase tracking-wider text-[10px] font-mono flex items-center gap-1.5"><Gift className="w-3.5 h-3.5" /> 6. Presente</h4>
+                  <p className="text-[10px] text-neutral-500 mt-0.5">Aparece pequeno abaixo da badge. Sem fundo e sem contorno.</p>
+                </div>
+
+                <div className="grid grid-cols-3 gap-1 p-1 rounded-md bg-neutral-100">
+                  <button type="button" onClick={() => setProdFormGiftMode('inherit')} className={`px-2 py-2 rounded text-[10px] font-bold cursor-pointer ${prodFormGiftMode === 'inherit' ? 'bg-white text-neutral-950' : 'text-neutral-500'}`}>Padrão da Vitrine</button>
+                  <button type="button" onClick={() => setProdFormGiftMode('off')} className={`px-2 py-2 rounded text-[10px] font-bold cursor-pointer ${prodFormGiftMode === 'off' ? 'bg-white text-neutral-950' : 'text-neutral-500'}`}>Sem presente</button>
+                  <button type="button" onClick={() => setProdFormGiftMode('custom')} className={`px-2 py-2 rounded text-[10px] font-bold cursor-pointer ${prodFormGiftMode === 'custom' ? 'bg-white text-neutral-950' : 'text-neutral-500'}`}>Próprio</button>
+                </div>
+
+                {prodFormGiftMode === 'inherit' && (
+                  <div className="rounded border border-neutral-200 bg-neutral-50 p-2.5 text-[10px] text-neutral-600">
+                    {selectedList?.giftEnabled && selectedList.giftImageUrl ? 'Este produto vai usar o presente padrão configurado nos dados da Vitrine.' : 'A Vitrine ainda não possui presente padrão; por enquanto nada será exibido.'}
+                  </div>
+                )}
+
+                {prodFormGiftMode === 'custom' && (
+                  <div className="space-y-2">
+                    <input ref={prodGiftFileInputRef} type="file" accept="image/png,image/jpeg" className="hidden" onChange={(e) => { const file = e.target.files?.[0]; if (file) handleProductGiftUpload(file); e.target.value = ''; }} />
+                    {prodFormGiftImageUrl ? (
+                      <div className="flex items-center gap-3 rounded border border-neutral-200 bg-neutral-50 p-2.5">
+                        <img src={prodFormGiftImageUrl} alt="Presente do produto" className="w-14 h-14 object-contain" />
+                        <div className="flex-1 min-w-0">
+                          <div className="text-[10px] text-neutral-600">Imagem 1:1 · PNG/JPEG</div>
+                          <div className="flex gap-1.5 mt-1.5">
+                            <button type="button" onClick={() => prodGiftFileInputRef.current?.click()} className="px-2 py-1 text-[10px] rounded border border-neutral-300 bg-white cursor-pointer">Trocar</button>
+                            <button type="button" onClick={() => { setProdFormGiftImageUrl(''); setProdFormGiftImagePath(''); }} className="px-2 py-1 text-[10px] rounded border border-neutral-300 bg-white text-red-600 cursor-pointer">Remover</button>
+                          </div>
+                        </div>
+                      </div>
+                    ) : (
+                      <button type="button" onClick={() => prodGiftFileInputRef.current?.click()} disabled={uploadingProdGift} className="w-full py-2.5 border border-dashed border-neutral-300 rounded bg-neutral-50 text-[11px] font-semibold text-neutral-700 cursor-pointer flex items-center justify-center gap-2 disabled:opacity-50">
+                        {uploadingProdGift ? <Loader2 className="w-4 h-4 animate-spin" /> : <ImagePlus className="w-4 h-4" />}
+                        {uploadingProdGift ? 'Enviando...' : 'Enviar imagem do presente'}
+                      </button>
+                    )}
+                    <div className="space-y-1">
+                      <label className="font-semibold text-neutral-700">Título pequeno (Opcional)</label>
+                      <input type="text" maxLength={50} value={prodFormGiftTitle} onChange={(e) => setProdFormGiftTitle(e.target.value)} placeholder="Ex: Presente exclusivo" className="w-full px-3 py-2 border border-neutral-300 rounded text-xs" />
+                    </div>
+                  </div>
+                )}
+              </div>
+
+              {/* SEÇÃO 7: TIMER DO PRODUTO */}
               <div className="space-y-3 pt-3 border-t border-neutral-100">
                 <div className="flex items-center justify-between gap-3">
                   <div>
-                    <h4 className="font-bold text-neutral-800 uppercase tracking-wider text-[10px] font-mono">6. Timer do produto</h4>
+                    <h4 className="font-bold text-neutral-800 uppercase tracking-wider text-[10px] font-mono">7. Timer do produto</h4>
                     <p className="text-[10px] text-neutral-500 mt-0.5">Opcional. Aparece pequeno no canto inferior direito da mídia.</p>
                   </div>
                   <label className="inline-flex items-center gap-2 cursor-pointer text-xs shrink-0">

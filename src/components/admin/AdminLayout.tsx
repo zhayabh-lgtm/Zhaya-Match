@@ -46,7 +46,7 @@ export const AdminLayout: React.FC<AdminLayoutProps> = ({ children }) => {
     { label: 'Visualização', path: '/admin/visualizacao', icon: Eye },
     { label: 'Analytics', path: '/admin/analytics', icon: BarChart3 },
     { label: 'Convite de live', path: '/admin/convite-live', icon: Calendar },
-    { label: 'Mais vendidos', path: '/admin/mais-vendidos', icon: TrendingUp },
+    { label: 'Vitrine personalizada', path: '/admin/mais-vendidos', icon: TrendingUp },
     { label: 'Configurações', path: '/admin/configuracoes', icon: Settings },
   ];
 

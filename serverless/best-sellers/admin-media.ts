@@ -71,8 +71,8 @@ export default async function handler(req: any, res: any) {
   const mimeType = String(body.mimeType || '').toLowerCase();
   const fileSize = Number(body.fileSize || 0);
   const fileName = sanitizeFileName(String(body.fileName || 'media'));
-  const purposeKey = body.purpose === 'background' ? 'background' : body.purpose === 'logo' ? 'logo' : body.purpose === 'poster' ? 'poster' : 'product';
-  const purpose = purposeKey === 'background' ? 'backgrounds' : purposeKey === 'logo' ? 'logos' : purposeKey === 'poster' ? 'posters' : 'products';
+  const purposeKey = body.purpose === 'background' ? 'background' : body.purpose === 'logo' ? 'logo' : body.purpose === 'poster' ? 'poster' : body.purpose === 'gift' ? 'gift' : 'product';
+  const purpose = purposeKey === 'background' ? 'backgrounds' : purposeKey === 'logo' ? 'logos' : purposeKey === 'poster' ? 'posters' : purposeKey === 'gift' ? 'gifts' : 'products';
 
   if (!isAllowedMime(mediaType, mimeType)) {
     return res.status(400).json({
@@ -108,7 +108,7 @@ export default async function handler(req: any, res: any) {
 
     // Vídeos, logos e capas automáticas de vídeo são temporários e entram no registro de limpeza.
     // Imagens normais de produto ficam permanentes porque podem ser reaproveitadas pela Biblioteca de Produtos.
-    const shouldRegisterForCleanup = mediaType === 'video' || purposeKey === 'logo' || purposeKey === 'poster';
+    const shouldRegisterForCleanup = mediaType === 'video' || purposeKey === 'logo' || purposeKey === 'poster' || purposeKey === 'gift';
     if (shouldRegisterForCleanup) {
       const { error: registryError } = await supabase.from('best_seller_media_assets').upsert({
         storage_path: storagePath,
@@ -116,7 +116,7 @@ export default async function handler(req: any, res: any) {
         media_type: mediaType,
         mime_type: mimeType,
         file_size: Math.round(fileSize),
-        purpose: mediaType === 'video' ? (purposeKey === 'background' ? 'background_video' : 'product_video') : (purposeKey === 'logo' ? 'logo' : 'video_poster'),
+        purpose: mediaType === 'video' ? (purposeKey === 'background' ? 'background_video' : 'product_video') : (purposeKey === 'logo' ? 'logo' : purposeKey === 'gift' ? 'gift' : 'video_poster'),
         last_used_at: new Date().toISOString(),
       }, { onConflict: 'storage_path' });
 

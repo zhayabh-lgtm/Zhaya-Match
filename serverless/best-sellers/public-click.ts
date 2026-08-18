@@ -68,6 +68,11 @@ export default async function handler(req: any, res: any) {
     }
 
     const cleanProductId = productId.trim();
+    const deviceType = detectDeviceType(req.headers?.['user-agent']);
+    // Desktop é usado apenas internamente pela equipe e não entra nas métricas/counters públicos.
+    if (deviceType === 'desktop') {
+      return res.status(200).json({ success: true, recorded: false, ignoredDevice: 'desktop' });
+    }
     const supabase = getSupabaseClient();
 
     if (!supabase) {
@@ -112,7 +117,7 @@ export default async function handler(req: any, res: any) {
         product_id: cleanProductId,
         event_type: 'product_click',
         visitor_id: visitorId,
-        device_type: detectDeviceType(req.headers?.['user-agent']),
+        device_type: deviceType,
         country_code: cleanHeader(req.headers?.['x-vercel-ip-country'], 8),
         region: cleanHeader(req.headers?.['x-vercel-ip-country-region'], 80),
         city: cleanHeader(req.headers?.['x-vercel-ip-city'], 120),

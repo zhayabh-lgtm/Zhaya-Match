@@ -2070,7 +2070,7 @@ export const Repository = {
     mimeType: string;
     fileSize: number;
     mediaType: 'image' | 'video';
-    purpose?: 'product' | 'background' | 'logo' | 'poster';
+    purpose?: 'product' | 'background' | 'logo' | 'poster' | 'gift';
   }): Promise<{ success: boolean; path?: string; token?: string; publicUrl?: string; error?: string }> {
     try {
       const token = isSupabaseConfigured && supabase ? (await supabase.auth.getSession())?.data?.session?.access_token : undefined;
@@ -2178,10 +2178,14 @@ export const Repository = {
   },
 
   trackBestSellerAnalyticsEvent(input: {
-    eventType: 'page_view' | 'product_play' | 'engagement';
+    eventType: 'page_view' | 'product_play' | 'engagement' | 'product_behavior';
     listId: string;
     productId?: string;
     engagedSecondsTotal?: number;
+    visibleSecondsTotal?: number;
+    seen?: boolean;
+    slidesSeen?: number[];
+    slideCount?: number;
   }): void {
     if (!input.listId) return;
     try {

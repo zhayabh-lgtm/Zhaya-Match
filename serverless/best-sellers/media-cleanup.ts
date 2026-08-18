@@ -12,11 +12,15 @@ function collectReferencedTemporaryMedia(lists: any[], products: any[]) {
     if (typeof list?.background_video_path === 'string' && list.background_video_path.trim()) paths.add(list.background_video_path.trim());
     if (typeof list?.background_video_url === 'string' && list.background_video_url.trim()) urls.add(list.background_video_url.trim());
 
-    // Logos por upload são registradas pelo public_url; logos externas não existem no registry e são ignoradas naturalmente.
+    // Logos e presentes por upload são registrados pelo public_url; URLs externas não existem no registry e são ignoradas naturalmente.
     if (typeof list?.logo_url === 'string' && list.logo_url.trim()) urls.add(list.logo_url.trim());
+    if (typeof list?.gift_image_path === 'string' && list.gift_image_path.trim()) paths.add(list.gift_image_path.trim());
+    if (typeof list?.gift_image_url === 'string' && list.gift_image_url.trim()) urls.add(list.gift_image_url.trim());
   }
 
   for (const product of products || []) {
+    if (typeof product?.gift_image_path === 'string' && product.gift_image_path.trim()) paths.add(product.gift_image_path.trim());
+    if (typeof product?.gift_image_url === 'string' && product.gift_image_url.trim()) urls.add(product.gift_image_url.trim());
     const items = Array.isArray(product?.media_items) ? product.media_items : [];
     for (const item of items) {
       if (item?.type !== 'video') continue;
@@ -36,7 +40,8 @@ function collectReferencedTemporaryMedia(lists: any[], products: any[]) {
  * - vídeos de produto;
  * - vídeos de fundo;
  * - logos enviadas por upload;
- * - capas JPG geradas automaticamente para vídeos.
+ * - capas JPG geradas automaticamente para vídeos;
+ * - imagens de presente que deixarem de ser usadas.
  *
  * Imagens normais de produto NÃO entram neste registry, pois ficam disponíveis
  * permanentemente para a Biblioteca de Produtos.
@@ -50,8 +55,8 @@ export async function cleanupUnusedBestSellerVideos(supabaseUrl: string, service
   const cutoffIso = new Date(Date.now() - SEVEN_DAYS_MS).toISOString();
 
   const [{ data: lists, error: listsError }, { data: products, error: productsError }] = await Promise.all([
-    supabase.from('best_seller_lists').select('logo_url, background_video_path, background_video_url'),
-    supabase.from('best_seller_products').select('media_items'),
+    supabase.from('best_seller_lists').select('logo_url, background_video_path, background_video_url, gift_image_url, gift_image_path'),
+    supabase.from('best_seller_products').select('media_items, gift_image_url, gift_image_path'),
   ]);
 
   if (listsError || productsError) {

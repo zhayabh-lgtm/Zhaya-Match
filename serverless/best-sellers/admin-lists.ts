@@ -163,7 +163,16 @@ export default async function handler(req: any, res: any) {
           updatedAt: p.updated_at,
         }));
 
-        const totalClicks = listProducts.reduce((acc, curr) => acc + (curr.clicks || 0), 0);
+        const rawTotalClicks = listProducts.reduce((acc, curr) => acc + (curr.clicks || 0), 0);
+        const { data: clickEvents, error: clickEventsError } = await supabase
+          .from('best_seller_analytics_events')
+          .select('device_type')
+          .eq('list_id', singleId)
+          .eq('event_type', 'product_click')
+          .limit(30000);
+        const totalClicks = clickEventsError
+          ? rawTotalClicks
+          : (clickEvents || []).filter((event: any) => String(event?.device_type || '') !== 'desktop').length;
 
         const formattedList: BestSellerList = {
           id: listData.id,
@@ -180,6 +189,13 @@ export default async function handler(req: any, res: any) {
           backgroundVideoPath: listData.background_video_path || null,
           backgroundVideoOpacity: normalizeOpacity(listData.background_video_opacity),
           backgroundVideoBlur: normalizeBlur(listData.background_video_blur),
+          defaultBadgeEnabled: Boolean(listData.default_badge_enabled),
+          defaultBadgeText: listData.default_badge_text || null,
+          defaultBadgeColor: listData.default_badge_color || '#FFFFFF',
+          giftEnabled: Boolean(listData.gift_enabled),
+          giftImageUrl: listData.gift_image_url || null,
+          giftImagePath: listData.gift_image_path || null,
+          giftTitle: listData.gift_title || null,
           listDate: listData.list_date,
           active: Boolean(listData.active),
           timerEnabled: Boolean(listData.timer_enabled),
@@ -220,9 +236,24 @@ export default async function handler(req: any, res: any) {
         return res.status(500).json({ error: 'DATABASE_ERROR', message: listsError.message });
       }
 
+      const { data: allClickEvents, error: allClickEventsError } = await supabase
+        .from('best_seller_analytics_events')
+        .select('list_id, device_type')
+        .eq('event_type', 'product_click')
+        .limit(50000);
+      const mobileClickMap = new Map<string, number>();
+      if (!allClickEventsError) {
+        for (const event of allClickEvents || []) {
+          if (String((event as any)?.device_type || '') === 'desktop') continue;
+          const key = String((event as any)?.list_id || '');
+          if (key) mobileClickMap.set(key, (mobileClickMap.get(key) || 0) + 1);
+        }
+      }
+
       const formattedLists: BestSellerList[] = (listsData || []).map((row) => {
         const prods = Array.isArray(row.best_seller_products) ? row.best_seller_products : [];
-        const totalClicks = prods.reduce((sum: number, p: any) => sum + (typeof p?.clicks === 'number' ? p.clicks : 0), 0);
+        const rawTotalClicks = prods.reduce((sum: number, p: any) => sum + (typeof p?.clicks === 'number' ? p.clicks : 0), 0);
+        const totalClicks = allClickEventsError ? rawTotalClicks : (mobileClickMap.get(String(row.id)) || 0);
 
         return {
           id: row.id,
@@ -239,6 +270,13 @@ export default async function handler(req: any, res: any) {
           backgroundVideoPath: row.background_video_path || null,
           backgroundVideoOpacity: normalizeOpacity(row.background_video_opacity),
           backgroundVideoBlur: normalizeBlur(row.background_video_blur),
+          defaultBadgeEnabled: Boolean(row.default_badge_enabled),
+          defaultBadgeText: row.default_badge_text || null,
+          defaultBadgeColor: row.default_badge_color || '#FFFFFF',
+          giftEnabled: Boolean(row.gift_enabled),
+          giftImageUrl: row.gift_image_url || null,
+          giftImagePath: row.gift_image_path || null,
+          giftTitle: row.gift_title || null,
           listDate: row.list_date,
           active: Boolean(row.active),
           timerEnabled: Boolean(row.timer_enabled),
@@ -319,6 +357,13 @@ export default async function handler(req: any, res: any) {
             background_video_path: srcList.background_video_path || null,
             background_video_opacity: normalizeOpacity(srcList.background_video_opacity),
             background_video_blur: normalizeBlur(srcList.background_video_blur),
+            default_badge_enabled: Boolean(srcList.default_badge_enabled),
+            default_badge_text: srcList.default_badge_text || null,
+            default_badge_color: srcList.default_badge_color || '#FFFFFF',
+            gift_enabled: Boolean(srcList.gift_enabled),
+            gift_image_url: srcList.gift_image_url || null,
+            gift_image_path: srcList.gift_image_path || null,
+            gift_title: srcList.gift_title || null,
             list_date: targetDate,
             active: false,
             timer_enabled: false,
@@ -359,6 +404,11 @@ export default async function handler(req: any, res: any) {
             badge_enabled: Boolean(p.badge_enabled),
             badge_text: p.badge_text || null,
             badge_color: p.badge_color || '#FFFFFF',
+            badge_use_list_default: Boolean(p.badge_use_list_default),
+            gift_mode: ['inherit', 'off', 'custom'].includes(String(p.gift_mode)) ? p.gift_mode : 'inherit',
+            gift_image_url: p.gift_image_url || null,
+            gift_image_path: p.gift_image_path || null,
+            gift_title: p.gift_title || null,
             clicks: 0,
           }));
 
@@ -386,6 +436,13 @@ export default async function handler(req: any, res: any) {
           backgroundVideoPath: newListData.background_video_path || null,
           backgroundVideoOpacity: normalizeOpacity(newListData.background_video_opacity),
           backgroundVideoBlur: normalizeBlur(newListData.background_video_blur),
+          defaultBadgeEnabled: Boolean(newListData.default_badge_enabled),
+          defaultBadgeText: newListData.default_badge_text || null,
+          defaultBadgeColor: newListData.default_badge_color || '#FFFFFF',
+          giftEnabled: Boolean(newListData.gift_enabled),
+          giftImageUrl: newListData.gift_image_url || null,
+          giftImagePath: newListData.gift_image_path || null,
+          giftTitle: newListData.gift_title || null,
           listDate: newListData.list_date,
           active: false,
           timerEnabled: false,
@@ -422,6 +479,13 @@ export default async function handler(req: any, res: any) {
       const backgroundVideoPath = body.backgroundVideoPath && String(body.backgroundVideoPath).startsWith('bestsellers/') ? String(body.backgroundVideoPath).trim() : null;
       const backgroundVideoOpacity = normalizeOpacity(body.backgroundVideoOpacity);
       const backgroundVideoBlur = normalizeBlur(body.backgroundVideoBlur);
+      const defaultBadgeEnabled = Boolean(body.defaultBadgeEnabled);
+      const defaultBadgeText = defaultBadgeEnabled && body.defaultBadgeText ? String(body.defaultBadgeText).trim().slice(0, 40) : null;
+      const defaultBadgeColor = normalizeHexColor(body.defaultBadgeColor);
+      const giftEnabled = Boolean(body.giftEnabled && body.giftImageUrl);
+      const giftImageUrl = body.giftImageUrl ? String(body.giftImageUrl).trim() : null;
+      const giftImagePath = body.giftImagePath && String(body.giftImagePath).startsWith('bestsellers/') ? String(body.giftImagePath).trim() : null;
+      const giftTitle = giftEnabled && body.giftTitle ? String(body.giftTitle).trim().slice(0, 50) : null;
       const listDate = body.listDate || new Date().toISOString().slice(0, 10);
       const active = Boolean(body.active);
       const timerEnabled = Boolean(body.timerEnabled);
@@ -452,6 +516,9 @@ export default async function handler(req: any, res: any) {
       }
       if (backgroundVideoUrl && !isValidSafeUrl(backgroundVideoUrl)) {
         return res.status(400).json({ success: false, message: 'URL do vídeo de fundo é inválida ou insegura.' });
+      }
+      if (giftImageUrl && !isValidSafeUrl(giftImageUrl)) {
+        return res.status(400).json({ success: false, message: 'Imagem do presente é inválida.' });
       }
       if (timerLooping && (!Number.isInteger(timerDurationMinutes) || (timerDurationMinutes as number) < 1 || (timerDurationMinutes as number) > 10080)) {
         return res.status(400).json({
@@ -484,6 +551,13 @@ export default async function handler(req: any, res: any) {
           background_video_path: backgroundVideoPath,
           background_video_opacity: backgroundVideoOpacity,
           background_video_blur: backgroundVideoBlur,
+          default_badge_enabled: defaultBadgeEnabled,
+          default_badge_text: defaultBadgeText,
+          default_badge_color: defaultBadgeColor,
+          gift_enabled: giftEnabled,
+          gift_image_url: giftImageUrl,
+          gift_image_path: giftImagePath,
+          gift_title: giftTitle,
           list_date: listDate,
           active,
           timer_enabled: timerEnabled,
@@ -523,6 +597,13 @@ export default async function handler(req: any, res: any) {
         backgroundVideoPath: data.background_video_path || null,
         backgroundVideoOpacity: normalizeOpacity(data.background_video_opacity),
         backgroundVideoBlur: normalizeBlur(data.background_video_blur),
+        defaultBadgeEnabled: Boolean(data.default_badge_enabled),
+        defaultBadgeText: data.default_badge_text || null,
+        defaultBadgeColor: data.default_badge_color || '#FFFFFF',
+        giftEnabled: Boolean(data.gift_enabled),
+        giftImageUrl: data.gift_image_url || null,
+        giftImagePath: data.gift_image_path || null,
+        giftTitle: data.gift_title || null,
         listDate: data.list_date,
         active: Boolean(data.active),
         timerEnabled: Boolean(data.timer_enabled),
@@ -598,6 +679,21 @@ export default async function handler(req: any, res: any) {
       }
       if (body.backgroundVideoOpacity !== undefined) updates.background_video_opacity = normalizeOpacity(body.backgroundVideoOpacity);
       if (body.backgroundVideoBlur !== undefined) updates.background_video_blur = normalizeBlur(body.backgroundVideoBlur);
+      if (body.defaultBadgeEnabled !== undefined) updates.default_badge_enabled = Boolean(body.defaultBadgeEnabled);
+      if (body.defaultBadgeText !== undefined) updates.default_badge_text = body.defaultBadgeText ? String(body.defaultBadgeText).trim().slice(0, 40) : null;
+      if (body.defaultBadgeColor !== undefined) updates.default_badge_color = normalizeHexColor(body.defaultBadgeColor);
+      if (body.giftEnabled !== undefined) updates.gift_enabled = Boolean(body.giftEnabled);
+      if (body.giftImageUrl !== undefined) {
+        const giftUrl = body.giftImageUrl ? String(body.giftImageUrl).trim() : '';
+        if (giftUrl && !isValidSafeUrl(giftUrl)) return res.status(400).json({ success: false, message: 'Imagem do presente é inválida.' });
+        updates.gift_image_url = giftUrl || null;
+        if (!giftUrl) updates.gift_enabled = false;
+      }
+      if (body.giftImagePath !== undefined) {
+        const giftPath = body.giftImagePath ? String(body.giftImagePath).trim() : '';
+        updates.gift_image_path = giftPath.startsWith('bestsellers/') ? giftPath : null;
+      }
+      if (body.giftTitle !== undefined) updates.gift_title = body.giftTitle ? String(body.giftTitle).trim().slice(0, 50) : null;
       if (body.listDate !== undefined) updates.list_date = body.listDate;
       if (body.timezone !== undefined) updates.timezone = body.timezone;
       if (
@@ -670,6 +766,17 @@ export default async function handler(req: any, res: any) {
         return res.status(500).json({ success: false, error: 'DATABASE_ERROR', message: error.message });
       }
 
+      if (body.applyDefaultBadgeToAll === true && Boolean(data.default_badge_enabled)) {
+        const { error: badgeApplyError } = await supabase
+          .from('best_seller_products')
+          .update({ badge_use_list_default: true, updated_at: new Date().toISOString() })
+          .eq('list_id', id);
+        if (badgeApplyError) {
+          console.warn('[Admin BestSellers API] Não foi possível aplicar badge padrão em todos os produtos:', badgeApplyError.message);
+          return res.status(500).json({ success: false, error: 'DATABASE_ERROR', message: 'A vitrine foi salva, mas não foi possível aplicar o padrão de badge em todos os produtos.' });
+        }
+      }
+
       const updated: BestSellerList = {
         id: data.id,
         slug: data.slug || undefined,
@@ -685,6 +792,13 @@ export default async function handler(req: any, res: any) {
         backgroundVideoPath: data.background_video_path || null,
         backgroundVideoOpacity: normalizeOpacity(data.background_video_opacity),
         backgroundVideoBlur: normalizeBlur(data.background_video_blur),
+        defaultBadgeEnabled: Boolean(data.default_badge_enabled),
+        defaultBadgeText: data.default_badge_text || null,
+        defaultBadgeColor: data.default_badge_color || '#FFFFFF',
+        giftEnabled: Boolean(data.gift_enabled),
+        giftImageUrl: data.gift_image_url || null,
+        giftImagePath: data.gift_image_path || null,
+        giftTitle: data.gift_title || null,
         listDate: data.list_date,
         active: Boolean(data.active),
         timerEnabled: Boolean(data.timer_enabled),

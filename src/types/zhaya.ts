@@ -483,6 +483,15 @@ export interface BestSellerList {
   backgroundVideoPath?: string | null;
   backgroundVideoOpacity?: number;
   backgroundVideoBlur?: number;
+  defaultBadgeEnabled?: boolean;
+  defaultBadgeText?: string | null;
+  defaultBadgeColor?: string;
+  /** Admin-only action flag; not persisted on the list row. */
+  applyDefaultBadgeToAll?: boolean;
+  giftEnabled?: boolean;
+  giftImageUrl?: string | null;
+  giftImagePath?: string | null;
+  giftTitle?: string | null;
   listDate: string; // YYYY-MM-DD
   active: boolean;
   timerEnabled: boolean;
@@ -522,6 +531,11 @@ export interface BestSellerProduct {
   badgeEnabled: boolean;
   badgeText?: string | null;
   badgeColor?: string;
+  badgeUseListDefault?: boolean;
+  giftMode?: 'inherit' | 'off' | 'custom';
+  giftImageUrl?: string | null;
+  giftImagePath?: string | null;
+  giftTitle?: string | null;
   timerEnabled?: boolean;
   timerEnd?: string | null;
   timerLooping?: boolean;
@@ -576,6 +590,9 @@ export interface PublicBestSellerProduct {
   badgeEnabled: boolean;
   badgeText?: string | null;
   badgeColor?: string;
+  giftEnabled?: boolean;
+  giftImageUrl?: string | null;
+  giftTitle?: string | null;
   timerEnabled?: boolean;
   timerEnd?: string | null;
   timerLooping?: boolean;
@@ -599,8 +616,15 @@ export interface BestSellerAnalyticsLocationItem {
 export interface BestSellerAnalyticsProductItem {
   productId: string;
   name: string;
+  position?: number;
   clicks: number;
   plays: number;
+  viewers?: number;
+  averageAttentionSeconds?: number;
+  totalAttentionSeconds?: number;
+  galleryCompletedVisitors?: number;
+  galleryCompletedRate?: number;
+  dropOffs?: number;
 }
 
 export interface BestSellerAnalyticsHourItem {
@@ -617,7 +641,16 @@ export interface BestSellerAnalyticsSummary {
   totalClicks: number;
   totalPlays: number;
   averageEngagementSeconds: number;
+  medianEngagementSeconds?: number;
   totalEngagementSeconds: number;
+  reachedLastProductVisitors?: number;
+  reachedLastProductRate?: number;
+  viewedAllProductsVisitors?: number;
+  viewedAllProductsRate?: number;
+  galleryExplorersVisitors?: number;
+  galleryExplorersRate?: number;
+  videoToClickVisitors?: number;
+  videoToClickRate?: number;
   devices: BestSellerAnalyticsDeviceItem[];
   locations: BestSellerAnalyticsLocationItem[];
   hourlyVisitors: BestSellerAnalyticsHourItem[];
@@ -638,6 +671,12 @@ export interface PublicBestSellerList {
   backgroundVideoUrl?: string | null;
   backgroundVideoOpacity?: number;
   backgroundVideoBlur?: number;
+  defaultBadgeEnabled?: boolean;
+  defaultBadgeText?: string | null;
+  defaultBadgeColor?: string;
+  giftEnabled?: boolean;
+  giftImageUrl?: string | null;
+  giftTitle?: string | null;
   listDate: string;
   timerEnabled: boolean;
   timerEnd?: string | null;
