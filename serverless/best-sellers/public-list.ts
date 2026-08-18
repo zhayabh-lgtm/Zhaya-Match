@@ -83,6 +83,12 @@ function normalizeBlur(value: any, fallback = 0): number {
   return Math.min(30, Math.max(0, Math.round(parsed * 10) / 10));
 }
 
+function normalizeGiftImageSize(value: unknown, fallback = 48): number {
+  const parsed = Number(value);
+  if (!Number.isFinite(parsed)) return fallback;
+  return Math.min(80, Math.max(36, Math.round(parsed)));
+}
+
 export default async function handler(req: any, res: any) {
   const requestOrigin = typeof req.headers?.origin === 'string' ? req.headers.origin : '*';
   res.setHeader('Access-Control-Allow-Origin', requestOrigin);
@@ -191,6 +197,15 @@ export default async function handler(req: any, res: any) {
       const effectiveGiftTitle = effectiveGiftEnabled
         ? (useListGift ? activeList.gift_title || null : p.gift_title || null)
         : null;
+      const effectiveGiftLabel = effectiveGiftEnabled
+        ? (useListGift ? activeList.gift_label ?? null : p.gift_label ?? null)
+        : null;
+      const effectiveGiftTextColor = useListGift
+        ? (activeList.gift_text_color || '#FFFFFF')
+        : (p.gift_text_color || '#FFFFFF');
+      const effectiveGiftImageSize = useListGift
+        ? normalizeGiftImageSize(activeList.gift_image_size)
+        : normalizeGiftImageSize(p.gift_image_size);
 
       return {
         id: p.id,
@@ -217,6 +232,9 @@ export default async function handler(req: any, res: any) {
         giftEnabled: effectiveGiftEnabled,
         giftImageUrl: effectiveGiftImageUrl,
         giftTitle: effectiveGiftTitle,
+        giftLabel: effectiveGiftLabel,
+        giftTextColor: effectiveGiftTextColor,
+        giftImageSize: effectiveGiftImageSize,
         timerEnabled: Boolean(p.timer_enabled),
         timerEnd: p.timer_enabled && !p.timer_looping ? p.timer_end || null : null,
         timerLooping: Boolean(p.timer_enabled && p.timer_looping),
@@ -245,6 +263,9 @@ export default async function handler(req: any, res: any) {
       giftEnabled: Boolean(activeList.gift_enabled && activeList.gift_image_url),
       giftImageUrl: activeList.gift_enabled ? activeList.gift_image_url || null : null,
       giftTitle: activeList.gift_enabled ? activeList.gift_title || null : null,
+      giftLabel: activeList.gift_enabled ? activeList.gift_label ?? null : null,
+      giftTextColor: activeList.gift_text_color || '#FFFFFF',
+      giftImageSize: normalizeGiftImageSize(activeList.gift_image_size),
       listDate: activeList.list_date,
       timerEnabled: Boolean(activeList.timer_enabled),
       timerEnd: activeList.timer_enabled && !activeList.timer_looping ? activeList.timer_end || null : null,

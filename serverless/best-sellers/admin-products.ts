@@ -75,6 +75,12 @@ function normalizeHexColor(value: any, fallback = '#FFFFFF'): string {
   return /^#[0-9A-F]{6}$/.test(clean) ? clean : fallback;
 }
 
+function normalizeGiftImageSize(value: any, fallback = 48): number {
+  const parsed = Number(value);
+  if (!Number.isFinite(parsed)) return fallback;
+  return Math.min(80, Math.max(36, Math.round(parsed)));
+}
+
 // Validação de URL segura (rejeita javascript:, data:, etc.)
 function isValidSafeUrl(urlStr: any): boolean {
   if (!urlStr || typeof urlStr !== 'string') return false;
@@ -313,6 +319,9 @@ export default async function handler(req: any, res: any) {
         giftImageUrl: p.gift_image_url || null,
         giftImagePath: p.gift_image_path || null,
         giftTitle: p.gift_title || null,
+        giftLabel: p.gift_label ?? null,
+        giftTextColor: p.gift_text_color || '#FFFFFF',
+        giftImageSize: normalizeGiftImageSize(p.gift_image_size),
         timerEnabled: Boolean(p.timer_enabled),
         timerEnd: p.timer_end || null,
         timerLooping: Boolean(p.timer_looping),
@@ -391,6 +400,9 @@ export default async function handler(req: any, res: any) {
         giftImageUrl,
         giftImagePath,
         giftTitle,
+        giftLabel,
+        giftTextColor,
+        giftImageSize,
         timerEnabled,
         timerEnd,
         timerLooping,
@@ -480,6 +492,9 @@ export default async function handler(req: any, res: any) {
       const cleanGiftImageUrl = cleanGiftMode === 'custom' && giftImageUrl && isValidSafeUrl(String(giftImageUrl)) ? String(giftImageUrl).trim() : null;
       const cleanGiftImagePath = cleanGiftMode === 'custom' && giftImagePath && String(giftImagePath).startsWith('bestsellers/') ? String(giftImagePath).trim() : null;
       const cleanGiftTitle = cleanGiftMode === 'custom' && giftTitle ? sanitizeText(String(giftTitle)).slice(0, 50) : null;
+      const cleanGiftLabel = cleanGiftMode === 'custom' && giftLabel ? sanitizeText(String(giftLabel)).slice(0, 40) : null;
+      const cleanGiftTextColor = normalizeHexColor(giftTextColor);
+      const cleanGiftImageSize = normalizeGiftImageSize(giftImageSize);
       if (cleanGiftMode === 'custom' && giftImageUrl && !cleanGiftImageUrl) {
         return res.status(400).json({ success: false, message: 'Imagem do presente é inválida.' });
       }
@@ -532,6 +547,9 @@ export default async function handler(req: any, res: any) {
           gift_image_url: cleanGiftImageUrl,
           gift_image_path: cleanGiftImagePath,
           gift_title: cleanGiftTitle,
+          gift_label: cleanGiftLabel,
+          gift_text_color: cleanGiftTextColor,
+          gift_image_size: cleanGiftImageSize,
           timer_enabled: isProductTimerEnabled,
           timer_end: isProductTimerEnabled && !isProductTimerLooping ? cleanProductTimerEnd : null,
           timer_looping: isProductTimerLooping,
@@ -585,6 +603,9 @@ export default async function handler(req: any, res: any) {
         giftImageUrl: data.gift_image_url || null,
         giftImagePath: data.gift_image_path || null,
         giftTitle: data.gift_title || null,
+        giftLabel: data.gift_label ?? null,
+        giftTextColor: data.gift_text_color || '#FFFFFF',
+        giftImageSize: normalizeGiftImageSize(data.gift_image_size),
         timerEnabled: Boolean(data.timer_enabled),
         timerEnd: data.timer_end || null,
         timerLooping: Boolean(data.timer_looping),
@@ -672,6 +693,9 @@ export default async function handler(req: any, res: any) {
           updates.gift_image_url = null;
           updates.gift_image_path = null;
           updates.gift_title = null;
+          updates.gift_label = null;
+          updates.gift_text_color = '#FFFFFF';
+          updates.gift_image_size = 48;
         }
       }
       if (body.giftImageUrl !== undefined) {
@@ -684,6 +708,9 @@ export default async function handler(req: any, res: any) {
         updates.gift_image_path = path.startsWith('bestsellers/') ? path : null;
       }
       if (body.giftTitle !== undefined) updates.gift_title = body.giftTitle ? sanitizeText(String(body.giftTitle)).slice(0, 50) : null;
+      if (body.giftLabel !== undefined) updates.gift_label = body.giftLabel ? sanitizeText(String(body.giftLabel)).slice(0, 40) : null;
+      if (body.giftTextColor !== undefined) updates.gift_text_color = normalizeHexColor(body.giftTextColor);
+      if (body.giftImageSize !== undefined) updates.gift_image_size = normalizeGiftImageSize(body.giftImageSize);
 
       if (body.timerEnabled !== undefined || body.timerLooping !== undefined || body.timerEnd !== undefined || body.timerDurationMinutes !== undefined || body.timerColor !== undefined) {
         const enabled = body.timerEnabled !== undefined ? Boolean(body.timerEnabled) : undefined;
@@ -858,6 +885,9 @@ export default async function handler(req: any, res: any) {
         giftImageUrl: data.gift_image_url || null,
         giftImagePath: data.gift_image_path || null,
         giftTitle: data.gift_title || null,
+        giftLabel: data.gift_label ?? null,
+        giftTextColor: data.gift_text_color || '#FFFFFF',
+        giftImageSize: normalizeGiftImageSize(data.gift_image_size),
         timerEnabled: Boolean(data.timer_enabled),
         timerEnd: data.timer_end || null,
         timerLooping: Boolean(data.timer_looping),

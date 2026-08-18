@@ -48,6 +48,9 @@ export function runBestSellersTests() {
   assert(setupContent.includes('video/mp4'), 'Storage aceita vídeos MP4');
   assert(setupContent.includes('best_seller_product_library'), 'SQL inclui biblioteca reutilizável de produtos');
   assert(setupContent.includes('library_product_id'), 'Produtos de listas podem apontar para um cadastro reutilizável');
+  assert(setupContent.includes('gift_label TEXT'), 'SQL inclui título extra opcional do presente');
+  assert(setupContent.includes('gift_text_color TEXT'), 'SQL inclui cor configurável dos textos do presente');
+  assert(setupContent.includes('gift_image_size INTEGER'), 'SQL inclui tamanho configurável da imagem do presente');
   const libraryMigration = fs.readFileSync(path.join(projectRoot, 'supabase/mais_vendidos_product_library.sql'), 'utf8');
   assert(libraryMigration.includes('media_items JSONB'), 'Biblioteca preserva a ordem das imagens');
   assert(libraryMigration.includes('purpose TEXT'), 'Registry distingue mídia temporária para limpeza');

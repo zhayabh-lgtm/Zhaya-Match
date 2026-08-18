@@ -58,6 +58,12 @@ function normalizeHexColor(value: unknown, fallback = '#FFFFFF'): string {
 }
 
 
+function normalizeGiftImageSize(value: unknown, fallback = 48): number {
+  const parsed = Number(value);
+  if (!Number.isFinite(parsed)) return fallback;
+  return Math.min(80, Math.max(36, Math.round(parsed)));
+}
+
 function isValidSafeUrl(urlStr: unknown): boolean {
   if (!urlStr || typeof urlStr !== 'string') return false;
   const trimmed = urlStr.trim();
@@ -196,6 +202,9 @@ export default async function handler(req: any, res: any) {
           giftImageUrl: listData.gift_image_url || null,
           giftImagePath: listData.gift_image_path || null,
           giftTitle: listData.gift_title || null,
+          giftLabel: listData.gift_label ?? null,
+          giftTextColor: listData.gift_text_color || '#FFFFFF',
+          giftImageSize: normalizeGiftImageSize(listData.gift_image_size),
           listDate: listData.list_date,
           active: Boolean(listData.active),
           timerEnabled: Boolean(listData.timer_enabled),
@@ -277,6 +286,9 @@ export default async function handler(req: any, res: any) {
           giftImageUrl: row.gift_image_url || null,
           giftImagePath: row.gift_image_path || null,
           giftTitle: row.gift_title || null,
+          giftLabel: row.gift_label ?? null,
+          giftTextColor: row.gift_text_color || '#FFFFFF',
+          giftImageSize: normalizeGiftImageSize(row.gift_image_size),
           listDate: row.list_date,
           active: Boolean(row.active),
           timerEnabled: Boolean(row.timer_enabled),
@@ -364,6 +376,9 @@ export default async function handler(req: any, res: any) {
             gift_image_url: srcList.gift_image_url || null,
             gift_image_path: srcList.gift_image_path || null,
             gift_title: srcList.gift_title || null,
+            gift_label: srcList.gift_label ?? null,
+            gift_text_color: srcList.gift_text_color || '#FFFFFF',
+            gift_image_size: normalizeGiftImageSize(srcList.gift_image_size),
             list_date: targetDate,
             active: false,
             timer_enabled: false,
@@ -409,6 +424,9 @@ export default async function handler(req: any, res: any) {
             gift_image_url: p.gift_image_url || null,
             gift_image_path: p.gift_image_path || null,
             gift_title: p.gift_title || null,
+            gift_label: p.gift_label ?? null,
+            gift_text_color: p.gift_text_color || '#FFFFFF',
+            gift_image_size: normalizeGiftImageSize(p.gift_image_size),
             clicks: 0,
           }));
 
@@ -443,6 +461,9 @@ export default async function handler(req: any, res: any) {
           giftImageUrl: newListData.gift_image_url || null,
           giftImagePath: newListData.gift_image_path || null,
           giftTitle: newListData.gift_title || null,
+          giftLabel: newListData.gift_label ?? null,
+          giftTextColor: newListData.gift_text_color || '#FFFFFF',
+          giftImageSize: normalizeGiftImageSize(newListData.gift_image_size),
           listDate: newListData.list_date,
           active: false,
           timerEnabled: false,
@@ -486,6 +507,9 @@ export default async function handler(req: any, res: any) {
       const giftImageUrl = body.giftImageUrl ? String(body.giftImageUrl).trim() : null;
       const giftImagePath = body.giftImagePath && String(body.giftImagePath).startsWith('bestsellers/') ? String(body.giftImagePath).trim() : null;
       const giftTitle = giftEnabled && body.giftTitle ? String(body.giftTitle).trim().slice(0, 50) : null;
+      const giftLabel = body.giftLabel !== undefined ? (String(body.giftLabel || '').trim().slice(0, 40) || null) : 'Você ganha';
+      const giftTextColor = normalizeHexColor(body.giftTextColor);
+      const giftImageSize = normalizeGiftImageSize(body.giftImageSize);
       const listDate = body.listDate || new Date().toISOString().slice(0, 10);
       const active = Boolean(body.active);
       const timerEnabled = Boolean(body.timerEnabled);
@@ -558,6 +582,9 @@ export default async function handler(req: any, res: any) {
           gift_image_url: giftImageUrl,
           gift_image_path: giftImagePath,
           gift_title: giftTitle,
+          gift_label: giftLabel,
+          gift_text_color: giftTextColor,
+          gift_image_size: giftImageSize,
           list_date: listDate,
           active,
           timer_enabled: timerEnabled,
@@ -604,6 +631,9 @@ export default async function handler(req: any, res: any) {
         giftImageUrl: data.gift_image_url || null,
         giftImagePath: data.gift_image_path || null,
         giftTitle: data.gift_title || null,
+        giftLabel: data.gift_label ?? null,
+        giftTextColor: data.gift_text_color || '#FFFFFF',
+        giftImageSize: normalizeGiftImageSize(data.gift_image_size),
         listDate: data.list_date,
         active: Boolean(data.active),
         timerEnabled: Boolean(data.timer_enabled),
@@ -694,6 +724,9 @@ export default async function handler(req: any, res: any) {
         updates.gift_image_path = giftPath.startsWith('bestsellers/') ? giftPath : null;
       }
       if (body.giftTitle !== undefined) updates.gift_title = body.giftTitle ? String(body.giftTitle).trim().slice(0, 50) : null;
+      if (body.giftLabel !== undefined) updates.gift_label = body.giftLabel ? String(body.giftLabel).trim().slice(0, 40) : null;
+      if (body.giftTextColor !== undefined) updates.gift_text_color = normalizeHexColor(body.giftTextColor);
+      if (body.giftImageSize !== undefined) updates.gift_image_size = normalizeGiftImageSize(body.giftImageSize);
       if (body.listDate !== undefined) updates.list_date = body.listDate;
       if (body.timezone !== undefined) updates.timezone = body.timezone;
       if (
@@ -777,6 +810,34 @@ export default async function handler(req: any, res: any) {
         }
       }
 
+      if (body.applyTimerToAll === true) {
+        const timerUpdates = data.timer_enabled
+          ? {
+              timer_enabled: true,
+              timer_looping: Boolean(data.timer_looping),
+              timer_end: data.timer_looping ? null : (data.timer_end || null),
+              timer_duration_minutes: data.timer_looping ? (data.timer_duration_minutes || null) : null,
+              updated_at: new Date().toISOString(),
+            }
+          : {
+              timer_enabled: false,
+              timer_looping: false,
+              timer_end: null,
+              timer_duration_minutes: null,
+              updated_at: new Date().toISOString(),
+            };
+
+        const { error: timerApplyError } = await supabase
+          .from('best_seller_products')
+          .update(timerUpdates)
+          .eq('list_id', id);
+
+        if (timerApplyError) {
+          console.warn('[Admin BestSellers API] Não foi possível atualizar o timer de todos os produtos:', timerApplyError.message);
+          return res.status(500).json({ success: false, error: 'DATABASE_ERROR', message: 'A Vitrine foi salva, mas não foi possível aplicar o timer em todos os produtos.' });
+        }
+      }
+
       const updated: BestSellerList = {
         id: data.id,
         slug: data.slug || undefined,
@@ -799,6 +860,9 @@ export default async function handler(req: any, res: any) {
         giftImageUrl: data.gift_image_url || null,
         giftImagePath: data.gift_image_path || null,
         giftTitle: data.gift_title || null,
+        giftLabel: data.gift_label ?? null,
+        giftTextColor: data.gift_text_color || '#FFFFFF',
+        giftImageSize: normalizeGiftImageSize(data.gift_image_size),
         listDate: data.list_date,
         active: Boolean(data.active),
         timerEnabled: Boolean(data.timer_enabled),

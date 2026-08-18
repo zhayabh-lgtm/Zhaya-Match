@@ -462,14 +462,20 @@ ALTER TABLE public.best_seller_lists
   ADD COLUMN IF NOT EXISTS gift_enabled BOOLEAN NOT NULL DEFAULT false,
   ADD COLUMN IF NOT EXISTS gift_image_url TEXT,
   ADD COLUMN IF NOT EXISTS gift_image_path TEXT,
-  ADD COLUMN IF NOT EXISTS gift_title TEXT;
+  ADD COLUMN IF NOT EXISTS gift_title TEXT,
+  ADD COLUMN IF NOT EXISTS gift_label TEXT DEFAULT 'Você ganha',
+  ADD COLUMN IF NOT EXISTS gift_text_color TEXT NOT NULL DEFAULT '#FFFFFF',
+  ADD COLUMN IF NOT EXISTS gift_image_size INTEGER NOT NULL DEFAULT 48;
 
 ALTER TABLE public.best_seller_products
   ADD COLUMN IF NOT EXISTS badge_use_list_default BOOLEAN NOT NULL DEFAULT false,
   ADD COLUMN IF NOT EXISTS gift_mode TEXT NOT NULL DEFAULT 'inherit',
   ADD COLUMN IF NOT EXISTS gift_image_url TEXT,
   ADD COLUMN IF NOT EXISTS gift_image_path TEXT,
-  ADD COLUMN IF NOT EXISTS gift_title TEXT;
+  ADD COLUMN IF NOT EXISTS gift_title TEXT,
+  ADD COLUMN IF NOT EXISTS gift_label TEXT DEFAULT 'Você ganha',
+  ADD COLUMN IF NOT EXISTS gift_text_color TEXT NOT NULL DEFAULT '#FFFFFF',
+  ADD COLUMN IF NOT EXISTS gift_image_size INTEGER NOT NULL DEFAULT 48;
 
 DO $$
 BEGIN
@@ -707,6 +713,9 @@ export const MaisVendidos: React.FC = () => {
   const [listFormGiftImageUrl, setListFormGiftImageUrl] = useState('');
   const [listFormGiftImagePath, setListFormGiftImagePath] = useState('');
   const [listFormGiftTitle, setListFormGiftTitle] = useState('');
+  const [listFormGiftLabel, setListFormGiftLabel] = useState('Você ganha');
+  const [listFormGiftTextColor, setListFormGiftTextColor] = useState('#FFFFFF');
+  const [listFormGiftImageSize, setListFormGiftImageSize] = useState('48');
   const [uploadingListGift, setUploadingListGift] = useState(false);
   const listGiftFileInputRef = useRef<HTMLInputElement>(null);
   const [backgroundVideoInputMode, setBackgroundVideoInputMode] = useState<'upload' | 'url'>('upload');
@@ -720,6 +729,7 @@ export const MaisVendidos: React.FC = () => {
   const [listFormTimerDurationMinutes, setListFormTimerDurationMinutes] = useState('0');
   const [listFormTimerDate, setListFormTimerDate] = useState('');
   const [listFormTimerTime, setListFormTimerTime] = useState('23:59');
+  const [listFormApplyTimerToAll, setListFormApplyTimerToAll] = useState<boolean>(false);
   const [savingList, setSavingList] = useState<boolean>(false);
   const [listError, setListError] = useState<string | null>(null);
 
@@ -764,6 +774,9 @@ export const MaisVendidos: React.FC = () => {
   const [prodFormGiftImageUrl, setProdFormGiftImageUrl] = useState('');
   const [prodFormGiftImagePath, setProdFormGiftImagePath] = useState('');
   const [prodFormGiftTitle, setProdFormGiftTitle] = useState('');
+  const [prodFormGiftLabel, setProdFormGiftLabel] = useState('Você ganha');
+  const [prodFormGiftTextColor, setProdFormGiftTextColor] = useState('#FFFFFF');
+  const [prodFormGiftImageSize, setProdFormGiftImageSize] = useState('48');
   const [uploadingProdGift, setUploadingProdGift] = useState(false);
   const prodGiftFileInputRef = useRef<HTMLInputElement>(null);
   const [prodFormTimerEnabled, setProdFormTimerEnabled] = useState<boolean>(false);
@@ -925,6 +938,9 @@ export const MaisVendidos: React.FC = () => {
     setListFormGiftImageUrl('');
     setListFormGiftImagePath('');
     setListFormGiftTitle('');
+    setListFormGiftLabel('Você ganha');
+    setListFormGiftTextColor('#FFFFFF');
+    setListFormGiftImageSize('48');
     setBackgroundVideoInputMode('upload');
     const today = new Date().toISOString().slice(0, 10);
     setListFormDate(today);
@@ -935,6 +951,7 @@ export const MaisVendidos: React.FC = () => {
     setListFormTimerDurationMinutes('0');
     setListFormTimerDate(today);
     setListFormTimerTime('23:59');
+    setListFormApplyTimerToAll(false);
     setListError(null);
     setLogoUploadError(null);
     setLogoInputMode('upload');
@@ -966,6 +983,9 @@ export const MaisVendidos: React.FC = () => {
     setListFormGiftImageUrl(list.giftImageUrl || '');
     setListFormGiftImagePath(list.giftImagePath || '');
     setListFormGiftTitle(list.giftTitle || '');
+    setListFormGiftLabel(list.giftLabel ?? '');
+    setListFormGiftTextColor(list.giftTextColor || '#FFFFFF');
+    setListFormGiftImageSize(String(list.giftImageSize || 48));
     setBackgroundVideoInputMode(list.backgroundVideoPath ? 'upload' : (list.backgroundVideoUrl ? 'url' : 'upload'));
     setListFormDate(list.listDate);
     setListFormActive(list.active);
@@ -974,6 +994,7 @@ export const MaisVendidos: React.FC = () => {
     const storedDuration = Number(list.timerDurationMinutes || 120);
     setListFormTimerDurationHours(String(Math.floor(storedDuration / 60)));
     setListFormTimerDurationMinutes(String(storedDuration % 60));
+    setListFormApplyTimerToAll(false);
     setLogoUploadError(null);
     setLogoInputMode(list.logoUrl ? 'url' : 'upload');
     if (list.timerEnd) {
@@ -1419,12 +1440,16 @@ export const MaisVendidos: React.FC = () => {
           giftImageUrl: listFormGiftImageUrl.trim() || null,
           giftImagePath: listFormGiftImagePath.trim() || null,
           giftTitle: listFormGiftEnabled ? listFormGiftTitle.trim() || null : null,
+          giftLabel: listFormGiftLabel.trim() || null,
+          giftTextColor: listFormGiftTextColor || '#FFFFFF',
+          giftImageSize: Math.max(36, Math.min(80, Number(listFormGiftImageSize) || 48)),
           listDate: listFormDate,
           active: listFormActive,
           timerEnabled: listFormTimerEnabled,
           timerEnd: timerEndIso,
           timerLooping: listFormTimerEnabled && listFormTimerLooping,
           timerDurationMinutes: listFormTimerEnabled && listFormTimerLooping ? timerDurationMinutesValue : null,
+          applyTimerToAll: editingList ? listFormApplyTimerToAll : false,
         });
 
         if (!res.success) {
@@ -1457,6 +1482,9 @@ export const MaisVendidos: React.FC = () => {
           giftImageUrl: listFormGiftImageUrl.trim() || null,
           giftImagePath: listFormGiftImagePath.trim() || null,
           giftTitle: listFormGiftEnabled ? listFormGiftTitle.trim() || null : null,
+          giftLabel: listFormGiftLabel.trim() || null,
+          giftTextColor: listFormGiftTextColor || '#FFFFFF',
+          giftImageSize: Math.max(36, Math.min(80, Number(listFormGiftImageSize) || 48)),
           listDate: listFormDate,
           active: listFormActive,
           timerEnabled: listFormTimerEnabled,
@@ -1596,6 +1624,9 @@ export const MaisVendidos: React.FC = () => {
     setProdFormGiftImageUrl('');
     setProdFormGiftImagePath('');
     setProdFormGiftTitle('');
+    setProdFormGiftLabel('Você ganha');
+    setProdFormGiftTextColor('#FFFFFF');
+    setProdFormGiftImageSize('48');
     setProdFormTimerEnabled(false);
     setProdFormTimerLooping(false);
     setProdFormTimerDurationHours('2');
@@ -1643,6 +1674,9 @@ export const MaisVendidos: React.FC = () => {
     setProdFormGiftImageUrl(prod.giftImageUrl || '');
     setProdFormGiftImagePath(prod.giftImagePath || '');
     setProdFormGiftTitle(prod.giftTitle || '');
+    setProdFormGiftLabel(prod.giftLabel ?? '');
+    setProdFormGiftTextColor(prod.giftTextColor || '#FFFFFF');
+    setProdFormGiftImageSize(String(prod.giftImageSize || 48));
     setProdFormTimerEnabled(Boolean(prod.timerEnabled));
     setProdFormTimerLooping(Boolean(prod.timerLooping));
     const productTimerDuration = Number(prod.timerDurationMinutes || 120);
@@ -1948,6 +1982,9 @@ export const MaisVendidos: React.FC = () => {
         giftImageUrl: prodFormGiftMode === 'custom' ? (prodFormGiftImageUrl.trim() || null) : null,
         giftImagePath: prodFormGiftMode === 'custom' ? (prodFormGiftImagePath.trim() || null) : null,
         giftTitle: prodFormGiftMode === 'custom' ? (prodFormGiftTitle.trim() || null) : null,
+        giftLabel: prodFormGiftMode === 'custom' ? (prodFormGiftLabel.trim() || null) : null,
+        giftTextColor: prodFormGiftMode === 'custom' ? (prodFormGiftTextColor || '#FFFFFF') : '#FFFFFF',
+        giftImageSize: prodFormGiftMode === 'custom' ? Math.max(36, Math.min(80, Number(prodFormGiftImageSize) || 48)) : 48,
         timerEnabled: prodFormTimerEnabled,
         timerEnd: prodFormTimerEnabled && !prodFormTimerLooping ? productTimerEndIso : null,
         timerLooping: prodFormTimerEnabled && prodFormTimerLooping,
@@ -3148,8 +3185,41 @@ export const MaisVendidos: React.FC = () => {
                       </button>
                     )}
                     <div className="space-y-1">
+                      <label className="text-[10px] font-semibold text-neutral-600">Título acima da imagem (Opcional)</label>
+                      <input type="text" maxLength={40} value={listFormGiftLabel} onChange={(e) => setListFormGiftLabel(e.target.value)} placeholder="Você ganha" className="w-full px-3 py-2 border border-neutral-300 rounded text-xs bg-white" />
+                      <p className="text-[9px] text-neutral-500">Já vem como “Você ganha”. Apague se não quiser mostrar.</p>
+                    </div>
+                    <div className="space-y-1">
                       <label className="text-[10px] font-semibold text-neutral-600">Título pequeno abaixo da imagem (Opcional)</label>
                       <input type="text" maxLength={50} value={listFormGiftTitle} onChange={(e) => setListFormGiftTitle(e.target.value)} placeholder="Ex: Presente exclusivo" className="w-full px-3 py-2 border border-neutral-300 rounded text-xs bg-white" />
+                    </div>
+                    <div className="flex items-center justify-between gap-3">
+                      <div>
+                        <p className="text-[10px] font-semibold text-neutral-600">Cor dos textos do presente</p>
+                        <p className="text-[9px] text-neutral-500">Aplica no título acima e no título abaixo. Sem sombra.</p>
+                      </div>
+                      <div className="flex items-center gap-2">
+                        <input type="color" value={listFormGiftTextColor} onChange={(e) => setListFormGiftTextColor(e.target.value.toUpperCase())} className="h-8 w-10 p-1 border border-neutral-300 rounded bg-white cursor-pointer" />
+                        <input type="text" value={listFormGiftTextColor} onChange={(e) => setListFormGiftTextColor(e.target.value)} className="w-24 px-2 py-1.5 font-mono text-xs border border-neutral-300 rounded bg-white" />
+                      </div>
+                    </div>
+                    <div className="space-y-1.5">
+                      <div className="flex items-center justify-between gap-3">
+                        <div>
+                          <p className="text-[10px] font-semibold text-neutral-600">Tamanho da foto do presente</p>
+                          <p className="text-[9px] text-neutral-500">Opcional. 48px é o tamanho padrão atual.</p>
+                        </div>
+                        <span className="text-[10px] font-mono text-neutral-600">{Math.max(36, Math.min(80, Number(listFormGiftImageSize) || 48))}px</span>
+                      </div>
+                      <input
+                        type="range"
+                        min="36"
+                        max="80"
+                        step="2"
+                        value={Math.max(36, Math.min(80, Number(listFormGiftImageSize) || 48))}
+                        onChange={(e) => setListFormGiftImageSize(e.target.value)}
+                        className="w-full accent-neutral-900 cursor-pointer"
+                      />
                     </div>
                   </div>
                 )}
@@ -3463,6 +3533,21 @@ export const MaisVendidos: React.FC = () => {
                       </div>
                     )}
                   </div>
+                )}
+
+                {editingList && (
+                  <label className="flex items-start gap-2.5 cursor-pointer rounded-lg border border-neutral-200 bg-neutral-50 px-3 py-2.5">
+                    <input
+                      type="checkbox"
+                      checked={listFormApplyTimerToAll}
+                      onChange={(e) => setListFormApplyTimerToAll(e.target.checked)}
+                      className="mt-0.5 rounded border-neutral-300 text-neutral-900 focus:ring-neutral-900"
+                    />
+                    <span>
+                      <span className="text-[11px] font-bold text-neutral-800">Atualizar todos</span>
+                      <span className="block text-[9px] text-neutral-500 mt-0.5">Ao salvar, aplica este timer geral em todos os produtos da Vitrine. Se o timer geral estiver desligado, desativa os timers dos produtos. A cor individual de cada timer é preservada.</span>
+                    </span>
+                  </label>
                 )}
               </div>
 
@@ -4088,8 +4173,41 @@ export const MaisVendidos: React.FC = () => {
                       </button>
                     )}
                     <div className="space-y-1">
-                      <label className="font-semibold text-neutral-700">Título pequeno (Opcional)</label>
+                      <label className="font-semibold text-neutral-700">Título acima da imagem (Opcional)</label>
+                      <input type="text" maxLength={40} value={prodFormGiftLabel} onChange={(e) => setProdFormGiftLabel(e.target.value)} placeholder="Você ganha" className="w-full px-3 py-2 border border-neutral-300 rounded text-xs" />
+                      <p className="text-[9px] text-neutral-500">Pré-configurado como “Você ganha”. Pode deixar vazio.</p>
+                    </div>
+                    <div className="space-y-1">
+                      <label className="font-semibold text-neutral-700">Título pequeno abaixo (Opcional)</label>
                       <input type="text" maxLength={50} value={prodFormGiftTitle} onChange={(e) => setProdFormGiftTitle(e.target.value)} placeholder="Ex: Presente exclusivo" className="w-full px-3 py-2 border border-neutral-300 rounded text-xs" />
+                    </div>
+                    <div className="flex items-center justify-between gap-3">
+                      <div>
+                        <p className="text-[10px] font-semibold text-neutral-700">Cor dos textos</p>
+                        <p className="text-[9px] text-neutral-500">Mesma cor acima e abaixo; sem sombra.</p>
+                      </div>
+                      <div className="flex items-center gap-2">
+                        <input type="color" value={prodFormGiftTextColor} onChange={(e) => setProdFormGiftTextColor(e.target.value)} className="w-8 h-8 rounded cursor-pointer" />
+                        <input type="text" value={prodFormGiftTextColor} onChange={(e) => setProdFormGiftTextColor(e.target.value)} className="w-24 px-2 py-1.5 font-mono text-xs border border-neutral-300 rounded" />
+                      </div>
+                    </div>
+                    <div className="space-y-1.5">
+                      <div className="flex items-center justify-between gap-3">
+                        <div>
+                          <p className="text-[10px] font-semibold text-neutral-700">Tamanho da foto</p>
+                          <p className="text-[9px] text-neutral-500">Só altera este presente próprio.</p>
+                        </div>
+                        <span className="text-[10px] font-mono text-neutral-600">{Math.max(36, Math.min(80, Number(prodFormGiftImageSize) || 48))}px</span>
+                      </div>
+                      <input
+                        type="range"
+                        min="36"
+                        max="80"
+                        step="2"
+                        value={Math.max(36, Math.min(80, Number(prodFormGiftImageSize) || 48))}
+                        onChange={(e) => setProdFormGiftImageSize(e.target.value)}
+                        className="w-full accent-neutral-900 cursor-pointer"
+                      />
                     </div>
                   </div>
                 )}

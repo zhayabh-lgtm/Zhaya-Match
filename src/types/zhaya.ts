@@ -492,6 +492,11 @@ export interface BestSellerList {
   giftImageUrl?: string | null;
   giftImagePath?: string | null;
   giftTitle?: string | null;
+  giftLabel?: string | null;
+  giftTextColor?: string;
+  giftImageSize?: number;
+  /** Admin-only action flag; not persisted on the list row. */
+  applyTimerToAll?: boolean;
   listDate: string; // YYYY-MM-DD
   active: boolean;
   timerEnabled: boolean;
@@ -536,6 +541,9 @@ export interface BestSellerProduct {
   giftImageUrl?: string | null;
   giftImagePath?: string | null;
   giftTitle?: string | null;
+  giftLabel?: string | null;
+  giftTextColor?: string;
+  giftImageSize?: number;
   timerEnabled?: boolean;
   timerEnd?: string | null;
   timerLooping?: boolean;
@@ -593,6 +601,9 @@ export interface PublicBestSellerProduct {
   giftEnabled?: boolean;
   giftImageUrl?: string | null;
   giftTitle?: string | null;
+  giftLabel?: string | null;
+  giftTextColor?: string;
+  giftImageSize?: number;
   timerEnabled?: boolean;
   timerEnd?: string | null;
   timerLooping?: boolean;
@@ -677,6 +688,9 @@ export interface PublicBestSellerList {
   giftEnabled?: boolean;
   giftImageUrl?: string | null;
   giftTitle?: string | null;
+  giftLabel?: string | null;
+  giftTextColor?: string;
+  giftImageSize?: number;
   listDate: string;
   timerEnabled: boolean;
   timerEnd?: string | null;

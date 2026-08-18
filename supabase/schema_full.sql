@@ -1024,14 +1024,20 @@ ALTER TABLE public.best_seller_lists
   ADD COLUMN IF NOT EXISTS gift_enabled BOOLEAN NOT NULL DEFAULT false,
   ADD COLUMN IF NOT EXISTS gift_image_url TEXT,
   ADD COLUMN IF NOT EXISTS gift_image_path TEXT,
-  ADD COLUMN IF NOT EXISTS gift_title TEXT;
+  ADD COLUMN IF NOT EXISTS gift_title TEXT,
+  ADD COLUMN IF NOT EXISTS gift_label TEXT DEFAULT 'Você ganha',
+  ADD COLUMN IF NOT EXISTS gift_text_color TEXT NOT NULL DEFAULT '#FFFFFF',
+  ADD COLUMN IF NOT EXISTS gift_image_size INTEGER NOT NULL DEFAULT 48;
 
 ALTER TABLE public.best_seller_products
   ADD COLUMN IF NOT EXISTS badge_use_list_default BOOLEAN NOT NULL DEFAULT false,
   ADD COLUMN IF NOT EXISTS gift_mode TEXT NOT NULL DEFAULT 'inherit',
   ADD COLUMN IF NOT EXISTS gift_image_url TEXT,
   ADD COLUMN IF NOT EXISTS gift_image_path TEXT,
-  ADD COLUMN IF NOT EXISTS gift_title TEXT;
+  ADD COLUMN IF NOT EXISTS gift_title TEXT,
+  ADD COLUMN IF NOT EXISTS gift_label TEXT DEFAULT 'Você ganha',
+  ADD COLUMN IF NOT EXISTS gift_text_color TEXT NOT NULL DEFAULT '#FFFFFF',
+  ADD COLUMN IF NOT EXISTS gift_image_size INTEGER NOT NULL DEFAULT 48;
 
 DO $$
 BEGIN
@@ -1131,5 +1137,36 @@ REVOKE ALL ON FUNCTION public.upsert_best_seller_product_behavior(UUID, UUID, TE
 FROM PUBLIC, anon, authenticated;
 GRANT EXECUTE ON FUNCTION public.upsert_best_seller_product_behavior(UUID, UUID, TEXT, INTEGER, BOOLEAN, INTEGER[], INTEGER)
 TO service_role;
+
+
+
+UPDATE public.best_seller_lists
+SET gift_image_size = 48
+WHERE gift_image_size IS NULL OR gift_image_size < 36 OR gift_image_size > 80;
+
+UPDATE public.best_seller_products
+SET gift_image_size = 48
+WHERE gift_image_size IS NULL OR gift_image_size < 36 OR gift_image_size > 80;
+
+DO $$
+BEGIN
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_constraint
+    WHERE conname = 'best_seller_lists_gift_image_size_check'
+  ) THEN
+    ALTER TABLE public.best_seller_lists
+      ADD CONSTRAINT best_seller_lists_gift_image_size_check
+      CHECK (gift_image_size BETWEEN 36 AND 80);
+  END IF;
+
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_constraint
+    WHERE conname = 'best_seller_products_gift_image_size_check'
+  ) THEN
+    ALTER TABLE public.best_seller_products
+      ADD CONSTRAINT best_seller_products_gift_image_size_check
+      CHECK (gift_image_size BETWEEN 36 AND 80);
+  END IF;
+END $$;
 
 NOTIFY pgrst, 'reload schema';

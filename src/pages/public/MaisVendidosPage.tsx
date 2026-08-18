@@ -848,20 +848,35 @@ const ProductItem: React.FC<{
   ) : undefined;
 
 
+  const giftTextColor = product.giftTextColor || '#FFFFFF';
+  const giftImageSize = Math.max(36, Math.min(80, Number(product.giftImageSize || 48)));
   const giftElement = hasGift ? (
     <div
-      className={`absolute right-3 ${hasBadge ? 'top-12' : 'top-3'} z-30 w-12 sm:w-14 flex flex-col items-center pointer-events-none`}
+      className={`absolute right-3 ${hasBadge ? 'top-12' : 'top-3'} z-30 flex flex-col items-center pointer-events-none`}
       aria-label={product.giftTitle ? `Presente: ${product.giftTitle}` : 'Presente'}
+      style={{ filter: 'none', width: `${giftImageSize + 18}px` }}
     >
+      {product.giftLabel && (
+        <span
+          className="mb-1 max-w-[72px] text-center text-[7px] sm:text-[8px] leading-[1.05] font-bold"
+          style={{ color: giftTextColor, textShadow: 'none', filter: 'none' }}
+        >
+          {product.giftLabel}
+        </span>
+      )}
       <img
         src={product.giftImageUrl || ''}
         alt={product.giftTitle || 'Presente'}
-        className="w-11 h-11 sm:w-12 sm:h-12 object-contain"
+        className="object-contain rounded-[9px]"
+        style={{ width: `${giftImageSize}px`, height: `${giftImageSize}px`, boxShadow: 'none', filter: 'none' }}
         loading="lazy"
         draggable={false}
       />
       {product.giftTitle && (
-        <span className="mt-1 max-w-[64px] text-center text-[8px] sm:text-[9px] leading-[1.05] font-bold text-white" style={{ textShadow: '0 1px 5px rgba(0,0,0,0.72)' }}>
+        <span
+          className="mt-1 max-w-[72px] text-center text-[8px] sm:text-[9px] leading-[1.05] font-bold"
+          style={{ color: giftTextColor, textShadow: 'none', filter: 'none' }}
+        >
           {product.giftTitle}
         </span>
       )}
