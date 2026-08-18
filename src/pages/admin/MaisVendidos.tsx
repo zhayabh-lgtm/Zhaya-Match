@@ -59,6 +59,7 @@ CREATE TABLE IF NOT EXISTS public.best_seller_lists (
   background_video_url TEXT,
   background_video_path TEXT,
   background_video_opacity NUMERIC(4,3) NOT NULL DEFAULT 0.22 CHECK (background_video_opacity >= 0 AND background_video_opacity <= 0.9),
+  background_video_blur NUMERIC(5,2) NOT NULL DEFAULT 0 CHECK (background_video_blur >= 0 AND background_video_blur <= 30),
   list_date DATE NOT NULL DEFAULT CURRENT_DATE,
   active BOOLEAN NOT NULL DEFAULT false,
   timer_enabled BOOLEAN NOT NULL DEFAULT false,
@@ -117,6 +118,7 @@ ALTER TABLE public.best_seller_lists ADD COLUMN IF NOT EXISTS size_color TEXT NO
 ALTER TABLE public.best_seller_lists ADD COLUMN IF NOT EXISTS background_video_url TEXT;
 ALTER TABLE public.best_seller_lists ADD COLUMN IF NOT EXISTS background_video_path TEXT;
 ALTER TABLE public.best_seller_lists ADD COLUMN IF NOT EXISTS background_video_opacity NUMERIC(4,3) NOT NULL DEFAULT 0.22;
+ALTER TABLE public.best_seller_lists ADD COLUMN IF NOT EXISTS background_video_blur NUMERIC(5,2) NOT NULL DEFAULT 0;
 ALTER TABLE public.best_seller_lists ADD COLUMN IF NOT EXISTS timer_enabled BOOLEAN NOT NULL DEFAULT false;
 ALTER TABLE public.best_seller_lists ADD COLUMN IF NOT EXISTS timer_end TIMESTAMPTZ;
 ALTER TABLE public.best_seller_lists ADD COLUMN IF NOT EXISTS timer_looping BOOLEAN NOT NULL DEFAULT false;
@@ -212,6 +214,11 @@ BEGIN
     ALTER TABLE public.best_seller_lists
       ADD CONSTRAINT best_seller_lists_background_video_opacity_check
       CHECK (background_video_opacity >= 0 AND background_video_opacity <= 0.9);
+  END IF;
+  IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'best_seller_lists_background_video_blur_check') THEN
+    ALTER TABLE public.best_seller_lists
+      ADD CONSTRAINT best_seller_lists_background_video_blur_check
+      CHECK (background_video_blur >= 0 AND background_video_blur <= 30);
   END IF;
 END $$;
 
@@ -443,6 +450,7 @@ export const MaisVendidos: React.FC = () => {
   const [listFormBackgroundVideoUrl, setListFormBackgroundVideoUrl] = useState('');
   const [listFormBackgroundVideoPath, setListFormBackgroundVideoPath] = useState('');
   const [listFormBackgroundVideoOpacity, setListFormBackgroundVideoOpacity] = useState('0.22');
+  const [listFormBackgroundVideoBlur, setListFormBackgroundVideoBlur] = useState('0');
   const [backgroundVideoInputMode, setBackgroundVideoInputMode] = useState<'upload' | 'url'>('upload');
   const [uploadingBackgroundVideo, setUploadingBackgroundVideo] = useState(false);
   const backgroundVideoFileInputRef = useRef<HTMLInputElement>(null);
@@ -577,6 +585,7 @@ export const MaisVendidos: React.FC = () => {
     setListFormBackgroundVideoUrl('');
     setListFormBackgroundVideoPath('');
     setListFormBackgroundVideoOpacity('0.22');
+    setListFormBackgroundVideoBlur('0');
     setBackgroundVideoInputMode('upload');
     const today = new Date().toISOString().slice(0, 10);
     setListFormDate(today);
@@ -608,6 +617,7 @@ export const MaisVendidos: React.FC = () => {
     setListFormBackgroundVideoUrl(list.backgroundVideoUrl || '');
     setListFormBackgroundVideoPath(list.backgroundVideoPath || '');
     setListFormBackgroundVideoOpacity(String(list.backgroundVideoOpacity ?? 0.22));
+    setListFormBackgroundVideoBlur(String(list.backgroundVideoBlur ?? 0));
     setBackgroundVideoInputMode(list.backgroundVideoPath ? 'upload' : (list.backgroundVideoUrl ? 'url' : 'upload'));
     setListFormDate(list.listDate);
     setListFormActive(list.active);
@@ -1009,6 +1019,7 @@ export const MaisVendidos: React.FC = () => {
           backgroundVideoUrl: listFormBackgroundVideoUrl.trim() || null,
           backgroundVideoPath: listFormBackgroundVideoPath.trim() || null,
           backgroundVideoOpacity: Math.min(0.9, Math.max(0, Number(listFormBackgroundVideoOpacity || 0.22))),
+          backgroundVideoBlur: Math.min(30, Math.max(0, Number(listFormBackgroundVideoBlur || 0))),
           listDate: listFormDate,
           active: listFormActive,
           timerEnabled: listFormTimerEnabled,
@@ -1038,6 +1049,7 @@ export const MaisVendidos: React.FC = () => {
           backgroundVideoUrl: listFormBackgroundVideoUrl.trim() || null,
           backgroundVideoPath: listFormBackgroundVideoPath.trim() || null,
           backgroundVideoOpacity: Math.min(0.9, Math.max(0, Number(listFormBackgroundVideoOpacity || 0.22))),
+          backgroundVideoBlur: Math.min(30, Math.max(0, Number(listFormBackgroundVideoBlur || 0))),
           listDate: listFormDate,
           active: listFormActive,
           timerEnabled: listFormTimerEnabled,
@@ -2571,7 +2583,7 @@ export const MaisVendidos: React.FC = () => {
                 {listFormBackgroundVideoUrl && (
                   <div className="space-y-2">
                     <div className="relative aspect-video overflow-hidden rounded bg-black">
-                      <video src={listFormBackgroundVideoUrl} muted autoPlay loop playsInline className="w-full h-full object-cover" style={{ opacity: Number(listFormBackgroundVideoOpacity || 0.22) }} />
+                      <video src={listFormBackgroundVideoUrl} muted autoPlay loop playsInline className="w-full h-full object-cover" style={{ opacity: Number(listFormBackgroundVideoOpacity || 0.22), filter: `blur(${Number(listFormBackgroundVideoBlur || 0)}px)`, transform: Number(listFormBackgroundVideoBlur || 0) > 0 ? 'scale(1.05)' : 'scale(1.01)' }} />
                       <button
                         type="button"
                         onClick={() => { setListFormBackgroundVideoUrl(''); setListFormBackgroundVideoPath(''); }}
@@ -2588,6 +2600,18 @@ export const MaisVendidos: React.FC = () => {
                         step="0.01"
                         value={listFormBackgroundVideoOpacity}
                         onChange={(e) => setListFormBackgroundVideoOpacity(e.target.value)}
+                        className="flex-1"
+                      />
+                    </div>
+                    <div className="flex items-center gap-3">
+                      <label className="text-[10px] font-semibold text-neutral-600 shrink-0">Desfoque {Math.round(Number(listFormBackgroundVideoBlur || 0))}px</label>
+                      <input
+                        type="range"
+                        min="0"
+                        max="30"
+                        step="1"
+                        value={listFormBackgroundVideoBlur}
+                        onChange={(e) => setListFormBackgroundVideoBlur(e.target.value)}
                         className="flex-1"
                       />
                     </div>

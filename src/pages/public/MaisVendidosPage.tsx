@@ -304,6 +304,7 @@ const GalleryVideo: React.FC<{
   posterUrl?: string;
 }> = ({ src, label, onError, posterUrl }) => {
   const videoRef = useRef<HTMLVideoElement | null>(null);
+  const containerRef = useRef<HTMLDivElement | null>(null);
   const [activated, setActivated] = useState(false);
   const [videoReady, setVideoReady] = useState(false);
   const [playing, setPlaying] = useState(false);
@@ -323,6 +324,34 @@ const GalleryVideo: React.FC<{
     setDuration(0);
     setPosterFailed(false);
   }, [src, posterUrl]);
+
+  // Ao sair completamente da tela, o vídeo do produto para e volta para a capa.
+  useEffect(() => {
+    const node = containerRef.current;
+    if (!node || typeof IntersectionObserver === 'undefined') return;
+
+    const observer = new IntersectionObserver((entries) => {
+      const entry = entries[0];
+      if (!entry || entry.isIntersecting) return;
+
+      const video = videoRef.current;
+      if (video) {
+        try {
+          video.pause();
+          video.currentTime = 0;
+        } catch {
+          // noop
+        }
+      }
+      setPlaying(false);
+      setCurrentTime(0);
+      setActivated(false);
+      setVideoReady(false);
+    }, { threshold: 0.01 });
+
+    observer.observe(node);
+    return () => observer.disconnect();
+  }, [src]);
 
   const stopPointer = (event: React.PointerEvent) => event.stopPropagation();
 
@@ -381,7 +410,7 @@ const GalleryVideo: React.FC<{
   };
 
   return (
-    <div className="relative w-full h-full bg-neutral-950">
+    <div ref={containerRef} className="relative w-full h-full bg-neutral-950">
       {/* O player real só é criado depois do toque. No iPhone isso evita que
           o download/decodificação do vídeo concorra com a capa estática. */}
       {activated && (
@@ -1027,7 +1056,24 @@ export const MaisVendidosPage: React.FC = () => {
       }}
     >
       {listData?.backgroundVideoUrl && (
-        <div className="fixed inset-0 z-0 overflow-hidden pointer-events-none bg-black" aria-hidden="true">
+        <div
+          className="fixed z-0 overflow-hidden pointer-events-none bg-black"
+          aria-hidden="true"
+          style={{
+            // Usa o maior viewport estável e uma pequena sobra vertical. No Safari/iPhone
+            // isso evita a faixa preta enquanto a barra do navegador aparece/desaparece no scroll.
+            top: '-3lvh',
+            left: 0,
+            width: '100vw',
+            height: '106lvh',
+            minHeight: '106vh',
+            transform: 'translateZ(0)',
+            WebkitTransform: 'translateZ(0)',
+            backfaceVisibility: 'hidden',
+            WebkitBackfaceVisibility: 'hidden',
+            willChange: 'transform',
+          }}
+        >
           <video
             key={listData.backgroundVideoUrl}
             src={listData.backgroundVideoUrl}
@@ -1035,9 +1081,16 @@ export const MaisVendidosPage: React.FC = () => {
             autoPlay
             loop
             playsInline
-            preload="metadata"
-            className="w-full h-full object-cover"
-            style={{ opacity: Math.min(0.9, Math.max(0, Number(listData.backgroundVideoOpacity ?? 0.22))) }}
+            preload="auto"
+            className="absolute inset-0 w-full h-full object-cover"
+            style={{
+              opacity: Math.min(0.9, Math.max(0, Number(listData.backgroundVideoOpacity ?? 0.22))),
+              filter: `blur(${Math.min(30, Math.max(0, Number(listData.backgroundVideoBlur ?? 0)))}px)`,
+              transform: Number(listData.backgroundVideoBlur ?? 0) > 0 ? 'scale(1.06)' : 'scale(1.015)',
+              transformOrigin: 'center center',
+              backfaceVisibility: 'hidden',
+              WebkitBackfaceVisibility: 'hidden',
+            }}
           />
         </div>
       )}

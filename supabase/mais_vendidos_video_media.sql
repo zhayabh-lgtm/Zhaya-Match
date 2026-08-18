@@ -3,7 +3,8 @@
 ALTER TABLE public.best_seller_lists
   ADD COLUMN IF NOT EXISTS background_video_url TEXT,
   ADD COLUMN IF NOT EXISTS background_video_path TEXT,
-  ADD COLUMN IF NOT EXISTS background_video_opacity NUMERIC(4,3) NOT NULL DEFAULT 0.22;
+  ADD COLUMN IF NOT EXISTS background_video_opacity NUMERIC(4,3) NOT NULL DEFAULT 0.22,
+  ADD COLUMN IF NOT EXISTS background_video_blur NUMERIC(5,2) NOT NULL DEFAULT 0;
 
 ALTER TABLE public.best_seller_products
   ADD COLUMN IF NOT EXISTS media_items JSONB NOT NULL DEFAULT '[]'::jsonb;
@@ -21,6 +22,14 @@ BEGIN
     ALTER TABLE public.best_seller_lists
       ADD CONSTRAINT best_seller_lists_background_video_opacity_check
       CHECK (background_video_opacity >= 0 AND background_video_opacity <= 0.9);
+  END IF;
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_constraint
+    WHERE conname = 'best_seller_lists_background_video_blur_check'
+  ) THEN
+    ALTER TABLE public.best_seller_lists
+      ADD CONSTRAINT best_seller_lists_background_video_blur_check
+      CHECK (background_video_blur >= 0 AND background_video_blur <= 30);
   END IF;
 END $$;
 

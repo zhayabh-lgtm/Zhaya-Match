@@ -77,6 +77,12 @@ function normalizeOpacity(value: any, fallback = 0.22): number {
   return Math.min(0.9, Math.max(0, Math.round(parsed * 100) / 100));
 }
 
+function normalizeBlur(value: any, fallback = 0): number {
+  const parsed = Number(value);
+  if (!Number.isFinite(parsed)) return fallback;
+  return Math.min(30, Math.max(0, Math.round(parsed * 10) / 10));
+}
+
 export default async function handler(req: any, res: any) {
   const requestOrigin = typeof req.headers?.origin === 'string' ? req.headers.origin : '*';
   res.setHeader('Access-Control-Allow-Origin', requestOrigin);
@@ -208,6 +214,7 @@ export default async function handler(req: any, res: any) {
       sizeColor: activeList.size_color || '#FFFFFF',
       backgroundVideoUrl: activeList.background_video_url || null,
       backgroundVideoOpacity: normalizeOpacity(activeList.background_video_opacity),
+      backgroundVideoBlur: normalizeBlur(activeList.background_video_blur),
       listDate: activeList.list_date,
       timerEnabled: Boolean(activeList.timer_enabled),
       timerEnd: activeList.timer_enabled && !activeList.timer_looping ? activeList.timer_end || null : null,

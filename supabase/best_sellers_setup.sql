@@ -20,6 +20,7 @@ CREATE TABLE IF NOT EXISTS public.best_seller_lists (
   background_video_url TEXT,
   background_video_path TEXT,
   background_video_opacity NUMERIC(4,3) NOT NULL DEFAULT 0.22 CHECK (background_video_opacity >= 0 AND background_video_opacity <= 0.9),
+  background_video_blur NUMERIC(5,2) NOT NULL DEFAULT 0 CHECK (background_video_blur >= 0 AND background_video_blur <= 30),
   list_date DATE NOT NULL DEFAULT CURRENT_DATE,
   active BOOLEAN NOT NULL DEFAULT false,
   timer_enabled BOOLEAN NOT NULL DEFAULT false,
@@ -78,6 +79,7 @@ ALTER TABLE public.best_seller_lists ADD COLUMN IF NOT EXISTS size_color TEXT NO
 ALTER TABLE public.best_seller_lists ADD COLUMN IF NOT EXISTS background_video_url TEXT;
 ALTER TABLE public.best_seller_lists ADD COLUMN IF NOT EXISTS background_video_path TEXT;
 ALTER TABLE public.best_seller_lists ADD COLUMN IF NOT EXISTS background_video_opacity NUMERIC(4,3) NOT NULL DEFAULT 0.22;
+ALTER TABLE public.best_seller_lists ADD COLUMN IF NOT EXISTS background_video_blur NUMERIC(5,2) NOT NULL DEFAULT 0;
 ALTER TABLE public.best_seller_lists ADD COLUMN IF NOT EXISTS timer_enabled BOOLEAN NOT NULL DEFAULT false;
 ALTER TABLE public.best_seller_lists ADD COLUMN IF NOT EXISTS timer_end TIMESTAMPTZ;
 ALTER TABLE public.best_seller_lists ADD COLUMN IF NOT EXISTS timer_looping BOOLEAN NOT NULL DEFAULT false;
@@ -173,6 +175,14 @@ BEGIN
     ALTER TABLE public.best_seller_lists
       ADD CONSTRAINT best_seller_lists_background_video_opacity_check
       CHECK (background_video_opacity >= 0 AND background_video_opacity <= 0.9);
+  END IF;
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_constraint
+    WHERE conname = 'best_seller_lists_background_video_blur_check'
+  ) THEN
+    ALTER TABLE public.best_seller_lists
+      ADD CONSTRAINT best_seller_lists_background_video_blur_check
+      CHECK (background_video_blur >= 0 AND background_video_blur <= 30);
   END IF;
 END $$;
 

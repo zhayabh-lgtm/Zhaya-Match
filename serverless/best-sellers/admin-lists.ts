@@ -61,6 +61,12 @@ function normalizeOpacity(value: unknown, fallback = 0.22): number {
   return Math.min(0.9, Math.max(0, Math.round(parsed * 100) / 100));
 }
 
+function normalizeBlur(value: unknown, fallback = 0): number {
+  const parsed = Number(value);
+  if (!Number.isFinite(parsed)) return fallback;
+  return Math.min(30, Math.max(0, Math.round(parsed * 10) / 10));
+}
+
 export default async function handler(req: any, res: any) {
   const requestOrigin = typeof req.headers?.origin === 'string' ? req.headers.origin : '*';
   res.setHeader('Access-Control-Allow-Origin', requestOrigin);
@@ -162,6 +168,7 @@ export default async function handler(req: any, res: any) {
           backgroundVideoUrl: listData.background_video_url || null,
           backgroundVideoPath: listData.background_video_path || null,
           backgroundVideoOpacity: normalizeOpacity(listData.background_video_opacity),
+          backgroundVideoBlur: normalizeBlur(listData.background_video_blur),
           listDate: listData.list_date,
           active: Boolean(listData.active),
           timerEnabled: Boolean(listData.timer_enabled),
@@ -220,6 +227,7 @@ export default async function handler(req: any, res: any) {
           backgroundVideoUrl: row.background_video_url || null,
           backgroundVideoPath: row.background_video_path || null,
           backgroundVideoOpacity: normalizeOpacity(row.background_video_opacity),
+          backgroundVideoBlur: normalizeBlur(row.background_video_blur),
           listDate: row.list_date,
           active: Boolean(row.active),
           timerEnabled: Boolean(row.timer_enabled),
@@ -299,6 +307,7 @@ export default async function handler(req: any, res: any) {
             background_video_url: srcList.background_video_url || null,
             background_video_path: srcList.background_video_path || null,
             background_video_opacity: normalizeOpacity(srcList.background_video_opacity),
+            background_video_blur: normalizeBlur(srcList.background_video_blur),
             list_date: targetDate,
             active: false,
             timer_enabled: false,
@@ -365,6 +374,7 @@ export default async function handler(req: any, res: any) {
           backgroundVideoUrl: newListData.background_video_url || null,
           backgroundVideoPath: newListData.background_video_path || null,
           backgroundVideoOpacity: normalizeOpacity(newListData.background_video_opacity),
+          backgroundVideoBlur: normalizeBlur(newListData.background_video_blur),
           listDate: newListData.list_date,
           active: false,
           timerEnabled: false,
@@ -398,6 +408,7 @@ export default async function handler(req: any, res: any) {
       const backgroundVideoUrl = body.backgroundVideoUrl ? String(body.backgroundVideoUrl).trim() : null;
       const backgroundVideoPath = body.backgroundVideoPath && String(body.backgroundVideoPath).startsWith('bestsellers/') ? String(body.backgroundVideoPath).trim() : null;
       const backgroundVideoOpacity = normalizeOpacity(body.backgroundVideoOpacity);
+      const backgroundVideoBlur = normalizeBlur(body.backgroundVideoBlur);
       const listDate = body.listDate || new Date().toISOString().slice(0, 10);
       const active = Boolean(body.active);
       const timerEnabled = Boolean(body.timerEnabled);
@@ -448,6 +459,7 @@ export default async function handler(req: any, res: any) {
           background_video_url: backgroundVideoUrl,
           background_video_path: backgroundVideoPath,
           background_video_opacity: backgroundVideoOpacity,
+          background_video_blur: backgroundVideoBlur,
           list_date: listDate,
           active,
           timer_enabled: timerEnabled,
@@ -486,6 +498,7 @@ export default async function handler(req: any, res: any) {
         backgroundVideoUrl: data.background_video_url || null,
         backgroundVideoPath: data.background_video_path || null,
         backgroundVideoOpacity: normalizeOpacity(data.background_video_opacity),
+        backgroundVideoBlur: normalizeBlur(data.background_video_blur),
         listDate: data.list_date,
         active: Boolean(data.active),
         timerEnabled: Boolean(data.timer_enabled),
@@ -544,6 +557,7 @@ export default async function handler(req: any, res: any) {
         updates.background_video_path = path.startsWith('bestsellers/') ? path : null;
       }
       if (body.backgroundVideoOpacity !== undefined) updates.background_video_opacity = normalizeOpacity(body.backgroundVideoOpacity);
+      if (body.backgroundVideoBlur !== undefined) updates.background_video_blur = normalizeBlur(body.backgroundVideoBlur);
       if (body.listDate !== undefined) updates.list_date = body.listDate;
       if (body.timezone !== undefined) updates.timezone = body.timezone;
       if (
@@ -630,6 +644,7 @@ export default async function handler(req: any, res: any) {
         backgroundVideoUrl: data.background_video_url || null,
         backgroundVideoPath: data.background_video_path || null,
         backgroundVideoOpacity: normalizeOpacity(data.background_video_opacity),
+        backgroundVideoBlur: normalizeBlur(data.background_video_blur),
         listDate: data.list_date,
         active: Boolean(data.active),
         timerEnabled: Boolean(data.timer_enabled),

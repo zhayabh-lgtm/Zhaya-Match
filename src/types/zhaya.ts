@@ -482,6 +482,7 @@ export interface BestSellerList {
   backgroundVideoUrl?: string | null;
   backgroundVideoPath?: string | null;
   backgroundVideoOpacity?: number;
+  backgroundVideoBlur?: number;
   listDate: string; // YYYY-MM-DD
   active: boolean;
   timerEnabled: boolean;
@@ -595,6 +596,7 @@ export interface PublicBestSellerList {
   sizeColor?: string;
   backgroundVideoUrl?: string | null;
   backgroundVideoOpacity?: number;
+  backgroundVideoBlur?: number;
   listDate: string;
   timerEnabled: boolean;
   timerEnd?: string | null;
