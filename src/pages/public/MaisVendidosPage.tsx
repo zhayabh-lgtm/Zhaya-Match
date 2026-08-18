@@ -1,7 +1,7 @@
 import React, { useEffect, useState, useMemo, useRef } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import { useParams } from 'react-router-dom';
-import { Play, Pause, Volume2, VolumeX } from 'lucide-react';
+import { Play, Pause, Volume2, VolumeX, ChevronLeft, ChevronRight } from 'lucide-react';
 import { Repository } from '../../lib/repository';
 import { getReadableTextColor } from '../../lib/contrast';
 import type { PublicBestSellerList, PublicBestSellerProduct, PublicBestSellerMediaItem } from '../../types/zhaya';
@@ -666,8 +666,24 @@ const ProductMediaGallery: React.FC<{
 
       {totalItems > 1 && (
         <>
-          <button type="button" onClick={handlePrev} aria-label="Mídia anterior" className="absolute left-2.5 top-1/2 -translate-y-1/2 w-9 h-9 rounded-full bg-black/40 text-white hidden sm:flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity duration-200 hover:bg-black/65 z-30 cursor-pointer">‹</button>
-          <button type="button" onClick={handleNext} aria-label="Próxima mídia" className="absolute right-2.5 top-1/2 -translate-y-1/2 w-9 h-9 rounded-full bg-black/40 text-white hidden sm:flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity duration-200 hover:bg-black/65 z-30 cursor-pointer">›</button>
+          <button
+            type="button"
+            onClick={handlePrev}
+            aria-label="Mídia anterior"
+            className="absolute left-2 top-1/2 -translate-y-1/2 z-30 flex h-12 w-10 items-center justify-center text-white/95 transition-transform duration-150 active:scale-95 cursor-pointer"
+            style={{ filter: 'drop-shadow(0 4px 10px rgba(0,0,0,0.72))' }}
+          >
+            <ChevronLeft size={32} strokeWidth={2.4} />
+          </button>
+          <button
+            type="button"
+            onClick={handleNext}
+            aria-label="Próxima mídia"
+            className="absolute right-2 top-1/2 -translate-y-1/2 z-30 flex h-12 w-10 items-center justify-center text-white/95 transition-transform duration-150 active:scale-95 cursor-pointer"
+            style={{ filter: 'drop-shadow(0 4px 10px rgba(0,0,0,0.72))' }}
+          >
+            <ChevronRight size={32} strokeWidth={2.4} />
+          </button>
           <div className="absolute left-1/2 -translate-x-1/2 bottom-3.5 z-30 flex items-center justify-center gap-1.5" aria-label="Galeria de mídia">
             {mediaItems.map((item, dotIndex) => (
               <button
