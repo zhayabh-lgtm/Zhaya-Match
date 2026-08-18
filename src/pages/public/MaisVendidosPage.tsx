@@ -291,6 +291,13 @@ function useRuntimeVideoCover(src: string, enabled: boolean): string | null {
   return cover;
 }
 
+const BEST_SELLER_ACTIVITY_EVENT = 'zhaya-best-seller-activity';
+
+function signalBestSellerActivity(): void {
+  if (typeof window === 'undefined') return;
+  window.dispatchEvent(new Event(BEST_SELLER_ACTIVITY_EVENT));
+}
+
 /**
  * Player de vídeo da galeria.
  * Antes do primeiro play ele NÃO mostra o elemento de vídeo: exibe uma capa
@@ -432,7 +439,12 @@ const GalleryVideo: React.FC<{
           onPlay={() => { setPlaying(true); }}
           onPause={() => setPlaying(false)}
           onEnded={() => setPlaying(false)}
-          onTimeUpdate={(event) => setCurrentTime(event.currentTarget.currentTime || 0)}
+          onTimeUpdate={(event) => {
+            setCurrentTime(event.currentTarget.currentTime || 0);
+            // Assistir ativamente a um vídeo também conta como atividade, mesmo
+            // sem mouse/toque durante a reprodução.
+            if (!event.currentTarget.paused) signalBestSellerActivity();
+          }}
           onVolumeChange={(event) => {
             setMuted(event.currentTarget.muted);
             setVolume(event.currentTarget.volume);
@@ -1067,14 +1079,17 @@ export const MaisVendidosPage: React.FC = () => {
     Repository.trackBestSellerAnalyticsEvent({ eventType: 'page_view', listId: listData.id });
   }, [listData?.id]);
 
-  // Mede tempo realmente engajado por visitante único. O acumulado fica no
-  // navegador e o backend usa sempre o MAIOR total recebido para este visitor/lista,
-  // evitando duplicar tempo em reloads ou em duas abas abertas ao mesmo tempo.
+  // Mede tempo realmente engajado por visitante único. Além de exigir a aba
+  // visível, a contagem para após 60s sem qualquer atividade real (toque, mouse,
+  // scroll, teclado ou vídeo em reprodução). Ao voltar a interagir, ela retoma.
+  // O storage v2 evita reaproveitar totais antigos que podiam ter contado horas
+  // com o computador simplesmente deixado aberto.
   useEffect(() => {
     if (!listData?.id || typeof window === 'undefined' || typeof document === 'undefined') return;
 
     const listId = listData.id;
-    const storageKey = `zhaya_best_seller_engagement_v1:${listId}`;
+    const storageKey = `zhaya_best_seller_engagement_v2:${listId}`;
+    const IDLE_TIMEOUT_MS = 60_000;
 
     const readStored = () => {
       try {
@@ -1086,12 +1101,21 @@ export const MaisVendidosPage: React.FC = () => {
     };
 
     let baseSeconds = readStored();
-    let visibleSince: number | null = document.visibilityState === 'visible' ? Date.now() : null;
+    let activeSince: number | null = document.visibilityState === 'visible' ? Date.now() : null;
+    let lastActivityAt = activeSince ?? 0;
     let lastReportedSeconds = baseSeconds;
+    let idleTimer: number | null = null;
+    let lastActivityHandledAt = 0;
+
+    const segmentSeconds = (nowMs = Date.now()) => {
+      if (activeSince === null) return 0;
+      const idleDeadline = lastActivityAt + IDLE_TIMEOUT_MS;
+      const effectiveEnd = Math.min(nowMs, idleDeadline);
+      return Math.max(0, Math.floor((effectiveEnd - activeSince) / 1000));
+    };
 
     const currentTotal = () => {
-      const elapsed = visibleSince === null ? 0 : Math.max(0, Math.floor((Date.now() - visibleSince) / 1000));
-      return Math.max(baseSeconds + elapsed, readStored());
+      return Math.max(baseSeconds + segmentSeconds(), readStored());
     };
 
     const persistAndReport = (force = false) => {
@@ -1113,27 +1137,88 @@ export const MaisVendidosPage: React.FC = () => {
       }
     };
 
-    const pause = () => {
-      if (visibleSince !== null) {
-        baseSeconds = currentTotal();
-        visibleSince = null;
+    const clearIdleTimer = () => {
+      if (idleTimer !== null) {
+        window.clearTimeout(idleTimer);
+        idleTimer = null;
       }
-      persistAndReport(true);
+    };
+
+    const pauseAt = (endMs = Date.now(), report = true) => {
+      clearIdleTimer();
+      if (activeSince !== null) {
+        const effectiveEnd = Math.min(endMs, lastActivityAt + IDLE_TIMEOUT_MS);
+        const elapsed = Math.max(0, Math.floor((effectiveEnd - activeSince) / 1000));
+        baseSeconds = Math.max(baseSeconds + elapsed, readStored());
+        activeSince = null;
+      }
+      if (report) persistAndReport(true);
+    };
+
+    const scheduleIdlePause = () => {
+      clearIdleTimer();
+      if (activeSince === null || document.visibilityState !== 'visible') return;
+      const idleDeadline = lastActivityAt + IDLE_TIMEOUT_MS;
+      const delay = Math.max(0, idleDeadline - Date.now());
+      idleTimer = window.setTimeout(() => {
+        // Usa exatamente o instante do limite, então uma aba esquecida aberta
+        // nunca acrescenta minutos/horas extras depois da inatividade.
+        pauseAt(idleDeadline, true);
+      }, delay + 25);
+    };
+
+    const markActivity = () => {
+      if (document.visibilityState !== 'visible') return;
+      const activityNow = Date.now();
+
+      // pointermove/scroll podem disparar dezenas de vezes por segundo.
+      if (activityNow - lastActivityHandledAt < 500) return;
+      lastActivityHandledAt = activityNow;
+
+      baseSeconds = Math.max(baseSeconds, readStored());
+      if (activeSince === null) activeSince = activityNow;
+      lastActivityAt = activityNow;
+      scheduleIdlePause();
     };
 
     const resume = () => {
+      if (document.visibilityState !== 'visible') return;
       baseSeconds = Math.max(baseSeconds, readStored());
-      if (visibleSince === null) visibleSince = Date.now();
+      const resumeNow = Date.now();
+      if (activeSince === null) activeSince = resumeNow;
+      lastActivityAt = resumeNow;
+      scheduleIdlePause();
     };
 
     const handleVisibilityChange = () => {
       if (document.visibilityState === 'visible') resume();
-      else pause();
+      else pauseAt(Date.now(), true);
     };
 
-    const handlePageHide = () => pause();
+    const handlePageHide = () => pauseAt(Date.now(), true);
+
+    // A primeira abertura é uma interação válida, mas se o usuário abandonar o
+    // computador sem tocar em nada, a contagem para automaticamente em 60s.
+    if (activeSince !== null) scheduleIdlePause();
+
+    const activityEvents: Array<keyof WindowEventMap> = [
+      'pointerdown',
+      'pointermove',
+      'scroll',
+      'wheel',
+      'keydown',
+      'touchstart',
+    ];
+
+    activityEvents.forEach((eventName) => {
+      window.addEventListener(eventName, markActivity, { passive: true });
+    });
+    window.addEventListener(BEST_SELLER_ACTIVITY_EVENT, markActivity);
+
     const heartbeat = window.setInterval(() => {
-      if (document.visibilityState === 'visible') persistAndReport(false);
+      if (document.visibilityState === 'visible' && activeSince !== null) {
+        persistAndReport(false);
+      }
     }, 15000);
 
     document.addEventListener('visibilitychange', handleVisibilityChange);
@@ -1141,9 +1226,14 @@ export const MaisVendidosPage: React.FC = () => {
 
     return () => {
       window.clearInterval(heartbeat);
+      clearIdleTimer();
+      activityEvents.forEach((eventName) => {
+        window.removeEventListener(eventName, markActivity);
+      });
+      window.removeEventListener(BEST_SELLER_ACTIVITY_EVENT, markActivity);
       document.removeEventListener('visibilitychange', handleVisibilityChange);
       window.removeEventListener('pagehide', handlePageHide);
-      pause();
+      pauseAt(Date.now(), true);
     };
   }, [listData?.id]);
 
