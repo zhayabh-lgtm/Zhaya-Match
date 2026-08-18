@@ -583,6 +583,38 @@ export interface PublicBestSellerProduct {
   timerColor?: string;
 }
 
+
+export interface BestSellerAnalyticsDeviceItem {
+  deviceType: string;
+  count: number;
+}
+
+export interface BestSellerAnalyticsLocationItem {
+  countryCode?: string | null;
+  region?: string | null;
+  city?: string | null;
+  count: number;
+}
+
+export interface BestSellerAnalyticsProductItem {
+  productId: string;
+  name: string;
+  clicks: number;
+  plays: number;
+}
+
+export interface BestSellerAnalyticsSummary {
+  configured: boolean;
+  listId: string;
+  pageViews: number;
+  uniqueVisitors: number;
+  totalClicks: number;
+  totalPlays: number;
+  devices: BestSellerAnalyticsDeviceItem[];
+  locations: BestSellerAnalyticsLocationItem[];
+  products: BestSellerAnalyticsProductItem[];
+}
+
 export interface PublicBestSellerList {
   id: string;
   slug?: string;

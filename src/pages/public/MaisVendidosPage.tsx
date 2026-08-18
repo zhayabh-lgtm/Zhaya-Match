@@ -302,7 +302,8 @@ const GalleryVideo: React.FC<{
   label: string;
   onError: () => void;
   posterUrl?: string;
-}> = ({ src, label, onError, posterUrl }) => {
+  onPlayIntent?: () => void;
+}> = ({ src, label, onError, posterUrl, onPlayIntent }) => {
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const containerRef = useRef<HTMLDivElement | null>(null);
   const [activated, setActivated] = useState(false);
@@ -357,6 +358,7 @@ const GalleryVideo: React.FC<{
 
   const startPlayback = () => {
     // Antes do toque não existe <video> no DOM: só a capa estática é carregada.
+    onPlayIntent?.();
     setActivated(true);
   };
 
@@ -378,6 +380,7 @@ const GalleryVideo: React.FC<{
       return;
     }
     if (video.paused) {
+      onPlayIntent?.();
       void video.play().catch(() => undefined);
     } else {
       video.pause();
@@ -410,7 +413,7 @@ const GalleryVideo: React.FC<{
   };
 
   return (
-    <div ref={containerRef} className="relative w-full h-full bg-neutral-950">
+    <div ref={containerRef} className="relative w-full h-full bg-transparent">
       {/* O player real só é criado depois do toque. No iPhone isso evita que
           o download/decodificação do vídeo concorra com a capa estática. */}
       {activated && (
@@ -435,14 +438,14 @@ const GalleryVideo: React.FC<{
             setVolume(event.currentTarget.volume);
           }}
           onError={onError}
-          className={`absolute inset-0 w-full h-full object-cover object-bottom bg-neutral-950 pointer-events-none transition-opacity duration-200 ${videoReady ? 'opacity-100' : 'opacity-0'}`}
+          className={`absolute inset-0 w-full h-full object-cover object-bottom bg-transparent pointer-events-none transition-opacity duration-200 ${videoReady ? 'opacity-100' : 'opacity-0'}`}
         />
       )}
 
       {/* Capa é uma imagem comum. Ela permanece visível inclusive enquanto o
           player aberto ainda carrega o primeiro frame. */}
       {(!activated || !videoReady) && (
-        <div className="absolute inset-0 z-20 bg-neutral-900">
+        <div className="absolute inset-0 z-20 bg-transparent">
           {coverUrl ? (
             <img
               src={coverUrl}
@@ -455,7 +458,7 @@ const GalleryVideo: React.FC<{
               className="absolute inset-0 w-full h-full object-cover object-bottom pointer-events-none"
             />
           ) : (
-            <div className="absolute inset-0 bg-neutral-900" aria-hidden="true" />
+            <div className="absolute inset-0 bg-transparent" aria-hidden="true" />
           )}
 
           {!activated && <button
@@ -550,7 +553,8 @@ const ProductMediaGallery: React.FC<{
   sizes: string[];
   outOfStockSizes: string[];
   timerContent?: React.ReactNode;
-}> = ({ mediaItems, productName, isFirst, rankLabel, rankColor, sizeColor, showRanking, badgeContent, sizes, outOfStockSizes, timerContent }) => {
+  onVideoPlay?: () => void;
+}> = ({ mediaItems, productName, isFirst, rankLabel, rankColor, sizeColor, showRanking, badgeContent, sizes, outOfStockSizes, timerContent, onVideoPlay }) => {
   const [currentIndex, setCurrentIndex] = useState(0);
   const [failedMedia, setFailedMedia] = useState<Record<number, boolean>>({});
   const [direction, setDirection] = useState(0);
@@ -612,7 +616,7 @@ const ProductMediaGallery: React.FC<{
   const canSwipe = totalItems > 1;
 
   return (
-    <div className="relative w-full aspect-[4/5] bg-neutral-950 rounded-[10px] overflow-hidden mb-5 select-none touch-pan-y group">
+    <div className="relative w-full aspect-[4/5] bg-transparent rounded-[10px] overflow-hidden mb-5 select-none touch-pan-y group">
       <AnimatePresence initial={false} mode="popLayout" custom={direction}>
         <motion.div
           key={`${currentIndex}-${currentMedia?.id || currentMedia?.url || 'empty'}`}
@@ -634,6 +638,7 @@ const ProductMediaGallery: React.FC<{
                 label={`${productName} - vídeo ${currentIndex + 1}`}
                 onError={() => setFailedMedia((prev) => ({ ...prev, [currentIndex]: true }))}
                 posterUrl={currentMedia.posterUrl || undefined}
+                onPlayIntent={onVideoPlay}
               />
             ) : (
               <img
@@ -646,7 +651,7 @@ const ProductMediaGallery: React.FC<{
               />
             )
           ) : (
-            <div className="w-full h-full flex items-center justify-center bg-neutral-950 text-neutral-600 px-4 text-center">
+            <div className="w-full h-full flex items-center justify-center bg-transparent text-neutral-500 px-4 text-center">
               <span className="text-xs tracking-[0.14em] uppercase">Mídia indisponível</span>
             </div>
           )}
@@ -742,7 +747,8 @@ const ProductItem: React.FC<{
   sizeColor: string;
   showRanking: boolean;
   now: number;
-}> = ({ product, index, isFirst, ctaText, rankColor, sizeColor, showRanking, now }) => {
+  listId: string;
+}> = ({ product, index, isFirst, ctaText, rankColor, sizeColor, showRanking, now, listId }) => {
   const formattedPos = String(product.position || index + 1).padStart(2, '0');
   const soldText = product.showSoldQuantity ? formatSoldQuantityText(product.soldQuantity) : null;
   const availableText = formatAvailableQuantityText(product.availableQuantity);
@@ -799,7 +805,11 @@ const ProductItem: React.FC<{
   ) : null;
 
   const handleProductClick = () => {
-    Repository.trackBestSellerProductClick(product.id);
+    Repository.trackBestSellerProductClick(product.id, listId);
+  };
+
+  const handleVideoPlay = () => {
+    Repository.trackBestSellerAnalyticsEvent({ eventType: 'product_play', listId, productId: product.id });
   };
 
   const badgeElement = hasBadge ? (
@@ -840,6 +850,7 @@ const ProductItem: React.FC<{
         sizes={sizes}
         outOfStockSizes={outOfStockSizes}
         timerContent={productTimerElement}
+        onVideoPlay={handleVideoPlay}
       />
 
       <div className="flex flex-col items-center text-center px-2 sm:px-4">
@@ -925,6 +936,7 @@ export const MaisVendidosPage: React.FC = () => {
   const lastDataRef = useRef<string>('');
   const isFetchingRef = useRef<boolean>(false);
   const hasLoadedInitiallyRef = useRef<boolean>(false);
+  const pageViewTrackedRef = useRef<string>('');
 
   // Atualiza relógio local para o timer (apenas cálculo visual a cada 1s)
   useEffect(() => {
@@ -990,6 +1002,7 @@ export const MaisVendidosPage: React.FC = () => {
     // Ao trocar de slug, não reaproveita o snapshot da lista anterior.
     lastDataRef.current = '';
     hasLoadedInitiallyRef.current = false;
+    pageViewTrackedRef.current = '';
     setListData(null);
     setErrorMessage(null);
 
@@ -1045,6 +1058,14 @@ export const MaisVendidosPage: React.FC = () => {
     if (!listData?.listDate) return '';
     return formatBestSellerDate(listData.listDate, listData.timezone);
   }, [listData]);
+
+  // Registra uma entrada por carregamento da lista. O visitorId fica persistente
+  // no navegador para permitir uma estimativa simples de visitantes únicos.
+  useEffect(() => {
+    if (!listData?.id || pageViewTrackedRef.current === listData.id) return;
+    pageViewTrackedRef.current = listData.id;
+    Repository.trackBestSellerAnalyticsEvent({ eventType: 'page_view', listId: listData.id });
+  }, [listData?.id]);
 
   return (
     <div
@@ -1217,6 +1238,7 @@ export const MaisVendidosPage: React.FC = () => {
                     sizeColor={listData.sizeColor || '#FFFFFF'}
                     showRanking={listData.showRanking !== false}
                     now={now}
+                    listId={listData.id}
                   />
                 ))}
               </div>

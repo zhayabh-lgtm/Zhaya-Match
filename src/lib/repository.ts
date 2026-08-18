@@ -16,11 +16,36 @@ import {
   BestSellerList,
   BestSellerProduct,
   BestSellerLibraryProduct,
+  BestSellerAnalyticsSummary,
   PublicBestSellerList,
 } from '../types/zhaya';
 import { supabase, isSupabaseConfigured } from './supabase';
 import { normalizeMeasurementObservation, normalizeProductType } from './normalize';
 import { computeAnalyticsSummary } from './analyticsAggregator';
+
+const BEST_SELLER_VISITOR_STORAGE_KEY = 'zhaya_best_seller_visitor_v1';
+
+function getBestSellerVisitorId(): string {
+  const fallback = `visitor_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 10)}`;
+  if (typeof window === 'undefined') return fallback;
+  try {
+    const existing = window.localStorage.getItem(BEST_SELLER_VISITOR_STORAGE_KEY);
+    if (existing && existing.length >= 8 && existing.length <= 128) return existing;
+    const created = typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function'
+      ? crypto.randomUUID()
+      : fallback;
+    window.localStorage.setItem(BEST_SELLER_VISITOR_STORAGE_KEY, created);
+    return created;
+  } catch {
+    return fallback;
+  }
+}
+
+function getBestSellerReferrer(): string | null {
+  if (typeof document === 'undefined') return null;
+  const value = String(document.referrer || '').trim();
+  return value ? value.slice(0, 500) : null;
+}
 
 // Default initial values used for database seed or initial state
 export const defaultProductTypes: ProductType[] = [
@@ -2133,11 +2158,64 @@ export const Repository = {
     return null;
   },
 
-  trackBestSellerProductClick(productId: string): void {
+  async getBestSellerAnalytics(listId: string): Promise<BestSellerAnalyticsSummary | null> {
+    if (!listId) return null;
+    try {
+      const token = isSupabaseConfigured && supabase ? (await supabase.auth.getSession())?.data?.session?.access_token : undefined;
+      const headers: Record<string, string> = {};
+      if (token) headers['Authorization'] = `Bearer ${token}`;
+      const res = await fetch(`/api/best-sellers?mode=analytics&listId=${encodeURIComponent(listId)}&_=${Date.now()}`, {
+        headers,
+        cache: 'no-store',
+      });
+      const json = await res.json().catch(() => null);
+      if (res.ok && json?.success && json?.analytics) return json.analytics;
+      return null;
+    } catch (e) {
+      console.warn('[Repository] Erro ao carregar analytics da lista:', e);
+      return null;
+    }
+  },
+
+  trackBestSellerAnalyticsEvent(input: {
+    eventType: 'page_view' | 'product_play';
+    listId: string;
+    productId?: string;
+  }): void {
+    if (!input.listId) return;
+    try {
+      const url = '/api/best-sellers?mode=analytics';
+      const payload = JSON.stringify({
+        ...input,
+        visitorId: getBestSellerVisitorId(),
+        referrer: getBestSellerReferrer(),
+      });
+      if (typeof navigator !== 'undefined' && typeof navigator.sendBeacon === 'function') {
+        const blob = new Blob([payload], { type: 'application/json' });
+        const success = navigator.sendBeacon(url, blob);
+        if (success) return;
+      }
+      fetch(url, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: payload,
+        keepalive: true,
+      }).catch(() => {});
+    } catch {
+      // Analytics nunca deve quebrar a vitrine.
+    }
+  },
+
+  trackBestSellerProductClick(productId: string, listId?: string): void {
     if (!productId) return;
     try {
       const url = '/api/best-sellers?mode=public-click';
-      const payload = JSON.stringify({ productId });
+      const payload = JSON.stringify({
+        productId,
+        listId: listId || undefined,
+        visitorId: getBestSellerVisitorId(),
+        referrer: getBestSellerReferrer(),
+      });
       if (typeof navigator !== 'undefined' && typeof navigator.sendBeacon === 'function') {
         const blob = new Blob([payload], { type: 'application/json' });
         const success = navigator.sendBeacon(url, blob);

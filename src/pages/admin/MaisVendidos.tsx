@@ -31,11 +31,16 @@ import {
   Video,
   ImagePlus,
   Link2,
+  BarChart3,
+  Users,
+  Monitor,
+  MapPin,
+  Play,
 } from 'lucide-react';
 import { Repository } from '../../lib/repository';
 import { getReadableTextColor } from '../../lib/contrast';
 import { supabase, isSupabaseConfigured } from '../../lib/supabase';
-import type { BestSellerList, BestSellerProduct, BestSellerMediaItem, BestSellerLibraryProduct } from '../../types/zhaya';
+import type { BestSellerList, BestSellerProduct, BestSellerMediaItem, BestSellerLibraryProduct, BestSellerAnalyticsSummary } from '../../types/zhaya';
 
 const BEST_SELLERS_SQL = `-- ==============================================================================
 -- ZHAYA MATCH - SETUP DE MAIS VENDIDOS DO DIA (100% COMPLETO E IDEMPOTENTE)
@@ -377,6 +382,28 @@ REVOKE ALL ON public.best_seller_product_library FROM anon, authenticated;
 GRANT ALL ON public.best_seller_product_library TO service_role;
 ALTER TABLE public.best_seller_media_assets ADD COLUMN IF NOT EXISTS purpose TEXT NOT NULL DEFAULT 'product_video';
 
+-- 12. Analytics simples por lista
+CREATE TABLE IF NOT EXISTS public.best_seller_analytics_events (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  list_id UUID NOT NULL REFERENCES public.best_seller_lists(id) ON DELETE CASCADE,
+  product_id UUID REFERENCES public.best_seller_products(id) ON DELETE SET NULL,
+  event_type TEXT NOT NULL CHECK (event_type IN ('page_view', 'product_play', 'product_click')),
+  visitor_id TEXT NOT NULL,
+  device_type TEXT NOT NULL DEFAULT 'unknown',
+  country_code TEXT,
+  region TEXT,
+  city TEXT,
+  referrer TEXT,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS idx_best_seller_analytics_list_created ON public.best_seller_analytics_events(list_id, created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_best_seller_analytics_list_event ON public.best_seller_analytics_events(list_id, event_type);
+CREATE INDEX IF NOT EXISTS idx_best_seller_analytics_product_event ON public.best_seller_analytics_events(product_id, event_type);
+CREATE INDEX IF NOT EXISTS idx_best_seller_analytics_visitor ON public.best_seller_analytics_events(list_id, visitor_id);
+ALTER TABLE public.best_seller_analytics_events ENABLE ROW LEVEL SECURITY;
+REVOKE ALL ON public.best_seller_analytics_events FROM anon, authenticated;
+GRANT ALL ON public.best_seller_analytics_events TO service_role;
+
 NOTIFY pgrst, 'reload schema';`;
 
 
@@ -427,6 +454,8 @@ export const MaisVendidos: React.FC = () => {
   const [selectedList, setSelectedList] = useState<BestSellerList | null>(null);
   const [products, setProducts] = useState<BestSellerProduct[]>([]);
   const [loadingProducts, setLoadingProducts] = useState<boolean>(false);
+  const [listAnalytics, setListAnalytics] = useState<BestSellerAnalyticsSummary | null>(null);
+  const [analyticsLoading, setAnalyticsLoading] = useState<boolean>(false);
 
   // Biblioteca reutilizável: guarda dados e imagens, nunca vídeos.
   const [isLibraryModalOpen, setIsLibraryModalOpen] = useState<boolean>(false);
@@ -440,6 +469,7 @@ export const MaisVendidos: React.FC = () => {
   const [isListModalOpen, setIsListModalOpen] = useState<boolean>(false);
   const [editingList, setEditingList] = useState<BestSellerList | null>(null);
   const [listFormTitle, setListFormTitle] = useState('Mais Vendidos do Dia');
+  const [listFormSlug, setListFormSlug] = useState('');
   const [listFormLogoUrl, setListFormLogoUrl] = useState('');
   const [listFormSubtitle, setListFormSubtitle] = useState('');
   const [listFormCtaText, setListFormCtaText] = useState('');
@@ -564,6 +594,71 @@ export const MaisVendidos: React.FC = () => {
     loadLists();
   }, []);
 
+  // Atualiza contagem de produtos/cliques da visão geral sem precisar recarregar o admin.
+  useEffect(() => {
+    let cancelled = false;
+    const refreshOverviewMetrics = async () => {
+      if (typeof document !== 'undefined' && document.visibilityState !== 'visible') return;
+      const info = await Repository.getBestSellerListsInfo();
+      if (cancelled) return;
+      if (info.tableConfigured !== false) {
+        setLists(info.lists);
+        setTableConfigured(true);
+      }
+    };
+    const interval = window.setInterval(refreshOverviewMetrics, 3000);
+    const handleFocus = () => { void refreshOverviewMetrics(); };
+    window.addEventListener('focus', handleFocus);
+    return () => {
+      cancelled = true;
+      window.clearInterval(interval);
+      window.removeEventListener('focus', handleFocus);
+    };
+  }, []);
+
+  // Enquanto uma lista estiver aberta, atualiza produtos, cliques e analytics silenciosamente.
+  useEffect(() => {
+    const listId = selectedList?.id;
+    if (!listId) {
+      setListAnalytics(null);
+      setAnalyticsLoading(false);
+      return;
+    }
+
+    let cancelled = false;
+    let firstRun = true;
+    const refreshSelectedMetrics = async () => {
+      if (typeof document !== 'undefined' && document.visibilityState !== 'visible') return;
+      if (firstRun) setAnalyticsLoading(true);
+      const [listResult, latestProducts, analytics] = await Promise.all([
+        Repository.getBestSellerList(listId),
+        Repository.getBestSellerProducts(listId),
+        Repository.getBestSellerAnalytics(listId),
+      ]);
+      if (cancelled) return;
+      if (listResult?.list) {
+        setSelectedList(listResult.list);
+        setLists((current) => current.map((item) => item.id === listId ? { ...item, ...listResult.list } : item));
+      }
+      setProducts(latestProducts);
+      if (analytics) setListAnalytics(analytics);
+      if (firstRun) {
+        firstRun = false;
+        setAnalyticsLoading(false);
+      }
+    };
+
+    void refreshSelectedMetrics();
+    const interval = window.setInterval(refreshSelectedMetrics, 3000);
+    const handleFocus = () => { void refreshSelectedMetrics(); };
+    window.addEventListener('focus', handleFocus);
+    return () => {
+      cancelled = true;
+      window.clearInterval(interval);
+      window.removeEventListener('focus', handleFocus);
+    };
+  }, [selectedList?.id]);
+
   // Copy SQL
   const handleCopySql = () => {
     navigator.clipboard.writeText(BEST_SELLERS_SQL);
@@ -575,6 +670,7 @@ export const MaisVendidos: React.FC = () => {
   const handleOpenCreateList = () => {
     setEditingList(null);
     setListFormTitle('Mais Vendidos do Dia');
+    setListFormSlug('');
     setListFormLogoUrl('');
     setListFormSubtitle('');
     setListFormCtaText('');
@@ -607,6 +703,7 @@ export const MaisVendidos: React.FC = () => {
     if (e) e.stopPropagation();
     setEditingList(list);
     setListFormTitle(list.title);
+    setListFormSlug(list.slug || '');
     setListFormLogoUrl(list.logoUrl || '');
     setListFormSubtitle(list.subtitle || '');
     setListFormCtaText(list.ctaText || '');
@@ -1009,6 +1106,7 @@ export const MaisVendidos: React.FC = () => {
         // Update
         const res = await Repository.updateBestSellerList(editingList.id, {
           title: listFormTitle.trim(),
+          slug: listFormSlug.trim() || undefined,
           logoUrl: listFormLogoUrl.trim() || null,
           subtitle: listFormSubtitle.trim() || null,
           ctaText: listFormCtaText.trim() || null,
@@ -1039,6 +1137,7 @@ export const MaisVendidos: React.FC = () => {
         // Create
         const res = await Repository.createBestSellerList({
           title: listFormTitle.trim(),
+          slug: listFormSlug.trim() || undefined,
           logoUrl: listFormLogoUrl.trim() || null,
           subtitle: listFormSubtitle.trim() || null,
           ctaText: listFormCtaText.trim() || null,
@@ -1786,6 +1885,11 @@ export const MaisVendidos: React.FC = () => {
                           {list.productsCount ?? 0} {list.productsCount === 1 ? 'produto' : 'produtos'}
                         </span>
 
+                        <span className="text-xs text-neutral-500 font-medium flex items-center gap-1">
+                          <MousePointerClick className="w-3.5 h-3.5 text-neutral-400" />
+                          {list.totalClicks ?? 0} {(list.totalClicks ?? 0) === 1 ? 'clique' : 'cliques'}
+                        </span>
+
                         {list.timerEnabled && (
                           <span className="inline-flex items-center gap-1 text-[11px] text-neutral-500 font-mono bg-neutral-50 border border-neutral-200 px-2 py-0.5 rounded">
                             <Clock className="w-3 h-3 text-neutral-400" />
@@ -1909,6 +2013,14 @@ export const MaisVendidos: React.FC = () => {
                         : 'Timer fixo'}
                     </span>
                   )}
+                  <span className="inline-flex items-center gap-1 text-[11px] text-neutral-500">
+                    <Package className="w-3 h-3 text-neutral-400" />
+                    {products.length} {products.length === 1 ? 'produto' : 'produtos'}
+                  </span>
+                  <span className="inline-flex items-center gap-1 text-[11px] text-neutral-500">
+                    <MousePointerClick className="w-3 h-3 text-neutral-400" />
+                    {selectedList.totalClicks ?? products.reduce((sum, item) => sum + (item.clicks || 0), 0)} cliques
+                  </span>
                 </div>
                 <h2 className="text-base font-bold text-neutral-900">{selectedList.title}</h2>
                 {selectedList.subtitle && (
@@ -1951,6 +2063,86 @@ export const MaisVendidos: React.FC = () => {
                   Editar Dados da Lista
                 </button>
               </div>
+            </div>
+
+            {/* Analytics simples da lista */}
+            <div className="space-y-3">
+              <div className="flex items-center justify-between gap-3">
+                <div>
+                  <h3 className="text-xs font-bold uppercase tracking-wider text-neutral-500 font-mono flex items-center gap-1.5">
+                    <BarChart3 className="w-4 h-4 text-neutral-400" />
+                    Analytics da Lista
+                  </h3>
+                  <p className="text-[10px] text-neutral-400">Atualiza automaticamente enquanto esta tela estiver aberta.</p>
+                </div>
+                {analyticsLoading && <Loader2 className="w-4 h-4 text-neutral-400 animate-spin" />}
+              </div>
+
+              <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+                <div className="rounded-lg border border-neutral-200 bg-neutral-50 p-3">
+                  <div className="flex items-center gap-1.5 text-[10px] uppercase tracking-wider text-neutral-400 font-semibold"><Eye className="w-3.5 h-3.5" /> Visualizações</div>
+                  <div className="mt-1 text-xl font-bold text-neutral-900">{listAnalytics?.pageViews ?? 0}</div>
+                </div>
+                <div className="rounded-lg border border-neutral-200 bg-neutral-50 p-3">
+                  <div className="flex items-center gap-1.5 text-[10px] uppercase tracking-wider text-neutral-400 font-semibold"><Users className="w-3.5 h-3.5" /> Visitantes</div>
+                  <div className="mt-1 text-xl font-bold text-neutral-900">{listAnalytics?.uniqueVisitors ?? 0}</div>
+                </div>
+                <div className="rounded-lg border border-neutral-200 bg-neutral-50 p-3">
+                  <div className="flex items-center gap-1.5 text-[10px] uppercase tracking-wider text-neutral-400 font-semibold"><MousePointerClick className="w-3.5 h-3.5" /> Cliques</div>
+                  <div className="mt-1 text-xl font-bold text-neutral-900">{listAnalytics?.totalClicks ?? selectedList.totalClicks ?? 0}</div>
+                </div>
+                <div className="rounded-lg border border-neutral-200 bg-neutral-50 p-3">
+                  <div className="flex items-center gap-1.5 text-[10px] uppercase tracking-wider text-neutral-400 font-semibold"><Play className="w-3.5 h-3.5" /> Plays</div>
+                  <div className="mt-1 text-xl font-bold text-neutral-900">{listAnalytics?.totalPlays ?? 0}</div>
+                </div>
+              </div>
+
+              {listAnalytics?.configured === false ? (
+                <div className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-[11px] text-amber-800">
+                  O analytics detalhado ainda não está configurado no Supabase. Os cliques continuam funcionando; execute o SQL de analytics desta versão para liberar visualizações, visitantes, plays, dispositivos e localização.
+                </div>
+              ) : listAnalytics ? (
+                <div className="grid grid-cols-1 lg:grid-cols-3 gap-3">
+                  <div className="rounded-lg border border-neutral-200 p-3">
+                    <div className="flex items-center gap-1.5 text-[10px] font-bold uppercase tracking-wider text-neutral-500 mb-2"><Monitor className="w-3.5 h-3.5" /> Dispositivos</div>
+                    <div className="space-y-1.5">
+                      {listAnalytics.devices.length > 0 ? listAnalytics.devices.slice(0, 4).map((item) => (
+                        <div key={item.deviceType} className="flex items-center justify-between text-[11px]">
+                          <span className="text-neutral-600">{item.deviceType === 'mobile' ? 'Mobile' : item.deviceType === 'desktop' ? 'Computador' : item.deviceType === 'tablet' ? 'Tablet' : 'Outro'}</span>
+                          <strong className="text-neutral-900">{item.count}</strong>
+                        </div>
+                      )) : <span className="text-[11px] text-neutral-400">Sem dados ainda.</span>}
+                    </div>
+                  </div>
+
+                  <div className="rounded-lg border border-neutral-200 p-3">
+                    <div className="flex items-center gap-1.5 text-[10px] font-bold uppercase tracking-wider text-neutral-500 mb-2"><MapPin className="w-3.5 h-3.5" /> Localização</div>
+                    <div className="space-y-1.5">
+                      {listAnalytics.locations.length > 0 ? listAnalytics.locations.slice(0, 5).map((item, idx) => {
+                        const label = [item.city, item.region, item.countryCode].filter(Boolean).join(', ') || 'Não identificada';
+                        return (
+                          <div key={`${label}-${idx}`} className="flex items-center justify-between gap-2 text-[11px]">
+                            <span className="text-neutral-600 truncate" title={label}>{label}</span>
+                            <strong className="text-neutral-900 shrink-0">{item.count}</strong>
+                          </div>
+                        );
+                      }) : <span className="text-[11px] text-neutral-400">Sem dados ainda.</span>}
+                    </div>
+                  </div>
+
+                  <div className="rounded-lg border border-neutral-200 p-3">
+                    <div className="flex items-center gap-1.5 text-[10px] font-bold uppercase tracking-wider text-neutral-500 mb-2"><ShoppingBag className="w-3.5 h-3.5" /> Por produto</div>
+                    <div className="space-y-2">
+                      {listAnalytics.products.length > 0 ? listAnalytics.products.slice(0, 6).map((item) => (
+                        <div key={item.productId} className="text-[11px]">
+                          <div className="font-semibold text-neutral-700 truncate" title={item.name}>{item.name}</div>
+                          <div className="text-neutral-400 flex items-center gap-2 mt-0.5"><span>{item.clicks} cliques</span><span>·</span><span>{item.plays} plays</span></div>
+                        </div>
+                      )) : <span className="text-[11px] text-neutral-400">Sem produtos.</span>}
+                    </div>
+                  </div>
+                </div>
+              ) : null}
             </div>
 
             {/* Products Sub-section */}
@@ -2270,6 +2462,22 @@ export const MaisVendidos: React.FC = () => {
                   required
                   className="w-full px-3 py-2 border border-neutral-300 rounded focus:ring-1 focus:ring-neutral-900 focus:outline-none text-xs"
                 />
+              </div>
+
+              <div className="space-y-1">
+                <label className="font-semibold text-neutral-700">Slug / link personalizado (Opcional)</label>
+                <div className="flex items-center gap-2">
+                  <span className="text-[10px] text-neutral-400 shrink-0">/mais-vendidos/</span>
+                  <input
+                    type="text"
+                    value={listFormSlug}
+                    onChange={(e) => setListFormSlug(e.target.value)}
+                    placeholder="ex: live-agosto"
+                    maxLength={64}
+                    className="min-w-0 flex-1 px-3 py-2 border border-neutral-300 rounded focus:ring-1 focus:ring-neutral-900 focus:outline-none text-xs font-mono"
+                  />
+                </div>
+                <p className="text-[10px] text-neutral-500">Se deixar vazio ao criar, o sistema gera um slug único automaticamente. Letras maiúsculas, espaços e acentos serão normalizados.</p>
               </div>
 
               {/* Logotipo da Marca com Suporte a Upload para Supabase Storage */}

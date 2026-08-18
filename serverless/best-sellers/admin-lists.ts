@@ -30,6 +30,17 @@ function isTableMissingError(error: any): boolean {
   );
 }
 
+
+function normalizeBestSellerSlug(value: unknown): string {
+  return String(value || '')
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-+|-+$/g, '')
+    .slice(0, 64);
+}
+
 function buildBestSellerSlug(title: string): string {
   const base = String(title || 'lista')
     .normalize('NFD')
@@ -398,6 +409,8 @@ export default async function handler(req: any, res: any) {
 
       // Criação normal de lista
       const title = (body.title || 'Mais Vendidos do Dia').trim();
+      const requestedSlug = body.slug !== undefined && body.slug !== null ? normalizeBestSellerSlug(body.slug) : '';
+      const slug = requestedSlug || buildBestSellerSlug(title);
       const logoUrl = body.logoUrl ? String(body.logoUrl).trim() : null;
       const subtitle = body.subtitle ? String(body.subtitle).trim() : null;
       const ctaText = body.ctaText ? String(body.ctaText).trim() : null;
@@ -426,6 +439,17 @@ export default async function handler(req: any, res: any) {
       if (!listDate) {
         return res.status(400).json({ success: false, message: 'A data da lista é obrigatória.' });
       }
+      if (body.slug !== undefined && String(body.slug || '').trim() && !requestedSlug) {
+        return res.status(400).json({ success: false, message: 'O slug informado é inválido.' });
+      }
+      const { data: existingSlug } = await supabase
+        .from('best_seller_lists')
+        .select('id')
+        .eq('slug', slug)
+        .maybeSingle();
+      if (existingSlug) {
+        return res.status(409).json({ success: false, message: 'Este slug já está sendo usado por outra lista.' });
+      }
       if (backgroundVideoUrl && !isValidSafeUrl(backgroundVideoUrl)) {
         return res.status(400).json({ success: false, message: 'URL do vídeo de fundo é inválida ou insegura.' });
       }
@@ -448,7 +472,7 @@ export default async function handler(req: any, res: any) {
         .from('best_seller_lists')
         .insert({
           title,
-          slug: buildBestSellerSlug(title),
+          slug,
           logo_url: logoUrl,
           subtitle,
           cta_text: ctaText,
@@ -538,6 +562,22 @@ export default async function handler(req: any, res: any) {
       };
 
       if (body.title !== undefined) updates.title = String(body.title).trim();
+      if (body.slug !== undefined) {
+        const normalizedSlug = normalizeBestSellerSlug(body.slug);
+        if (!normalizedSlug) {
+          return res.status(400).json({ success: false, message: 'O slug não pode ficar vazio ao editar uma lista existente.' });
+        }
+        const { data: slugOwner } = await supabase
+          .from('best_seller_lists')
+          .select('id')
+          .eq('slug', normalizedSlug)
+          .neq('id', id)
+          .maybeSingle();
+        if (slugOwner) {
+          return res.status(409).json({ success: false, message: 'Este slug já está sendo usado por outra lista.' });
+        }
+        updates.slug = normalizedSlug;
+      }
       if (body.logoUrl !== undefined) updates.logo_url = body.logoUrl ? String(body.logoUrl).trim() : null;
       if (body.subtitle !== undefined) updates.subtitle = body.subtitle ? String(body.subtitle).trim() : null;
       if (body.ctaText !== undefined) updates.cta_text = body.ctaText ? String(body.ctaText).trim() : null;

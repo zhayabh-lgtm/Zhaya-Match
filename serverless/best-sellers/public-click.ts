@@ -15,6 +15,22 @@ function getSupabaseClient() {
 }
 
 const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+const VISITOR_REGEX = /^[A-Za-z0-9_-]{8,128}$/;
+
+function cleanHeader(value: unknown, max = 120): string | null {
+  if (typeof value !== 'string' || !value.trim()) return null;
+  let cleaned = value.trim();
+  try { cleaned = decodeURIComponent(cleaned); } catch { /* noop */ }
+  return cleaned.slice(0, max);
+}
+
+function detectDeviceType(userAgentRaw: unknown): 'mobile' | 'tablet' | 'desktop' | 'unknown' {
+  const ua = String(userAgentRaw || '').toLowerCase();
+  if (!ua) return 'unknown';
+  if (/ipad|tablet|kindle|silk|playbook/.test(ua) || (/android/.test(ua) && !/mobile/.test(ua))) return 'tablet';
+  if (/iphone|ipod|android.*mobile|windows phone|mobile/.test(ua)) return 'mobile';
+  return 'desktop';
+}
 
 export default async function handler(req: any, res: any) {
   const requestOrigin = typeof req.headers?.origin === 'string' ? req.headers.origin : '*';
@@ -44,6 +60,8 @@ export default async function handler(req: any, res: any) {
     body = body || {};
 
     const productId = body.productId || body.id;
+    const listId = typeof body.listId === 'string' ? body.listId.trim() : '';
+    const visitorId = typeof body.visitorId === 'string' ? body.visitorId.trim() : '';
 
     if (!productId || typeof productId !== 'string' || !UUID_REGEX.test(productId.trim())) {
       return res.status(400).json({ success: false, message: 'ID do produto inválido.' });
@@ -77,6 +95,33 @@ export default async function handler(req: any, res: any) {
           .update({ clicks: currentClicks + 1 })
           .eq('id', cleanProductId);
       }
+    }
+
+    // Analytics detalhado é adicional. Se a tabela ainda não existir, o clique
+    // principal acima continua funcionando normalmente.
+    if (visitorId && VISITOR_REGEX.test(visitorId)) {
+      const { data: productRef } = await supabase
+        .from('best_seller_products')
+        .select('list_id')
+        .eq('id', cleanProductId)
+        .maybeSingle();
+      const analyticsListId = productRef?.list_id || (listId && UUID_REGEX.test(listId) ? listId : null);
+      const referrer = typeof body.referrer === 'string' && body.referrer.trim() ? body.referrer.trim().slice(0, 500) : null;
+      if (analyticsListId) await supabase.from('best_seller_analytics_events').insert({
+        list_id: analyticsListId,
+        product_id: cleanProductId,
+        event_type: 'product_click',
+        visitor_id: visitorId,
+        device_type: detectDeviceType(req.headers?.['user-agent']),
+        country_code: cleanHeader(req.headers?.['x-vercel-ip-country'], 8),
+        region: cleanHeader(req.headers?.['x-vercel-ip-country-region'], 80),
+        city: cleanHeader(req.headers?.['x-vercel-ip-city'], 120),
+        referrer,
+      }).then(({ error }) => {
+        if (error && String(error.code || '') !== '42P01') {
+          console.warn('[Public BestSellerClick API] Analytics não registrado:', error.message);
+        }
+      });
     }
 
     return res.status(200).json({ success: true });
