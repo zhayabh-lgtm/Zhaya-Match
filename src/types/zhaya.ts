@@ -603,15 +603,24 @@ export interface BestSellerAnalyticsProductItem {
   plays: number;
 }
 
+export interface BestSellerAnalyticsHourItem {
+  hour: number;
+  visitors: number;
+}
+
 export interface BestSellerAnalyticsSummary {
   configured: boolean;
+  engagementConfigured?: boolean;
   listId: string;
   pageViews: number;
   uniqueVisitors: number;
   totalClicks: number;
   totalPlays: number;
+  averageEngagementSeconds: number;
+  totalEngagementSeconds: number;
   devices: BestSellerAnalyticsDeviceItem[];
   locations: BestSellerAnalyticsLocationItem[];
+  hourlyVisitors: BestSellerAnalyticsHourItem[];
   products: BestSellerAnalyticsProductItem[];
 }
 

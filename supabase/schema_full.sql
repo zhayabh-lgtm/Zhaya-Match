@@ -948,3 +948,64 @@ CREATE INDEX IF NOT EXISTS idx_best_seller_analytics_visitor ON public.best_sell
 ALTER TABLE public.best_seller_analytics_events ENABLE ROW LEVEL SECURITY;
 REVOKE ALL ON public.best_seller_analytics_events FROM anon, authenticated;
 GRANT ALL ON public.best_seller_analytics_events TO service_role;
+
+-- =============================================================================
+-- Mais Vendidos: visitantes únicos + tempo engajado + horários
+-- =============================================================================
+CREATE TABLE IF NOT EXISTS public.best_seller_visitor_sessions (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  list_id UUID NOT NULL REFERENCES public.best_seller_lists(id) ON DELETE CASCADE,
+  visitor_id TEXT NOT NULL,
+  device_type TEXT NOT NULL DEFAULT 'unknown',
+  country_code TEXT,
+  region TEXT,
+  city TEXT,
+  referrer TEXT,
+  first_seen_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  last_seen_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  engaged_seconds INTEGER NOT NULL DEFAULT 0 CHECK (engaged_seconds >= 0),
+  UNIQUE (list_id, visitor_id)
+);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_best_seller_visitor_sessions_unique ON public.best_seller_visitor_sessions(list_id, visitor_id);
+CREATE INDEX IF NOT EXISTS idx_best_seller_visitor_sessions_first_seen ON public.best_seller_visitor_sessions(list_id, first_seen_at);
+ALTER TABLE public.best_seller_visitor_sessions ENABLE ROW LEVEL SECURITY;
+REVOKE ALL ON public.best_seller_visitor_sessions FROM anon, authenticated;
+GRANT ALL ON public.best_seller_visitor_sessions TO service_role;
+
+CREATE OR REPLACE FUNCTION public.upsert_best_seller_visitor_session(
+  p_list_id UUID,
+  p_visitor_id TEXT,
+  p_engaged_seconds_total INTEGER DEFAULT 0,
+  p_device_type TEXT DEFAULT 'unknown',
+  p_country_code TEXT DEFAULT NULL,
+  p_region TEXT DEFAULT NULL,
+  p_city TEXT DEFAULT NULL,
+  p_referrer TEXT DEFAULT NULL
+)
+RETURNS VOID
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public
+AS $$
+BEGIN
+  INSERT INTO public.best_seller_visitor_sessions (
+    list_id, visitor_id, device_type, country_code, region, city, referrer,
+    first_seen_at, last_seen_at, engaged_seconds
+  ) VALUES (
+    p_list_id, p_visitor_id, COALESCE(NULLIF(p_device_type, ''), 'unknown'),
+    NULLIF(p_country_code, ''), NULLIF(p_region, ''), NULLIF(p_city, ''), NULLIF(p_referrer, ''),
+    now(), now(), GREATEST(COALESCE(p_engaged_seconds_total, 0), 0)
+  )
+  ON CONFLICT (list_id, visitor_id)
+  DO UPDATE SET
+    last_seen_at = now(),
+    engaged_seconds = GREATEST(public.best_seller_visitor_sessions.engaged_seconds, EXCLUDED.engaged_seconds),
+    device_type = CASE WHEN EXCLUDED.device_type <> 'unknown' THEN EXCLUDED.device_type ELSE public.best_seller_visitor_sessions.device_type END,
+    country_code = COALESCE(public.best_seller_visitor_sessions.country_code, EXCLUDED.country_code),
+    region = COALESCE(public.best_seller_visitor_sessions.region, EXCLUDED.region),
+    city = COALESCE(public.best_seller_visitor_sessions.city, EXCLUDED.city),
+    referrer = COALESCE(public.best_seller_visitor_sessions.referrer, EXCLUDED.referrer);
+END;
+$$;
+REVOKE ALL ON FUNCTION public.upsert_best_seller_visitor_session(UUID, TEXT, INTEGER, TEXT, TEXT, TEXT, TEXT, TEXT) FROM PUBLIC, anon, authenticated;
+GRANT EXECUTE ON FUNCTION public.upsert_best_seller_visitor_session(UUID, TEXT, INTEGER, TEXT, TEXT, TEXT, TEXT, TEXT) TO service_role;

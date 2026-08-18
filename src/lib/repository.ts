@@ -2178,9 +2178,10 @@ export const Repository = {
   },
 
   trackBestSellerAnalyticsEvent(input: {
-    eventType: 'page_view' | 'product_play';
+    eventType: 'page_view' | 'product_play' | 'engagement';
     listId: string;
     productId?: string;
+    engagedSecondsTotal?: number;
   }): void {
     if (!input.listId) return;
     try {

@@ -1067,6 +1067,86 @@ export const MaisVendidosPage: React.FC = () => {
     Repository.trackBestSellerAnalyticsEvent({ eventType: 'page_view', listId: listData.id });
   }, [listData?.id]);
 
+  // Mede tempo realmente engajado por visitante único. O acumulado fica no
+  // navegador e o backend usa sempre o MAIOR total recebido para este visitor/lista,
+  // evitando duplicar tempo em reloads ou em duas abas abertas ao mesmo tempo.
+  useEffect(() => {
+    if (!listData?.id || typeof window === 'undefined' || typeof document === 'undefined') return;
+
+    const listId = listData.id;
+    const storageKey = `zhaya_best_seller_engagement_v1:${listId}`;
+
+    const readStored = () => {
+      try {
+        const value = Number(window.localStorage.getItem(storageKey) || 0);
+        return Number.isFinite(value) && value > 0 ? Math.floor(value) : 0;
+      } catch {
+        return 0;
+      }
+    };
+
+    let baseSeconds = readStored();
+    let visibleSince: number | null = document.visibilityState === 'visible' ? Date.now() : null;
+    let lastReportedSeconds = baseSeconds;
+
+    const currentTotal = () => {
+      const elapsed = visibleSince === null ? 0 : Math.max(0, Math.floor((Date.now() - visibleSince) / 1000));
+      return Math.max(baseSeconds + elapsed, readStored());
+    };
+
+    const persistAndReport = (force = false) => {
+      const total = currentTotal();
+      try {
+        const existing = readStored();
+        window.localStorage.setItem(storageKey, String(Math.max(existing, total)));
+      } catch {
+        // Analytics nunca deve quebrar a página.
+      }
+
+      if (force || total - lastReportedSeconds >= 5) {
+        lastReportedSeconds = Math.max(lastReportedSeconds, total);
+        Repository.trackBestSellerAnalyticsEvent({
+          eventType: 'engagement',
+          listId,
+          engagedSecondsTotal: total,
+        });
+      }
+    };
+
+    const pause = () => {
+      if (visibleSince !== null) {
+        baseSeconds = currentTotal();
+        visibleSince = null;
+      }
+      persistAndReport(true);
+    };
+
+    const resume = () => {
+      baseSeconds = Math.max(baseSeconds, readStored());
+      if (visibleSince === null) visibleSince = Date.now();
+    };
+
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === 'visible') resume();
+      else pause();
+    };
+
+    const handlePageHide = () => pause();
+    const heartbeat = window.setInterval(() => {
+      if (document.visibilityState === 'visible') persistAndReport(false);
+    }, 15000);
+
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+    window.addEventListener('pagehide', handlePageHide);
+
+    return () => {
+      window.clearInterval(heartbeat);
+      document.removeEventListener('visibilitychange', handleVisibilityChange);
+      window.removeEventListener('pagehide', handlePageHide);
+      pause();
+    };
+  }, [listData?.id]);
+
   return (
     <div
       id="mais-vendidos-page-container"

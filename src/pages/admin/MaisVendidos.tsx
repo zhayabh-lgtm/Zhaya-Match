@@ -40,7 +40,7 @@ import {
 import { Repository } from '../../lib/repository';
 import { getReadableTextColor } from '../../lib/contrast';
 import { supabase, isSupabaseConfigured } from '../../lib/supabase';
-import type { BestSellerList, BestSellerProduct, BestSellerMediaItem, BestSellerLibraryProduct, BestSellerAnalyticsSummary } from '../../types/zhaya';
+import type { BestSellerList, BestSellerProduct, BestSellerMediaItem, BestSellerLibraryProduct, BestSellerAnalyticsSummary, BestSellerAnalyticsHourItem } from '../../types/zhaya';
 
 const BEST_SELLERS_SQL = `-- ==============================================================================
 -- ZHAYA MATCH - SETUP DE MAIS VENDIDOS DO DIA (100% COMPLETO E IDEMPOTENTE)
@@ -404,6 +404,51 @@ ALTER TABLE public.best_seller_analytics_events ENABLE ROW LEVEL SECURITY;
 REVOKE ALL ON public.best_seller_analytics_events FROM anon, authenticated;
 GRANT ALL ON public.best_seller_analytics_events TO service_role;
 
+-- 13. Visitantes únicos + tempo engajado + horários
+CREATE TABLE IF NOT EXISTS public.best_seller_visitor_sessions (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  list_id UUID NOT NULL REFERENCES public.best_seller_lists(id) ON DELETE CASCADE,
+  visitor_id TEXT NOT NULL,
+  device_type TEXT NOT NULL DEFAULT 'unknown',
+  country_code TEXT,
+  region TEXT,
+  city TEXT,
+  referrer TEXT,
+  first_seen_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  last_seen_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  engaged_seconds INTEGER NOT NULL DEFAULT 0 CHECK (engaged_seconds >= 0),
+  UNIQUE (list_id, visitor_id)
+);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_best_seller_visitor_sessions_unique ON public.best_seller_visitor_sessions(list_id, visitor_id);
+CREATE INDEX IF NOT EXISTS idx_best_seller_visitor_sessions_first_seen ON public.best_seller_visitor_sessions(list_id, first_seen_at);
+ALTER TABLE public.best_seller_visitor_sessions ENABLE ROW LEVEL SECURITY;
+REVOKE ALL ON public.best_seller_visitor_sessions FROM anon, authenticated;
+GRANT ALL ON public.best_seller_visitor_sessions TO service_role;
+
+CREATE OR REPLACE FUNCTION public.upsert_best_seller_visitor_session(
+  p_list_id UUID, p_visitor_id TEXT, p_engaged_seconds_total INTEGER DEFAULT 0,
+  p_device_type TEXT DEFAULT 'unknown', p_country_code TEXT DEFAULT NULL,
+  p_region TEXT DEFAULT NULL, p_city TEXT DEFAULT NULL, p_referrer TEXT DEFAULT NULL
+) RETURNS VOID LANGUAGE plpgsql SECURITY DEFINER SET search_path = public AS $$
+BEGIN
+  INSERT INTO public.best_seller_visitor_sessions (
+    list_id, visitor_id, device_type, country_code, region, city, referrer, first_seen_at, last_seen_at, engaged_seconds
+  ) VALUES (
+    p_list_id, p_visitor_id, COALESCE(NULLIF(p_device_type, ''), 'unknown'), NULLIF(p_country_code, ''),
+    NULLIF(p_region, ''), NULLIF(p_city, ''), NULLIF(p_referrer, ''), now(), now(), GREATEST(COALESCE(p_engaged_seconds_total, 0), 0)
+  )
+  ON CONFLICT (list_id, visitor_id) DO UPDATE SET
+    last_seen_at = now(),
+    engaged_seconds = GREATEST(public.best_seller_visitor_sessions.engaged_seconds, EXCLUDED.engaged_seconds),
+    device_type = CASE WHEN EXCLUDED.device_type <> 'unknown' THEN EXCLUDED.device_type ELSE public.best_seller_visitor_sessions.device_type END,
+    country_code = COALESCE(public.best_seller_visitor_sessions.country_code, EXCLUDED.country_code),
+    region = COALESCE(public.best_seller_visitor_sessions.region, EXCLUDED.region),
+    city = COALESCE(public.best_seller_visitor_sessions.city, EXCLUDED.city),
+    referrer = COALESCE(public.best_seller_visitor_sessions.referrer, EXCLUDED.referrer);
+END; $$;
+REVOKE ALL ON FUNCTION public.upsert_best_seller_visitor_session(UUID, TEXT, INTEGER, TEXT, TEXT, TEXT, TEXT, TEXT) FROM PUBLIC, anon, authenticated;
+GRANT EXECUTE ON FUNCTION public.upsert_best_seller_visitor_session(UUID, TEXT, INTEGER, TEXT, TEXT, TEXT, TEXT, TEXT) TO service_role;
+
 NOTIFY pgrst, 'reload schema';`;
 
 
@@ -428,6 +473,50 @@ function parseAdminPrice(value: string): number | null {
   const parsed = Number(normalized);
   return Number.isFinite(parsed) && parsed >= 0 ? Math.round(parsed * 100) / 100 : null;
 }
+
+function formatEngagementDuration(totalSeconds: number | null | undefined): string {
+  const seconds = Math.max(0, Math.floor(Number(totalSeconds || 0)));
+  if (seconds < 60) return `${seconds}s`;
+  const minutes = Math.floor(seconds / 60);
+  if (minutes < 60) return `${minutes}m ${seconds % 60}s`;
+  const hours = Math.floor(minutes / 60);
+  const remainingMinutes = minutes % 60;
+  return remainingMinutes > 0 ? `${hours}h ${remainingMinutes}m` : `${hours}h`;
+}
+
+const BestSellerHourlyChart: React.FC<{ items: BestSellerAnalyticsHourItem[] }> = ({ items }) => {
+  const normalized = Array.from({ length: 24 }, (_, hour) => items.find((item) => item.hour === hour) || { hour, visitors: 0 });
+  const max = Math.max(1, ...normalized.map((item) => item.visitors));
+  return (
+    <div className="rounded-lg border border-neutral-200 p-3 sm:p-4">
+      <div className="flex items-center justify-between gap-3 mb-3">
+        <div>
+          <div className="text-[10px] font-bold uppercase tracking-wider text-neutral-500">Entradas por horário</div>
+          <div className="text-[10px] text-neutral-400 mt-0.5">Cada visitante aparece somente uma vez, no horário da primeira entrada.</div>
+        </div>
+      </div>
+      <div className="h-28 flex items-end gap-[3px] sm:gap-1">
+        {normalized.map((item) => {
+          const height = item.visitors > 0 ? Math.max(7, Math.round((item.visitors / max) * 100)) : 2;
+          return (
+            <div key={item.hour} className="group relative flex-1 h-full flex items-end">
+              <div
+                className={`w-full rounded-t-[2px] transition-colors ${item.visitors > 0 ? 'bg-neutral-800 group-hover:bg-black' : 'bg-neutral-200'}`}
+                style={{ height: `${height}%` }}
+              />
+              <div className="pointer-events-none absolute left-1/2 -translate-x-1/2 bottom-full mb-1 hidden group-hover:block z-20 rounded bg-neutral-900 px-1.5 py-1 text-[9px] text-white whitespace-nowrap">
+                {String(item.hour).padStart(2, '0')}:00 · {item.visitors} {item.visitors === 1 ? 'visitante' : 'visitantes'}
+              </div>
+            </div>
+          );
+        })}
+      </div>
+      <div className="mt-2 grid grid-cols-7 text-[9px] text-neutral-400 font-medium">
+        <span>00h</span><span className="text-center">04h</span><span className="text-center">08h</span><span className="text-center">12h</span><span className="text-center">16h</span><span className="text-center">20h</span><span className="text-right">23h</span>
+      </div>
+    </div>
+  );
+};
 
 function formatDatePtBR(dateStr: string) {
   if (!dateStr) return '';
@@ -2078,14 +2167,18 @@ export const MaisVendidos: React.FC = () => {
                 {analyticsLoading && <Loader2 className="w-4 h-4 text-neutral-400 animate-spin" />}
               </div>
 
-              <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+              <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-2">
                 <div className="rounded-lg border border-neutral-200 bg-neutral-50 p-3">
-                  <div className="flex items-center gap-1.5 text-[10px] uppercase tracking-wider text-neutral-400 font-semibold"><Eye className="w-3.5 h-3.5" /> Visualizações</div>
-                  <div className="mt-1 text-xl font-bold text-neutral-900">{listAnalytics?.pageViews ?? 0}</div>
+                  <div className="flex items-center gap-1.5 text-[10px] uppercase tracking-wider text-neutral-400 font-semibold"><Users className="w-3.5 h-3.5" /> Visitantes únicos</div>
+                  <div className="mt-1 text-xl font-bold text-neutral-900">{listAnalytics?.uniqueVisitors ?? 0}</div>
                 </div>
                 <div className="rounded-lg border border-neutral-200 bg-neutral-50 p-3">
-                  <div className="flex items-center gap-1.5 text-[10px] uppercase tracking-wider text-neutral-400 font-semibold"><Users className="w-3.5 h-3.5" /> Visitantes</div>
-                  <div className="mt-1 text-xl font-bold text-neutral-900">{listAnalytics?.uniqueVisitors ?? 0}</div>
+                  <div className="flex items-center gap-1.5 text-[10px] uppercase tracking-wider text-neutral-400 font-semibold"><Clock className="w-3.5 h-3.5" /> Tempo médio</div>
+                  <div className="mt-1 text-xl font-bold text-neutral-900">{formatEngagementDuration(listAnalytics?.averageEngagementSeconds ?? 0)}</div>
+                </div>
+                <div className="rounded-lg border border-neutral-200 bg-neutral-50 p-3">
+                  <div className="flex items-center gap-1.5 text-[10px] uppercase tracking-wider text-neutral-400 font-semibold"><Clock className="w-3.5 h-3.5" /> Tempo total</div>
+                  <div className="mt-1 text-xl font-bold text-neutral-900">{formatEngagementDuration(listAnalytics?.totalEngagementSeconds ?? 0)}</div>
                 </div>
                 <div className="rounded-lg border border-neutral-200 bg-neutral-50 p-3">
                   <div className="flex items-center gap-1.5 text-[10px] uppercase tracking-wider text-neutral-400 font-semibold"><MousePointerClick className="w-3.5 h-3.5" /> Cliques</div>
@@ -2099,10 +2192,19 @@ export const MaisVendidos: React.FC = () => {
 
               {listAnalytics?.configured === false ? (
                 <div className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-[11px] text-amber-800">
-                  O analytics detalhado ainda não está configurado no Supabase. Os cliques continuam funcionando; execute o SQL de analytics desta versão para liberar visualizações, visitantes, plays, dispositivos e localização.
+                  O analytics ainda não está configurado no Supabase. Os cliques continuam funcionando; execute o SQL de analytics desta versão para liberar visitantes únicos, tempo de permanência, horários, plays, dispositivos e localização.
                 </div>
               ) : listAnalytics ? (
-                <div className="grid grid-cols-1 lg:grid-cols-3 gap-3">
+                <>
+                  {listAnalytics.engagementConfigured === false && (
+                    <div className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-[11px] text-amber-800">
+                      Tempo de permanência e gráfico por horário ainda precisam do SQL novo de visitantes únicos. Os dados antigos continuam disponíveis.
+                    </div>
+                  )}
+
+                  <BestSellerHourlyChart items={listAnalytics.hourlyVisitors || []} />
+
+                  <div className="grid grid-cols-1 lg:grid-cols-3 gap-3">
                   <div className="rounded-lg border border-neutral-200 p-3">
                     <div className="flex items-center gap-1.5 text-[10px] font-bold uppercase tracking-wider text-neutral-500 mb-2"><Monitor className="w-3.5 h-3.5" /> Dispositivos</div>
                     <div className="space-y-1.5">
@@ -2141,7 +2243,8 @@ export const MaisVendidos: React.FC = () => {
                       )) : <span className="text-[11px] text-neutral-400">Sem produtos.</span>}
                     </div>
                   </div>
-                </div>
+                  </div>
+                </>
               ) : null}
             </div>
 
