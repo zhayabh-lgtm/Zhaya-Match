@@ -406,7 +406,7 @@ const GalleryVideo: React.FC<{
             setVolume(event.currentTarget.volume);
           }}
           onError={onError}
-          className={`absolute inset-0 w-full h-full object-cover object-center bg-neutral-950 pointer-events-none transition-opacity duration-200 ${videoReady ? 'opacity-100' : 'opacity-0'}`}
+          className={`absolute inset-0 w-full h-full object-cover object-bottom bg-neutral-950 pointer-events-none transition-opacity duration-200 ${videoReady ? 'opacity-100' : 'opacity-0'}`}
         />
       )}
 
@@ -423,7 +423,7 @@ const GalleryVideo: React.FC<{
               decoding="async"
               draggable={false}
               onError={() => setPosterFailed(true)}
-              className="absolute inset-0 w-full h-full object-cover object-center pointer-events-none"
+              className="absolute inset-0 w-full h-full object-cover object-bottom pointer-events-none"
             />
           ) : (
             <div className="absolute inset-0 bg-neutral-900" aria-hidden="true" />
