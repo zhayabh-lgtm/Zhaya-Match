@@ -311,18 +311,22 @@ const GalleryVideo: React.FC<{
   posterUrl?: string;
   fallbackPosterUrl?: string;
   onPlaybackStarted?: () => void;
-}> = ({ src, label, onError, posterUrl, fallbackPosterUrl, onPlaybackStarted }) => {
+  autoPlay?: boolean;
+  loop?: boolean;
+  showControls?: boolean;
+}> = ({ src, label, onError, posterUrl, fallbackPosterUrl, onPlaybackStarted, autoPlay = false, loop = false, showControls = true }) => {
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const containerRef = useRef<HTMLDivElement | null>(null);
   const [activated, setActivated] = useState(false);
   const [videoReady, setVideoReady] = useState(false);
   const [playing, setPlaying] = useState(false);
-  const [muted, setMuted] = useState(false);
+  const [muted, setMuted] = useState(autoPlay);
   const [volume, setVolume] = useState(1);
   const [duration, setDuration] = useState(0);
   const [currentTime, setCurrentTime] = useState(0);
   const [posterFailed, setPosterFailed] = useState(false);
   const playReportedRef = useRef(false);
+  const playerIdRef = useRef(`video-${Math.random().toString(36).slice(2)}-${Date.now()}`);
   const runtimeCover = useRuntimeVideoCover(src, (!posterUrl && !fallbackPosterUrl) || (posterFailed && !fallbackPosterUrl));
   const coverUrl = posterFailed ? (fallbackPosterUrl || runtimeCover) : (posterUrl || fallbackPosterUrl || runtimeCover);
 
@@ -333,37 +337,64 @@ const GalleryVideo: React.FC<{
     setCurrentTime(0);
     setDuration(0);
     setPosterFailed(false);
+    setMuted(autoPlay);
     playReportedRef.current = false;
-  }, [src, posterUrl, fallbackPosterUrl]);
+  }, [src, posterUrl, fallbackPosterUrl, autoPlay]);
 
 
-  // Ao sair completamente da tela, o vídeo do produto para e volta para a capa.
+  // Auto-play só começa quando o vídeo realmente entra na área visível.
+  // Ao sair, pausa e volta para a capa para não manter vários players ativos.
   useEffect(() => {
     const node = containerRef.current;
     if (!node || typeof IntersectionObserver === 'undefined') return;
 
     const observer = new IntersectionObserver((entries) => {
       const entry = entries[0];
-      if (!entry || entry.isIntersecting) return;
+      if (!entry) return;
 
-      const video = videoRef.current;
-      if (video) {
-        try {
-          video.pause();
-          video.currentTime = 0;
-        } catch {
-          // noop
+      if (entry.isIntersecting && entry.intersectionRatio >= 0.42 && autoPlay) {
+        setMuted(true);
+        setActivated(true);
+        const video = videoRef.current;
+        if (video) {
+          video.muted = true;
+          void video.play().catch(() => undefined);
         }
+        return;
       }
-      setPlaying(false);
-      setCurrentTime(0);
-      setActivated(false);
-      setVideoReady(false);
-    }, { threshold: 0.01 });
+
+      if (!entry.isIntersecting || entry.intersectionRatio < 0.08) {
+        const video = videoRef.current;
+        if (video) {
+          try {
+            video.pause();
+            video.currentTime = 0;
+          } catch {
+            // noop
+          }
+        }
+        setPlaying(false);
+        setCurrentTime(0);
+        setActivated(false);
+        setVideoReady(false);
+      }
+    }, { threshold: [0, 0.08, 0.42, 0.7] });
 
     observer.observe(node);
     return () => observer.disconnect();
-  }, [src]);
+  }, [src, autoPlay]);
+
+  // Garante que apenas um vídeo em auto-play/reprodução toque por vez na vitrine.
+  useEffect(() => {
+    const handleOtherVideoStarted = (event: Event) => {
+      const detail = (event as CustomEvent<{ id?: string }>).detail;
+      if (!detail?.id || detail.id === playerIdRef.current) return;
+      const video = videoRef.current;
+      if (video && !video.paused) video.pause();
+    };
+    window.addEventListener('zhaya:video-started', handleOtherVideoStarted as EventListener);
+    return () => window.removeEventListener('zhaya:video-started', handleOtherVideoStarted as EventListener);
+  }, []);
 
   const stopPointer = (event: React.PointerEvent) => event.stopPropagation();
 
@@ -377,10 +408,11 @@ const GalleryVideo: React.FC<{
     const frame = window.requestAnimationFrame(() => {
       const video = videoRef.current;
       if (!video) return;
+      if (autoPlay) video.muted = true;
       void video.play().catch(() => setPlaying(false));
     });
     return () => window.cancelAnimationFrame(frame);
-  }, [activated, src]);
+  }, [activated, src, autoPlay]);
 
   const togglePlayback = () => {
     const video = videoRef.current;
@@ -431,6 +463,8 @@ const GalleryVideo: React.FC<{
           src={src}
           aria-label={label}
           playsInline
+          muted={muted}
+          loop={loop}
           preload="auto"
           controls={false}
           onLoadedData={() => setVideoReady(true)}
@@ -440,6 +474,7 @@ const GalleryVideo: React.FC<{
           }}
           onPlay={() => {
             setPlaying(true);
+            window.dispatchEvent(new CustomEvent('zhaya:video-started', { detail: { id: playerIdRef.current } }));
             signalBestSellerActivity();
             if (!playReportedRef.current) {
               playReportedRef.current = true;
@@ -494,6 +529,16 @@ const GalleryVideo: React.FC<{
         </div>
       )}
 
+      {activated && videoReady && !showControls && (
+        <button
+          type="button"
+          onPointerDown={stopPointer}
+          onClick={(event) => { event.stopPropagation(); togglePlayback(); }}
+          aria-label={playing ? 'Pausar vídeo' : 'Reproduzir vídeo'}
+          className="absolute inset-0 z-20 cursor-pointer bg-transparent"
+        />
+      )}
+
       {activated && videoReady && !playing && (
         <button
           type="button"
@@ -507,7 +552,7 @@ const GalleryVideo: React.FC<{
       )}
 
       {/* Controles aparecem somente depois que o player foi realmente aberto. */}
-      {activated && videoReady && (
+      {activated && videoReady && showControls && (
         <div
           className="absolute left-3 right-3 bottom-10 z-40 flex items-center gap-2.5 text-white"
           onPointerDown={stopPointer}
@@ -575,12 +620,15 @@ const ProductMediaGallery: React.FC<{
   sizes: string[];
   outOfStockSizes: string[];
   timerContent?: React.ReactNode;
+  videoAutoplay?: boolean;
   onVideoStarted?: () => void;
   onSlideSeen?: (index: number, total: number) => void;
-}> = ({ mediaItems, productName, isFirst, rankLabel, rankColor, sizeColor, showRanking, badgeContent, giftContent, sizes, outOfStockSizes, timerContent, onVideoStarted, onSlideSeen }) => {
+}> = ({ mediaItems, productName, isFirst, rankLabel, rankColor, sizeColor, showRanking, badgeContent, giftContent, sizes, outOfStockSizes, timerContent, videoAutoplay = false, onVideoStarted, onSlideSeen }) => {
   const [currentIndex, setCurrentIndex] = useState(0);
   const [failedMedia, setFailedMedia] = useState<Record<number, boolean>>({});
   const [direction, setDirection] = useState(0);
+  const galleryRef = useRef<HTMLDivElement | null>(null);
+  const autoVideoSelectedRef = useRef(false);
   const totalItems = mediaItems.length;
   const firstImageUrl = useMemo(() => mediaItems.find((item) => item.type === 'image')?.url || '', [mediaItems]);
 
@@ -644,13 +692,36 @@ const ProductMediaGallery: React.FC<{
   };
 
 
+  useEffect(() => {
+    const node = galleryRef.current;
+    if (!videoAutoplay || !node || typeof IntersectionObserver === 'undefined') return;
+    const firstVideoIndex = mediaItems.findIndex((item) => item.type === 'video');
+    if (firstVideoIndex < 0) return;
+
+    const observer = new IntersectionObserver((entries) => {
+      const entry = entries[0];
+      if (!entry) return;
+      if (entry.isIntersecting && entry.intersectionRatio >= 0.42 && !autoVideoSelectedRef.current) {
+        autoVideoSelectedRef.current = true;
+        if (currentIndex !== firstVideoIndex) {
+          setDirection(firstVideoIndex > currentIndex ? 1 : -1);
+          setCurrentIndex(firstVideoIndex);
+        }
+      } else if (!entry.isIntersecting || entry.intersectionRatio < 0.08) {
+        autoVideoSelectedRef.current = false;
+      }
+    }, { threshold: [0, 0.08, 0.42, 0.7] });
+    observer.observe(node);
+    return () => observer.disconnect();
+  }, [videoAutoplay, mediaItems, currentIndex]);
+
   const currentMedia = mediaItems[currentIndex];
   const hasError = failedMedia[currentIndex];
   const unavailableSet = new Set(outOfStockSizes);
   const canSwipe = totalItems > 1;
 
   return (
-    <div className="relative w-full aspect-[4/5] bg-transparent rounded-[10px] overflow-hidden mb-3 sm:mb-5 select-none touch-pan-y group">
+    <div ref={galleryRef} className="relative w-full aspect-[4/5] bg-transparent rounded-[10px] overflow-hidden mb-3 sm:mb-5 select-none touch-pan-y group">
       <AnimatePresence initial={false} mode="popLayout" custom={direction}>
         <motion.div
           key={`${currentIndex}-${currentMedia?.id || currentMedia?.url || 'empty'}`}
@@ -674,6 +745,9 @@ const ProductMediaGallery: React.FC<{
                 posterUrl={currentMedia.posterUrl || undefined}
                 fallbackPosterUrl={firstImageUrl || undefined}
                 onPlaybackStarted={onVideoStarted}
+                autoPlay={videoAutoplay}
+                loop={false}
+                showControls
               />
             ) : (
               <img
@@ -794,6 +868,7 @@ const ProductMediaGallery: React.FC<{
 const ProductItem: React.FC<{
   product: PublicBestSellerProduct;
   index: number;
+  displayRank: number;
   isFirst: boolean;
   ctaText: string;
   rankColor: string;
@@ -801,8 +876,8 @@ const ProductItem: React.FC<{
   showRanking: boolean;
   now: number;
   listId: string;
-}> = ({ product, index, isFirst, ctaText, rankColor, sizeColor, showRanking, now, listId }) => {
-  const formattedPos = String(product.position || index + 1).padStart(2, '0');
+}> = ({ product, index, displayRank, isFirst, ctaText, rankColor, sizeColor, showRanking, now, listId }) => {
+  const formattedPos = String(displayRank || 1).padStart(2, '0');
   const soldText = product.showSoldQuantity ? formatSoldQuantityText(product.soldQuantity) : null;
   const availableText = formatAvailableQuantityText(product.availableQuantity);
   const hasBadge = Boolean(product.badgeEnabled && product.badgeText && product.badgeText.trim());
@@ -944,6 +1019,7 @@ const ProductItem: React.FC<{
         sizes={sizes}
         outOfStockSizes={outOfStockSizes}
         timerContent={productTimerElement}
+        videoAutoplay={Boolean(product.videoAutoplay)}
         onVideoStarted={handleVideoStarted}
         onSlideSeen={(slideIndex, slideCount) => {
           Repository.trackBestSellerAnalyticsEvent({
@@ -1027,6 +1103,56 @@ const ProductItem: React.FC<{
         )}
       </div>
     </motion.article>
+  );
+};
+
+/**
+ * Bloco editorial de vídeo 9:16. Ele participa da mesma ordem da vitrine,
+ * mas visualmente fica separado dos cards comerciais de produto.
+ */
+const VideoHighlightItem: React.FC<{
+  item: PublicBestSellerProduct;
+  listId: string;
+}> = ({ item, listId }) => {
+  const video = useMemo(
+    () => (item.mediaItems || []).find((media) => media.type === 'video'),
+    [item.mediaItems],
+  );
+
+  if (!video?.url) return null;
+
+  return (
+    <motion.section
+      id={`best-seller-video-${item.id}`}
+      data-best-seller-product-id={item.id}
+      data-best-seller-position={item.position}
+      initial={{ opacity: 0, y: 10 }}
+      whileInView={{ opacity: 1, y: 0 }}
+      viewport={{ once: true, amount: 0.08 }}
+      transition={{ duration: 0.35, ease: 'easeOut' }}
+      className="w-full flex flex-col items-center py-2 pb-9 sm:pb-14"
+    >
+      {item.videoTitle && (
+        <p className="mb-3 text-[9px] sm:text-[10px] font-bold tracking-[0.22em] uppercase text-neutral-400 text-center">
+          {item.videoTitle}
+        </p>
+      )}
+
+      <div className="relative w-[92%] max-w-[430px] aspect-[9/16] overflow-hidden rounded-[14px] bg-neutral-950 ring-1 ring-white/5">
+        <GalleryVideo
+          src={video.url}
+          label={item.videoTitle || 'Vídeo de apresentação do produto'}
+          onError={() => undefined}
+          posterUrl={video.posterUrl || undefined}
+          autoPlay={Boolean(item.videoAutoplay)}
+          loop={item.videoLoop !== false}
+          showControls={item.videoControls !== false}
+          onPlaybackStarted={() => {
+            Repository.trackBestSellerAnalyticsEvent({ eventType: 'product_play', listId, productId: item.id });
+          }}
+        />
+      </div>
+    </motion.section>
   );
 };
 
@@ -1576,20 +1702,30 @@ export const MaisVendidosPage: React.FC = () => {
             {/* Vitrine de Produtos */}
             {listData.products && listData.products.length > 0 ? (
               <div className="w-full flex flex-col space-y-4 sm:space-y-10">
-                {listData.products.map((prod, idx) => (
-                  <ProductItem
-                    key={prod.id}
-                    product={prod}
-                    index={idx}
-                    isFirst={idx === 0}
-                    ctaText={(listData.ctaText || '').trim() || 'GARANTIR MEU PAR'}
-                    rankColor={listData.rankColor || '#FFFFFF'}
-                    sizeColor={listData.sizeColor || '#FFFFFF'}
-                    showRanking={listData.showRanking !== false}
-                    now={now}
-                    listId={listData.id}
-                  />
-                ))}
+                {listData.products.map((prod, idx) => {
+                  if (prod.itemType === 'video') {
+                    return <VideoHighlightItem key={prod.id} item={prod} listId={listData.id} />;
+                  }
+                  const displayRank = listData.products
+                    .slice(0, idx + 1)
+                    .filter((item) => item.itemType !== 'video').length;
+                  const firstProductIndex = listData.products.findIndex((item) => item.itemType !== 'video');
+                  return (
+                    <ProductItem
+                      key={prod.id}
+                      product={prod}
+                      index={idx}
+                      displayRank={displayRank}
+                      isFirst={idx === firstProductIndex}
+                      ctaText={(listData.ctaText || '').trim() || 'GARANTIR MEU PAR'}
+                      rankColor={listData.rankColor || '#FFFFFF'}
+                      sizeColor={listData.sizeColor || '#FFFFFF'}
+                      showRanking={listData.showRanking !== false}
+                      now={now}
+                      listId={listData.id}
+                    />
+                  );
+                })}
               </div>
             ) : (
               <div className="w-full py-12 text-center text-xs text-neutral-400 font-light">

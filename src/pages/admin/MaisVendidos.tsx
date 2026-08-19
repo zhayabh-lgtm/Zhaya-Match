@@ -87,6 +87,11 @@ CREATE TABLE IF NOT EXISTS public.best_seller_lists (
 CREATE TABLE IF NOT EXISTS public.best_seller_products (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   list_id UUID NOT NULL REFERENCES public.best_seller_lists(id) ON DELETE CASCADE,
+  item_type TEXT NOT NULL DEFAULT 'product' CHECK (item_type IN ('product', 'video')),
+  video_autoplay BOOLEAN NOT NULL DEFAULT false,
+  video_loop BOOLEAN NOT NULL DEFAULT true,
+  video_controls BOOLEAN NOT NULL DEFAULT true,
+  video_title TEXT,
   position INTEGER NOT NULL DEFAULT 1,
   name TEXT NOT NULL,
   category TEXT NOT NULL DEFAULT 'Produto',
@@ -137,6 +142,11 @@ ALTER TABLE public.best_seller_lists ADD COLUMN IF NOT EXISTS timer_duration_min
 ALTER TABLE public.best_seller_lists ADD COLUMN IF NOT EXISTS timezone TEXT NOT NULL DEFAULT 'America/Sao_Paulo';
 ALTER TABLE public.best_seller_lists ADD COLUMN IF NOT EXISTS created_by TEXT;
 
+ALTER TABLE public.best_seller_products ADD COLUMN IF NOT EXISTS item_type TEXT NOT NULL DEFAULT 'product';
+ALTER TABLE public.best_seller_products ADD COLUMN IF NOT EXISTS video_autoplay BOOLEAN NOT NULL DEFAULT false;
+ALTER TABLE public.best_seller_products ADD COLUMN IF NOT EXISTS video_loop BOOLEAN NOT NULL DEFAULT true;
+ALTER TABLE public.best_seller_products ADD COLUMN IF NOT EXISTS video_controls BOOLEAN NOT NULL DEFAULT true;
+ALTER TABLE public.best_seller_products ADD COLUMN IF NOT EXISTS video_title TEXT;
 ALTER TABLE public.best_seller_products ADD COLUMN IF NOT EXISTS image_urls TEXT[] NOT NULL DEFAULT '{}'::text[];
 ALTER TABLE public.best_seller_products ADD COLUMN IF NOT EXISTS media_items JSONB NOT NULL DEFAULT '[]'::jsonb;
 ALTER TABLE public.best_seller_products ALTER COLUMN image_url DROP NOT NULL;
@@ -779,6 +789,7 @@ export const MaisVendidos: React.FC = () => {
   const [prodFormImageUrls, setProdFormImageUrls] = useState<string[]>([]);
   const [prodFormImageUrlInput, setProdFormImageUrlInput] = useState('');
   const [prodFormMediaItems, setProdFormMediaItems] = useState<BestSellerMediaItem[]>([]);
+  const [prodFormVideoAutoplay, setProdFormVideoAutoplay] = useState<boolean>(false);
   const [prodFormMediaUrlInput, setProdFormMediaUrlInput] = useState('');
   const [prodFormMediaUrlType, setProdFormMediaUrlType] = useState<'image' | 'video'>('image');
   const [uploadingProductMedia, setUploadingProductMedia] = useState(false);
@@ -825,6 +836,20 @@ export const MaisVendidos: React.FC = () => {
   const [uploadingProdImage, setUploadingProdImage] = useState<boolean>(false);
   const prodFileInputRef = useRef<HTMLInputElement>(null);
   const prodMediaFileInputRef = useRef<HTMLInputElement>(null);
+
+  // State: Vídeo destaque 9:16 (entra na mesma ordem dos produtos)
+  const [isVideoBlockModalOpen, setIsVideoBlockModalOpen] = useState<boolean>(false);
+  const [editingVideoBlock, setEditingVideoBlock] = useState<BestSellerProduct | null>(null);
+  const [videoBlockTitle, setVideoBlockTitle] = useState('');
+  const [videoBlockMedia, setVideoBlockMedia] = useState<BestSellerMediaItem | null>(null);
+  const [videoBlockUrlInput, setVideoBlockUrlInput] = useState('');
+  const [videoBlockAutoplay, setVideoBlockAutoplay] = useState<boolean>(true);
+  const [videoBlockLoop, setVideoBlockLoop] = useState<boolean>(true);
+  const [videoBlockControls, setVideoBlockControls] = useState<boolean>(true);
+  const [uploadingVideoBlock, setUploadingVideoBlock] = useState<boolean>(false);
+  const [savingVideoBlock, setSavingVideoBlock] = useState<boolean>(false);
+  const [videoBlockError, setVideoBlockError] = useState<string | null>(null);
+  const videoBlockFileInputRef = useRef<HTMLInputElement>(null);
 
   // State: Delete Confirmation
   const [deleteConfirm, setDeleteConfirm] = useState<{
@@ -1417,6 +1442,132 @@ export const MaisVendidos: React.FC = () => {
     await handleProductMediaFileUpload(file);
   };
 
+  // ---------------------------------------------------------------------------
+  // Vídeo destaque 9:16: é um item editorial independente, mas usa a mesma
+  // tabela/ordem dos produtos para poder ser arrastado entre eles.
+  // ---------------------------------------------------------------------------
+  const handleOpenCreateVideoBlock = () => {
+    if (!selectedList) return;
+    setEditingVideoBlock(null);
+    setVideoBlockTitle('');
+    setVideoBlockMedia(null);
+    setVideoBlockUrlInput('');
+    setVideoBlockAutoplay(true);
+    setVideoBlockLoop(true);
+    setVideoBlockControls(true);
+    setVideoBlockError(null);
+    setIsVideoBlockModalOpen(true);
+  };
+
+  const handleOpenEditVideoBlock = (item: BestSellerProduct) => {
+    setEditingVideoBlock(item);
+    setVideoBlockTitle(item.videoTitle || '');
+    setVideoBlockMedia((item.mediaItems || []).find((media) => media.type === 'video') || null);
+    setVideoBlockUrlInput('');
+    setVideoBlockAutoplay(Boolean(item.videoAutoplay));
+    setVideoBlockLoop(item.videoLoop !== false);
+    setVideoBlockControls(item.videoControls !== false);
+    setVideoBlockError(null);
+    setIsVideoBlockModalOpen(true);
+  };
+
+  const handleVideoBlockFileUpload = async (file: File) => {
+    if (!file) return;
+    if (!file.type.startsWith('video/')) {
+      setVideoBlockError('Selecione um arquivo de vídeo.');
+      return;
+    }
+    if (file.size > 100 * 1024 * 1024) {
+      setVideoBlockError('O vídeo deve ter no máximo 100MB.');
+      return;
+    }
+    try {
+      setUploadingVideoBlock(true);
+      setVideoBlockError(null);
+      const uploaded = await uploadBestSellerFile(file, 'video', 'product');
+      setVideoBlockMedia({
+        id: makeMediaId(),
+        type: 'video',
+        url: uploaded.url,
+        storagePath: uploaded.storagePath,
+        posterUrl: uploaded.posterUrl || null,
+        posterStoragePath: null,
+        source: 'upload',
+      });
+    } catch (err: any) {
+      setVideoBlockError(err?.message || 'Erro ao enviar o vídeo destaque.');
+    } finally {
+      setUploadingVideoBlock(false);
+    }
+  };
+
+  const handleAddVideoBlockUrl = () => {
+    const url = videoBlockUrlInput.trim();
+    if (!/^https?:\/\//i.test(url)) {
+      setVideoBlockError('Informe uma URL http/https válida para o vídeo.');
+      return;
+    }
+    setVideoBlockMedia({ id: makeMediaId(), type: 'video', url, storagePath: null, posterUrl: null, source: 'url' });
+    setVideoBlockUrlInput('');
+    setVideoBlockError(null);
+  };
+
+  const handleSaveVideoBlock = async (event: React.FormEvent) => {
+    event.preventDefault();
+    if (!selectedList) return;
+    if (!videoBlockMedia?.url || videoBlockMedia.type !== 'video') {
+      setVideoBlockError('Adicione um vídeo para criar o bloco destaque.');
+      return;
+    }
+    try {
+      setSavingVideoBlock(true);
+      setVideoBlockError(null);
+      const payload = {
+        listId: selectedList.id,
+        itemType: 'video' as const,
+        name: videoBlockTitle.trim() || 'Vídeo destaque',
+        category: 'Vídeo',
+        mediaItems: [videoBlockMedia],
+        imageUrl: null,
+        imageUrls: [],
+        videoAutoplay: videoBlockAutoplay,
+        videoLoop: videoBlockLoop,
+        videoControls: videoBlockControls,
+        videoTitle: videoBlockTitle.trim() || null,
+        productUrl: null,
+        originalPrice: null,
+        promotionalPrice: null,
+        soldQuantity: null,
+        showSoldQuantity: false,
+        availableQuantity: null,
+        sizes: [],
+        outOfStockSizes: [],
+        colors: [],
+        installmentsCount: null,
+        installmentValue: null,
+        badgeEnabled: false,
+        badgeText: null,
+        badgeUseListDefault: false,
+        giftMode: 'off' as const,
+        timerEnabled: false,
+      };
+      const result = editingVideoBlock
+        ? await Repository.updateBestSellerProduct(editingVideoBlock.id, payload)
+        : await Repository.createBestSellerProduct(payload);
+      if (!result.success) {
+        setVideoBlockError(result.error || 'Não foi possível salvar o vídeo destaque.');
+        return;
+      }
+      setIsVideoBlockModalOpen(false);
+      await loadProducts(selectedList.id);
+      await loadLists(selectedList.id);
+    } catch (err: any) {
+      setVideoBlockError(err?.message || 'Erro inesperado ao salvar o vídeo destaque.');
+    } finally {
+      setSavingVideoBlock(false);
+    }
+  };
+
   const handleBackgroundVideoUpload = async (file: File) => {
     if (!file) return;
     const validTypes = ['video/mp4', 'video/webm', 'video/quicktime', 'video/ogg'];
@@ -1723,6 +1874,7 @@ export const MaisVendidos: React.FC = () => {
     setProdFormImageUrls([]);
     setProdFormImageUrlInput('');
     setProdFormMediaItems([]);
+    setProdFormVideoAutoplay(false);
     setProdFormMediaUrlInput('');
     setProdFormMediaUrlType('image');
     setProdFormProductUrl('');
@@ -1777,6 +1929,7 @@ export const MaisVendidos: React.FC = () => {
       ? prod.mediaItems
       : existingImgs.map((url, index) => ({ id: `legacy-image-${index + 1}`, type: 'image' as const, url, source: 'url' as const }));
     setProdFormMediaItems(existingMedia);
+    setProdFormVideoAutoplay(Boolean(prod.videoAutoplay));
     void backfillExistingVideoPosters(prod.id, existingMedia);
     setProdFormMediaUrlInput('');
     setProdFormMediaUrlType('image');
@@ -2161,7 +2314,12 @@ export const MaisVendidos: React.FC = () => {
         name: prodFormName.trim(),
         imageUrl: finalMainImage,
         imageUrls: finalImageUrls,
+        itemType: 'product' as const,
         mediaItems: finalMediaItems,
+        videoAutoplay: prodFormVideoAutoplay,
+        videoLoop: false,
+        videoControls: true,
+        videoTitle: null,
         productUrl: prodFormProductUrl.trim() || null,
         originalPrice: origPriceParsed,
         promotionalPrice: promoPriceParsed,
@@ -2302,7 +2460,7 @@ export const MaisVendidos: React.FC = () => {
           </p>
         </div>
 
-        <div className="flex items-center gap-2">
+        <div className="flex flex-wrap items-center justify-end gap-2">
           <a
             href={selectedList?.slug ? `/mais-vendidos/${selectedList.slug}` : "/mais-vendidos"}
             target="_blank"
@@ -2323,6 +2481,14 @@ export const MaisVendidos: React.FC = () => {
               >
                 <ChevronLeft className="w-4 h-4" />
                 Ver todas as vitrines
+              </button>
+              <button
+                type="button"
+                onClick={handleOpenCreateVideoBlock}
+                className="inline-flex items-center gap-2 px-3 py-2 text-xs font-semibold text-neutral-700 bg-white border border-neutral-300 rounded-md hover:bg-neutral-50 transition-colors shadow-sm cursor-pointer"
+              >
+                <Video className="w-4 h-4" />
+                Vídeo 9:16
               </button>
               <button
                 type="button"
@@ -2519,7 +2685,7 @@ export const MaisVendidos: React.FC = () => {
                         onClick={() => handleSelectList(list)}
                         className="px-3 py-1.5 text-xs font-semibold rounded bg-neutral-900 text-white hover:bg-neutral-800 transition-colors cursor-pointer"
                       >
-                        Gerenciar Produtos
+                        Gerenciar Itens
                       </button>
 
                       <button
@@ -2763,7 +2929,7 @@ export const MaisVendidos: React.FC = () => {
                 <div>
                   <h3 className="text-xs font-bold uppercase tracking-wider text-neutral-500 font-mono flex items-center gap-1.5">
                     <ShoppingBag className="w-4 h-4 text-neutral-400" />
-                    Produtos da Vitrine ({products.length})
+                    Itens da Vitrine ({products.length})
                   </h3>
                   <p className="text-[11px] text-neutral-400">
                     A posição (#1, #2, #3...) é controlada manualmente através das setas de ordenação.
@@ -2780,6 +2946,14 @@ export const MaisVendidos: React.FC = () => {
                   </button>
                   <button
                     type="button"
+                    onClick={handleOpenCreateVideoBlock}
+                    className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold text-neutral-700 bg-white border border-neutral-300 rounded hover:bg-neutral-50 transition-colors cursor-pointer"
+                  >
+                    <Video className="w-3.5 h-3.5" />
+                    Vídeo 9:16
+                  </button>
+                  <button
+                    type="button"
                     onClick={handleOpenCreateProduct}
                     className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold text-white bg-neutral-900 rounded hover:bg-neutral-800 transition-colors cursor-pointer shadow-sm"
                   >
@@ -2791,14 +2965,14 @@ export const MaisVendidos: React.FC = () => {
 
               {loadingProducts ? (
                 <div className="bg-neutral-50 border border-neutral-200 rounded p-8 text-center text-xs text-neutral-500 animate-pulse">
-                  Carregando produtos...
+                  Carregando itens...
                 </div>
               ) : products.length === 0 ? (
                 <div className="bg-neutral-50 border border-dashed border-neutral-300 rounded-lg p-10 text-center space-y-2">
                   <Package className="w-8 h-8 text-neutral-300 mx-auto" />
-                  <p className="text-xs font-semibold text-neutral-700">Nenhum produto cadastrado nesta lista</p>
+                  <p className="text-xs font-semibold text-neutral-700">Nenhum item cadastrado nesta lista</p>
                   <p className="text-[11px] text-neutral-500">
-                    Adicione os produtos para montar o ranking desta lista.
+                    Adicione produtos e vídeos destaque e organize a vitrine na ordem que quiser.
                   </p>
                   <button
                     type="button"
@@ -2807,6 +2981,14 @@ export const MaisVendidos: React.FC = () => {
                   >
                     <Plus className="w-3.5 h-3.5" />
                     Adicionar Produto #1
+                  </button>
+                  <button
+                    type="button"
+                    onClick={handleOpenCreateVideoBlock}
+                    className="ml-2 inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold text-neutral-700 bg-white border border-neutral-300 rounded hover:bg-neutral-50 transition-colors cursor-pointer mt-2"
+                  >
+                    <Video className="w-3.5 h-3.5" />
+                    Adicionar vídeo 9:16
                   </button>
                   <button
                     type="button"
@@ -2893,8 +3075,18 @@ export const MaisVendidos: React.FC = () => {
                           <div className="min-w-0 space-y-1">
                             <div className="flex flex-wrap items-center gap-2">
                               <span className="text-xs font-bold text-neutral-900 truncate">
-                                {prod.name}
+                                {prod.itemType === 'video' ? (prod.videoTitle || 'Vídeo destaque') : prod.name}
                               </span>
+                              {prod.itemType === 'video' && (
+                                <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-bold bg-neutral-900 text-white">
+                                  <Video className="w-2.5 h-2.5" /> 9:16
+                                </span>
+                              )}
+                              {prod.itemType === 'video' && prod.videoAutoplay && (
+                                <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-medium bg-emerald-50 text-emerald-700 border border-emerald-100">
+                                  <Play className="w-2.5 h-2.5" /> Auto-play
+                                </span>
+                              )}
                               {prod.badgeEnabled && prod.badgeText && (
                                 <span
                                   className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-bold border border-neutral-200"
@@ -2916,13 +3108,15 @@ export const MaisVendidos: React.FC = () => {
                               )}
 
                               {/* Clicks metric */}
-                              <span
-                                className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-medium bg-neutral-100 text-neutral-700 border border-neutral-200"
-                                title="Total de cliques registrados no link da loja"
-                              >
-                                <MousePointerClick className="w-2.5 h-2.5 text-neutral-500" />
-                                <strong>{prod.clicks || 0}</strong> cliques
-                              </span>
+                              {prod.itemType !== 'video' && (
+                                <span
+                                  className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-medium bg-neutral-100 text-neutral-700 border border-neutral-200"
+                                  title="Total de cliques registrados no link da loja"
+                                >
+                                  <MousePointerClick className="w-2.5 h-2.5 text-neutral-500" />
+                                  <strong>{prod.clicks || 0}</strong> cliques
+                                </span>
+                              )}
 
                               {/* Preços */}
                               {((prod.promotionalPrice !== null && prod.promotionalPrice !== undefined) ||
@@ -3007,7 +3201,7 @@ export const MaisVendidos: React.FC = () => {
                         <div className="flex items-center gap-2 self-end md:self-center shrink-0 border-t md:border-t-0 pt-2 md:pt-0 border-neutral-100">
                           <button
                             type="button"
-                            onClick={() => handleOpenEditProduct(prod)}
+                            onClick={() => prod.itemType === 'video' ? handleOpenEditVideoBlock(prod) : handleOpenEditProduct(prod)}
                             className="inline-flex items-center gap-1 px-2.5 py-1.5 text-xs font-semibold text-neutral-700 bg-neutral-50 hover:bg-neutral-100 rounded border border-neutral-200 transition-colors cursor-pointer"
                           >
                             <Pencil className="w-3.5 h-3.5" />
@@ -3019,11 +3213,11 @@ export const MaisVendidos: React.FC = () => {
                               setDeleteConfirm({
                                 type: 'product',
                                 id: prod.id,
-                                name: `Produto #${posNumber} - ${prod.name}`,
+                                name: prod.itemType === 'video' ? `Vídeo 9:16 #${posNumber}` : `Produto #${posNumber} - ${prod.name}`,
                               })
                             }
                             className="p-1.5 text-neutral-400 hover:text-red-600 hover:bg-red-50 rounded border border-neutral-200 transition-colors cursor-pointer"
-                            title="Excluir produto"
+                            title={prod.itemType === 'video' ? 'Excluir vídeo destaque' : 'Excluir produto'}
                           >
                             <Trash2 className="w-3.5 h-3.5" />
                           </button>
@@ -4030,6 +4224,19 @@ export const MaisVendidos: React.FC = () => {
                     </button>
                   </div>
 
+                  <label className="flex items-start gap-2.5 rounded-lg border border-neutral-200 bg-white px-3 py-2.5 cursor-pointer">
+                    <input
+                      type="checkbox"
+                      checked={prodFormVideoAutoplay}
+                      onChange={(e) => setProdFormVideoAutoplay(e.target.checked)}
+                      className="mt-0.5 rounded border-neutral-300 text-neutral-900 focus:ring-neutral-900"
+                    />
+                    <span>
+                      <span className="text-[11px] font-bold text-neutral-800">Auto-play dos vídeos</span>
+                      <span className="block mt-0.5 text-[9px] leading-relaxed text-neutral-500">Quando este produto entrar na tela, a galeria abre o primeiro vídeo e reproduz automaticamente sem som. Ao sair da tela, ele pausa.</span>
+                    </span>
+                  </label>
+
                   {prodFormMediaItems.length > 0 ? (
                     <div className="space-y-2 pt-1">
                       {prodFormMediaItems.map((item, index) => (
@@ -4873,6 +5080,150 @@ export const MaisVendidos: React.FC = () => {
                 >
                   {savingProduct ? 'Salvando...' : editingProduct ? 'Salvar Alterações' : 'Adicionar Produto'}
                 </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* ========================================================================= */}
+      {/* MODAL: Vídeo destaque 9:16                                                */}
+      {/* ========================================================================= */}
+      {isVideoBlockModalOpen && (
+        <div className="fixed inset-0 z-[60] flex items-center justify-center p-4 bg-black/50 backdrop-blur-xs">
+          <div className="bg-white rounded-lg border border-neutral-200 shadow-xl max-w-2xl w-full max-h-[90vh] flex flex-col overflow-hidden">
+            <div className="px-5 py-4 border-b border-neutral-200 flex items-center justify-between shrink-0">
+              <div>
+                <h3 className="text-sm font-bold text-neutral-900 flex items-center gap-2"><Video className="w-4 h-4" /> {editingVideoBlock ? 'Editar vídeo destaque' : 'Adicionar vídeo destaque'}</h3>
+                <p className="text-[10px] text-neutral-500 mt-0.5">Bloco editorial 9:16 que entra na mesma ordem dos produtos e pode ser movido para qualquer posição.</p>
+              </div>
+              <button type="button" onClick={() => setIsVideoBlockModalOpen(false)} className="text-neutral-400 hover:text-neutral-700 p-1 cursor-pointer"><X className="w-4 h-4" /></button>
+            </div>
+
+            <form onSubmit={handleSaveVideoBlock} className="p-5 overflow-y-auto flex-1 min-h-0">
+              <div className="grid md:grid-cols-[1fr_230px] gap-5">
+                <div className="space-y-4">
+                  {videoBlockError && <div className="p-3 rounded bg-red-50 text-red-800 border border-red-200 text-xs">{videoBlockError}</div>}
+
+                  <div className="space-y-1">
+                    <label className="text-xs font-semibold text-neutral-700">Título opcional</label>
+                    <input
+                      type="text"
+                      value={videoBlockTitle}
+                      onChange={(e) => setVideoBlockTitle(e.target.value)}
+                      maxLength={80}
+                      placeholder="Ex: VEJA NO PÉ"
+                      className="w-full px-3 py-2 border border-neutral-300 rounded text-xs focus:outline-none focus:ring-1 focus:ring-neutral-900"
+                    />
+                    <p className="text-[9px] text-neutral-500">Se vazio, o vídeo aparece sozinho, sem texto acima.</p>
+                  </div>
+
+                  <div className="rounded-lg border border-neutral-200 bg-neutral-50 p-3 space-y-3">
+                    <div className="flex flex-wrap items-center justify-between gap-2">
+                      <div>
+                        <p className="text-[11px] font-bold text-neutral-800">Vídeo 9:16</p>
+                        <p className="text-[9px] text-neutral-500 mt-0.5">Use vídeo vertical. Ele será exibido grande, centralizado e sem caixa de produto.</p>
+                      </div>
+                      <div className="flex flex-wrap gap-2">
+                        <button
+                          type="button"
+                          onClick={() => videoBlockFileInputRef.current?.click()}
+                          disabled={uploadingVideoBlock}
+                          className="px-3 py-2 bg-neutral-900 text-white rounded text-[10px] font-semibold inline-flex items-center gap-1.5 disabled:opacity-50 cursor-pointer"
+                        >
+                          {uploadingVideoBlock ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Upload className="w-3.5 h-3.5" />}
+                          {uploadingVideoBlock ? 'Enviando...' : 'Upload'}
+                        </button>
+                        <CloudinaryMediaPicker
+                          allowedTypes={['video']}
+                          label="Selecionar já enviado"
+                          title="Vídeos já enviados"
+                          onSelect={(asset) => {
+                            setVideoBlockMedia({
+                              id: makeMediaId(),
+                              type: 'video',
+                              url: asset.url,
+                              storagePath: `cloudinary:${asset.resourceType}:${asset.publicId}`,
+                              posterUrl: asset.thumbnailUrl || null,
+                              posterStoragePath: null,
+                              source: 'upload',
+                            });
+                            setVideoBlockError(null);
+                          }}
+                        />
+                        <input
+                          ref={videoBlockFileInputRef}
+                          type="file"
+                          accept="video/mp4,video/webm,video/quicktime,video/ogg"
+                          className="hidden"
+                          onChange={(e) => {
+                            const file = e.target.files?.[0];
+                            if (file) handleVideoBlockFileUpload(file);
+                            e.target.value = '';
+                          }}
+                        />
+                      </div>
+                    </div>
+
+                    <div className="grid grid-cols-[1fr_auto] gap-2">
+                      <input
+                        type="url"
+                        value={videoBlockUrlInput}
+                        onChange={(e) => setVideoBlockUrlInput(e.target.value)}
+                        onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); handleAddVideoBlockUrl(); } }}
+                        placeholder="https://... vídeo"
+                        className="min-w-0 px-3 py-2 border border-neutral-300 rounded bg-white text-xs focus:outline-none focus:ring-1 focus:ring-neutral-900"
+                      />
+                      <button type="button" onClick={handleAddVideoBlockUrl} className="px-3 py-2 border border-neutral-300 bg-white rounded text-[10px] font-semibold cursor-pointer">Usar link</button>
+                    </div>
+
+                    {videoBlockMedia && (
+                      <div className="flex items-center gap-3 rounded border border-neutral-200 bg-white p-2">
+                        <div className="h-16 w-10 overflow-hidden rounded bg-neutral-950 shrink-0">
+                          {videoBlockMedia.posterUrl ? <img src={videoBlockMedia.posterUrl} alt="Capa" className="w-full h-full object-cover" /> : <video src={videoBlockMedia.url} muted playsInline preload="metadata" className="w-full h-full object-cover" />}
+                        </div>
+                        <div className="min-w-0 flex-1">
+                          <p className="text-[11px] font-bold text-neutral-800">Vídeo selecionado</p>
+                          <p className="text-[9px] text-neutral-400 truncate mt-0.5">{videoBlockMedia.url}</p>
+                        </div>
+                        <button type="button" onClick={() => setVideoBlockMedia(null)} className="p-2 text-neutral-400 hover:text-red-600 cursor-pointer" aria-label="Remover vídeo"><Trash2 className="w-4 h-4" /></button>
+                      </div>
+                    )}
+                  </div>
+
+                  <div className="space-y-2">
+                    <label className="flex items-start gap-2.5 rounded-lg border border-neutral-200 px-3 py-2.5 cursor-pointer">
+                      <input type="checkbox" checked={videoBlockAutoplay} onChange={(e) => setVideoBlockAutoplay(e.target.checked)} className="mt-0.5 rounded border-neutral-300 text-neutral-900 focus:ring-neutral-900" />
+                      <span><span className="block text-[11px] font-bold text-neutral-800">Auto-play</span><span className="block text-[9px] text-neutral-500 mt-0.5">Começa sem som quando o vídeo entra na área visível. Só um auto-play toca por vez.</span></span>
+                    </label>
+                    <label className="flex items-start gap-2.5 rounded-lg border border-neutral-200 px-3 py-2.5 cursor-pointer">
+                      <input type="checkbox" checked={videoBlockLoop} onChange={(e) => setVideoBlockLoop(e.target.checked)} className="mt-0.5 rounded border-neutral-300 text-neutral-900 focus:ring-neutral-900" />
+                      <span><span className="block text-[11px] font-bold text-neutral-800">Repetir vídeo</span><span className="block text-[9px] text-neutral-500 mt-0.5">Ao terminar, volta automaticamente para o início.</span></span>
+                    </label>
+                    <label className="flex items-start gap-2.5 rounded-lg border border-neutral-200 px-3 py-2.5 cursor-pointer">
+                      <input type="checkbox" checked={videoBlockControls} onChange={(e) => setVideoBlockControls(e.target.checked)} className="mt-0.5 rounded border-neutral-300 text-neutral-900 focus:ring-neutral-900" />
+                      <span><span className="block text-[11px] font-bold text-neutral-800">Mostrar controles</span><span className="block text-[9px] text-neutral-500 mt-0.5">Exibe play, progresso e volume depois que o vídeo começa.</span></span>
+                    </label>
+                  </div>
+                </div>
+
+                <div className="flex flex-col items-center">
+                  <p className="text-[9px] uppercase tracking-[0.18em] text-neutral-400 font-bold mb-2">Prévia 9:16</p>
+                  <div className="w-full max-w-[210px] aspect-[9/16] rounded-[12px] overflow-hidden bg-neutral-950 border border-neutral-800 relative">
+                    {videoBlockMedia ? (
+                      videoBlockMedia.posterUrl ? <img src={videoBlockMedia.posterUrl} alt="Prévia do vídeo" className="absolute inset-0 w-full h-full object-cover" /> : <video src={videoBlockMedia.url} muted playsInline preload="metadata" className="absolute inset-0 w-full h-full object-cover" />
+                    ) : (
+                      <div className="absolute inset-0 flex flex-col items-center justify-center text-neutral-600 gap-2"><Video className="w-8 h-8" /><span className="text-[9px] uppercase tracking-widest">9:16</span></div>
+                    )}
+                    {videoBlockMedia && <div className="absolute inset-0 flex items-center justify-center pointer-events-none"><div className="w-12 h-12 rounded-full bg-black/50 text-white flex items-center justify-center backdrop-blur-sm"><Play className="w-5 h-5 ml-0.5" fill="currentColor" /></div></div>}
+                  </div>
+                  {videoBlockTitle.trim() && <p className="mt-3 text-[10px] font-bold tracking-[0.16em] uppercase text-neutral-600 text-center">{videoBlockTitle}</p>}
+                </div>
+              </div>
+
+              <div className="pt-4 mt-5 border-t border-neutral-200 flex items-center justify-end gap-2">
+                <button type="button" onClick={() => setIsVideoBlockModalOpen(false)} className="px-3.5 py-2 rounded text-xs font-semibold text-neutral-700 bg-white border border-neutral-300 hover:bg-neutral-50 cursor-pointer">Cancelar</button>
+                <button type="submit" disabled={savingVideoBlock || !videoBlockMedia} className="px-4 py-2 rounded text-xs font-semibold text-white bg-neutral-900 hover:bg-neutral-800 disabled:opacity-50 cursor-pointer">{savingVideoBlock ? 'Salvando...' : editingVideoBlock ? 'Salvar vídeo' : 'Adicionar à vitrine'}</button>
               </div>
             </form>
           </div>

@@ -399,6 +399,11 @@ export default async function handler(req: any, res: any) {
         if (srcProds && srcProds.length > 0) {
           const prodsToInsert = srcProds.map((p) => ({
             list_id: newListData.id,
+            item_type: p.item_type === 'video' ? 'video' : 'product',
+            video_autoplay: Boolean(p.video_autoplay),
+            video_loop: p.video_loop !== false,
+            video_controls: p.video_controls !== false,
+            video_title: p.video_title || null,
             position: p.position,
             name: p.name,
             category: p.category,

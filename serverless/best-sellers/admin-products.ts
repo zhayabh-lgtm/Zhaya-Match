@@ -159,6 +159,7 @@ function reusableMediaItems(raw: any, imageUrl: any, imageUrls: any) {
 
 async function syncProductToLibrary(supabase: any, productRow: any): Promise<string | null> {
   try {
+    if (String(productRow?.item_type || 'product') === 'video') return productRow?.library_product_id || null;
     const reusableMedia = reusableMediaItems(productRow.media_items, productRow.image_url, productRow.image_urls);
     const imageUrls = reusableMedia.filter((item: any) => item.type === 'image').map((item: any) => item.url);
     const payload: Record<string, any> = {
@@ -285,6 +286,7 @@ export default async function handler(req: any, res: any) {
 
       const products: BestSellerProduct[] = (data || []).map((p) => ({
         id: p.id,
+        itemType: p.item_type === 'video' ? 'video' : 'product',
         libraryProductId: p.library_product_id || null,
         listId: p.list_id,
         position: p.position,
@@ -293,6 +295,10 @@ export default async function handler(req: any, res: any) {
         imageUrl: p.image_url,
         imageUrls: Array.isArray(p.image_urls) ? p.image_urls : [],
         mediaItems: normalizeMediaItems(p.media_items).length > 0 ? normalizeMediaItems(p.media_items) : mediaItemsFromLegacy(p.image_url, p.image_urls),
+        videoAutoplay: Boolean(p.video_autoplay),
+        videoLoop: p.video_loop !== false,
+        videoControls: p.video_controls !== false,
+        videoTitle: p.video_title || null,
         productUrl: p.product_url || null,
         originalPrice: p.original_price !== null && p.original_price !== undefined ? Number(p.original_price) : null,
         promotionalPrice: p.promotional_price !== null && p.promotional_price !== undefined ? Number(p.promotional_price) : null,
@@ -374,6 +380,11 @@ export default async function handler(req: any, res: any) {
         imageUrl,
         imageUrls,
         mediaItems,
+        itemType,
+        videoAutoplay,
+        videoLoop,
+        videoControls,
+        videoTitle,
         productUrl,
         originalPrice,
         promotionalPrice,
@@ -403,8 +414,10 @@ export default async function handler(req: any, res: any) {
         timerColor,
       } = body;
 
-      const cleanName = sanitizeText(name);
-      const cleanCategory = sanitizeText(category) || 'Produto';
+      const cleanItemType: 'product' | 'video' = String(itemType || body.item_type) === 'video' ? 'video' : 'product';
+      const cleanVideoTitle = videoTitle ? sanitizeText(String(videoTitle)).slice(0, 80) : null;
+      const cleanName = sanitizeText(name) || (cleanItemType === 'video' ? (cleanVideoTitle || 'Vídeo destaque') : '');
+      const cleanCategory = cleanItemType === 'video' ? 'Vídeo' : (sanitizeText(category) || 'Produto');
       const parsedOriginalPrice = parsePriceInput(originalPrice !== undefined ? originalPrice : body.original_price);
       const parsedPromotionalPrice = parsePriceInput(promotionalPrice !== undefined ? promotionalPrice : body.promotional_price);
       const rawInstallmentsCount = installmentsCount !== undefined ? installmentsCount : body.installments_count;
@@ -435,7 +448,10 @@ export default async function handler(req: any, res: any) {
         return res.status(400).json({ success: false, message: 'Nome do produto é obrigatório.' });
       }
       if (cleanMediaItems.length === 0) {
-        return res.status(400).json({ success: false, message: 'Adicione pelo menos uma imagem ou vídeo ao produto.' });
+        return res.status(400).json({ success: false, message: cleanItemType === 'video' ? 'Adicione um vídeo destaque.' : 'Adicione pelo menos uma imagem ou vídeo ao produto.' });
+      }
+      if (cleanItemType === 'video' && !cleanMediaItems.some((item) => item.type === 'video')) {
+        return res.status(400).json({ success: false, message: 'O bloco de vídeo destaque precisa conter um vídeo.' });
       }
       if (cleanProductUrl && !isValidSafeUrl(cleanProductUrl)) {
         return res.status(400).json({ success: false, message: 'Link do produto contém protocolo inválido/inseguro.' });
@@ -514,6 +530,11 @@ export default async function handler(req: any, res: any) {
         .from('best_seller_products')
         .insert({
           list_id: listId,
+          item_type: cleanItemType,
+          video_autoplay: Boolean(videoAutoplay),
+          video_loop: videoLoop !== undefined ? Boolean(videoLoop) : true,
+          video_controls: videoControls !== undefined ? Boolean(videoControls) : true,
+          video_title: cleanVideoTitle,
           library_product_id: body.libraryProductId || body.library_product_id || null,
           position,
           name: cleanName,
@@ -569,6 +590,7 @@ export default async function handler(req: any, res: any) {
 
       const created: BestSellerProduct = {
         id: data.id,
+        itemType: data.item_type === 'video' ? 'video' : 'product',
         libraryProductId: syncedLibraryId || data.library_product_id || null,
         listId: data.list_id,
         position: data.position,
@@ -577,6 +599,10 @@ export default async function handler(req: any, res: any) {
         imageUrl: data.image_url,
         imageUrls: Array.isArray(data.image_urls) ? data.image_urls : validImageUrls,
         mediaItems: normalizeMediaItems(data.media_items).length > 0 ? normalizeMediaItems(data.media_items) : cleanMediaItems,
+        videoAutoplay: Boolean(data.video_autoplay),
+        videoLoop: data.video_loop !== false,
+        videoControls: data.video_controls !== false,
+        videoTitle: data.video_title || null,
         productUrl: data.product_url || null,
         originalPrice: data.original_price !== null && data.original_price !== undefined ? Number(data.original_price) : null,
         promotionalPrice: data.promotional_price !== null && data.promotional_price !== undefined ? Number(data.promotional_price) : null,
@@ -649,10 +675,22 @@ export default async function handler(req: any, res: any) {
         updates.category = cleanCat;
       }
 
+      if (body.itemType !== undefined || body.item_type !== undefined) {
+        updates.item_type = String(body.itemType ?? body.item_type) === 'video' ? 'video' : 'product';
+      }
+      if (body.videoAutoplay !== undefined) updates.video_autoplay = Boolean(body.videoAutoplay);
+      if (body.videoLoop !== undefined) updates.video_loop = Boolean(body.videoLoop);
+      if (body.videoControls !== undefined) updates.video_controls = Boolean(body.videoControls);
+      if (body.videoTitle !== undefined) updates.video_title = body.videoTitle ? sanitizeText(String(body.videoTitle)).slice(0, 80) : null;
+
       if (body.mediaItems !== undefined) {
         const cleanMedia = normalizeMediaItems(body.mediaItems);
+        const requestedItemType = String(body.itemType ?? body.item_type ?? updates.item_type ?? 'product') === 'video' ? 'video' : 'product';
         if (cleanMedia.length === 0) {
-          return res.status(400).json({ success: false, message: 'Adicione pelo menos uma imagem ou vídeo ao produto.' });
+          return res.status(400).json({ success: false, message: requestedItemType === 'video' ? 'Adicione um vídeo destaque.' : 'Adicione pelo menos uma imagem ou vídeo ao produto.' });
+        }
+        if (requestedItemType === 'video' && !cleanMedia.some((item) => item.type === 'video')) {
+          return res.status(400).json({ success: false, message: 'O bloco de vídeo destaque precisa conter um vídeo.' });
         }
         const imageOnlyUrls = cleanMedia.filter((item) => item.type === 'image').map((item) => item.url);
         updates.media_items = cleanMedia;
@@ -851,6 +889,7 @@ export default async function handler(req: any, res: any) {
 
       const updated: BestSellerProduct = {
         id: data.id,
+        itemType: data.item_type === 'video' ? 'video' : 'product',
         libraryProductId: syncedLibraryId || data.library_product_id || null,
         listId: data.list_id,
         position: data.position,
@@ -859,6 +898,10 @@ export default async function handler(req: any, res: any) {
         imageUrl: data.image_url,
         imageUrls: Array.isArray(data.image_urls) ? data.image_urls : [],
         mediaItems: normalizeMediaItems(data.media_items).length > 0 ? normalizeMediaItems(data.media_items) : mediaItemsFromLegacy(data.image_url, data.image_urls),
+        videoAutoplay: Boolean(data.video_autoplay),
+        videoLoop: data.video_loop !== false,
+        videoControls: data.video_controls !== false,
+        videoTitle: data.video_title || null,
         productUrl: data.product_url || null,
         originalPrice: data.original_price !== null && data.original_price !== undefined ? Number(data.original_price) : null,
         promotionalPrice: data.promotional_price !== null && data.promotional_price !== undefined ? Number(data.promotional_price) : null,

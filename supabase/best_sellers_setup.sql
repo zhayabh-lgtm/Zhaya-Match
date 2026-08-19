@@ -37,6 +37,11 @@ CREATE TABLE IF NOT EXISTS public.best_seller_lists (
 CREATE TABLE IF NOT EXISTS public.best_seller_products (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   list_id UUID NOT NULL REFERENCES public.best_seller_lists(id) ON DELETE CASCADE,
+  item_type TEXT NOT NULL DEFAULT 'product' CHECK (item_type IN ('product', 'video')),
+  video_autoplay BOOLEAN NOT NULL DEFAULT false,
+  video_loop BOOLEAN NOT NULL DEFAULT true,
+  video_controls BOOLEAN NOT NULL DEFAULT true,
+  video_title TEXT,
   position INTEGER NOT NULL DEFAULT 1,
   name TEXT NOT NULL,
   category TEXT NOT NULL DEFAULT 'Produto',
@@ -87,6 +92,11 @@ ALTER TABLE public.best_seller_lists ADD COLUMN IF NOT EXISTS timer_duration_min
 ALTER TABLE public.best_seller_lists ADD COLUMN IF NOT EXISTS timezone TEXT NOT NULL DEFAULT 'America/Sao_Paulo';
 ALTER TABLE public.best_seller_lists ADD COLUMN IF NOT EXISTS created_by TEXT;
 
+ALTER TABLE public.best_seller_products ADD COLUMN IF NOT EXISTS item_type TEXT NOT NULL DEFAULT 'product';
+ALTER TABLE public.best_seller_products ADD COLUMN IF NOT EXISTS video_autoplay BOOLEAN NOT NULL DEFAULT false;
+ALTER TABLE public.best_seller_products ADD COLUMN IF NOT EXISTS video_loop BOOLEAN NOT NULL DEFAULT true;
+ALTER TABLE public.best_seller_products ADD COLUMN IF NOT EXISTS video_controls BOOLEAN NOT NULL DEFAULT true;
+ALTER TABLE public.best_seller_products ADD COLUMN IF NOT EXISTS video_title TEXT;
 ALTER TABLE public.best_seller_products ADD COLUMN IF NOT EXISTS image_urls TEXT[] NOT NULL DEFAULT '{}'::text[];
 ALTER TABLE public.best_seller_products ADD COLUMN IF NOT EXISTS media_items JSONB NOT NULL DEFAULT '[]'::jsonb;
 ALTER TABLE public.best_seller_products ALTER COLUMN image_url DROP NOT NULL;

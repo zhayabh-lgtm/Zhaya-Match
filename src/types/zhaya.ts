@@ -516,6 +516,7 @@ export interface BestSellerList {
 
 export interface BestSellerProduct {
   id: string;
+  itemType?: 'product' | 'video';
   libraryProductId?: string | null;
   listId: string;
   position: number;
@@ -524,6 +525,10 @@ export interface BestSellerProduct {
   imageUrl?: string | null;
   imageUrls?: string[];
   mediaItems?: BestSellerMediaItem[];
+  videoAutoplay?: boolean;
+  videoLoop?: boolean;
+  videoControls?: boolean;
+  videoTitle?: string | null;
   productUrl?: string | null;
   originalPrice?: number | null;
   promotionalPrice?: number | null;
@@ -592,12 +597,17 @@ export interface BestSellerLibraryProduct {
 
 export interface PublicBestSellerProduct {
   id: string;
+  itemType?: 'product' | 'video';
   position: number;
   name: string;
   category: string;
   imageUrl?: string | null;
   imageUrls?: string[];
   mediaItems?: PublicBestSellerMediaItem[];
+  videoAutoplay?: boolean;
+  videoLoop?: boolean;
+  videoControls?: boolean;
+  videoTitle?: string | null;
   productUrl?: string | null;
   originalPrice?: number | null;
   promotionalPrice?: number | null;

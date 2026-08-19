@@ -209,12 +209,17 @@ export default async function handler(req: any, res: any) {
 
       return {
         id: p.id,
+        itemType: p.item_type === 'video' ? 'video' : 'product',
         position: p.position,
         name: p.name,
         category: p.category,
         imageUrl: p.image_url || null,
         imageUrls,
         mediaItems: normalizePublicMediaItems(p.media_items, p.image_url, p.image_urls),
+        videoAutoplay: Boolean(p.video_autoplay),
+        videoLoop: p.video_loop !== false,
+        videoControls: p.video_controls !== false,
+        videoTitle: p.video_title || null,
         productUrl: p.product_url || null,
         originalPrice: p.original_price !== null && p.original_price !== undefined ? Number(p.original_price) : null,
         promotionalPrice: p.promotional_price !== null && p.promotional_price !== undefined ? Number(p.promotional_price) : null,

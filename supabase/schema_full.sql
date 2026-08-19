@@ -567,11 +567,17 @@ CREATE TABLE IF NOT EXISTS public.best_seller_lists (
 CREATE TABLE IF NOT EXISTS public.best_seller_products (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   list_id UUID NOT NULL REFERENCES public.best_seller_lists(id) ON DELETE CASCADE,
+  item_type TEXT NOT NULL DEFAULT 'product' CHECK (item_type IN ('product', 'video')),
+  video_autoplay BOOLEAN NOT NULL DEFAULT false,
+  video_loop BOOLEAN NOT NULL DEFAULT true,
+  video_controls BOOLEAN NOT NULL DEFAULT true,
+  video_title TEXT,
   position INTEGER NOT NULL DEFAULT 1,
   name TEXT NOT NULL,
   category TEXT NOT NULL DEFAULT 'Produto',
-  image_url TEXT NOT NULL,
+  image_url TEXT,
   image_urls TEXT[] NOT NULL DEFAULT '{}'::text[],
+  media_items JSONB NOT NULL DEFAULT '[]'::jsonb,
   product_url TEXT,
   original_price NUMERIC(10, 2) CHECK (original_price IS NULL OR original_price >= 0),
   promotional_price NUMERIC(10, 2) CHECK (promotional_price IS NULL OR promotional_price >= 0),
@@ -612,6 +618,20 @@ ALTER TABLE public.best_seller_lists
 ALTER TABLE public.best_seller_lists
   ADD COLUMN IF NOT EXISTS timer_duration_minutes INTEGER;
 ALTER TABLE public.best_seller_products
+  ADD COLUMN IF NOT EXISTS item_type TEXT NOT NULL DEFAULT 'product';
+ALTER TABLE public.best_seller_products
+  ADD COLUMN IF NOT EXISTS video_autoplay BOOLEAN NOT NULL DEFAULT false;
+ALTER TABLE public.best_seller_products
+  ADD COLUMN IF NOT EXISTS video_loop BOOLEAN NOT NULL DEFAULT true;
+ALTER TABLE public.best_seller_products
+  ADD COLUMN IF NOT EXISTS video_controls BOOLEAN NOT NULL DEFAULT true;
+ALTER TABLE public.best_seller_products
+  ADD COLUMN IF NOT EXISTS video_title TEXT;
+ALTER TABLE public.best_seller_products
+  ADD COLUMN IF NOT EXISTS media_items JSONB NOT NULL DEFAULT '[]'::jsonb;
+ALTER TABLE public.best_seller_products
+  ALTER COLUMN image_url DROP NOT NULL;
+ALTER TABLE public.best_seller_products
   ADD COLUMN IF NOT EXISTS original_price NUMERIC(10, 2);
 ALTER TABLE public.best_seller_products
   ADD COLUMN IF NOT EXISTS promotional_price NUMERIC(10, 2);
@@ -631,6 +651,22 @@ ALTER TABLE public.best_seller_products
   ADD COLUMN IF NOT EXISTS timer_duration_minutes INTEGER;
 ALTER TABLE public.best_seller_products
   ADD COLUMN IF NOT EXISTS timer_color TEXT NOT NULL DEFAULT '#FFFFFF';
+
+UPDATE public.best_seller_products
+SET item_type = 'product'
+WHERE item_type IS NULL OR item_type NOT IN ('product', 'video');
+
+DO $$
+BEGIN
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_constraint
+    WHERE conname = 'best_seller_products_item_type_check'
+  ) THEN
+    ALTER TABLE public.best_seller_products
+      ADD CONSTRAINT best_seller_products_item_type_check
+      CHECK (item_type IN ('product', 'video'));
+  END IF;
+END $$;
 
 UPDATE public.best_seller_products
 SET timer_duration_minutes = NULL
@@ -672,6 +708,7 @@ END $$;
 CREATE INDEX IF NOT EXISTS idx_best_seller_lists_active ON public.best_seller_lists(active);
 CREATE INDEX IF NOT EXISTS idx_best_seller_lists_date ON public.best_seller_lists(list_date DESC);
 CREATE INDEX IF NOT EXISTS idx_best_seller_products_list_pos ON public.best_seller_products(list_id, position ASC);
+CREATE INDEX IF NOT EXISTS idx_best_seller_products_list_item_position ON public.best_seller_products(list_id, position ASC, item_type);
 
 ALTER TABLE public.best_seller_lists ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.best_seller_products ENABLE ROW LEVEL SECURITY;
