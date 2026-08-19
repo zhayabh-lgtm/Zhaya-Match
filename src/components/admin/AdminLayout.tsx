@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { Link, useLocation, useNavigate } from 'react-router-dom';
-import { Layers, Palette, FileText, Eye, Settings, LogOut, BarChart3, TrendingUp } from 'lucide-react';
+import { Layers, Palette, FileText, Eye, Settings, LogOut, BarChart3, Calendar, TrendingUp } from 'lucide-react';
 import { useAuth } from '../../context/AuthContext';
 import { Repository } from '../../lib/repository';
 import { PublishStatusBar } from './PublishStatusBar';
@@ -45,6 +45,7 @@ export const AdminLayout: React.FC<AdminLayoutProps> = ({ children }) => {
     { label: 'Textos e imagens', path: '/admin/textos-imagens', icon: FileText },
     { label: 'Visualização', path: '/admin/visualizacao', icon: Eye },
     { label: 'Analytics', path: '/admin/analytics', icon: BarChart3 },
+    { label: 'Convite de live', path: '/admin/convite-live', icon: Calendar },
     { label: 'Vitrine personalizada', path: '/admin/mais-vendidos', icon: TrendingUp },
     { label: 'Configurações', path: '/admin/configuracoes', icon: Settings },
   ];
