@@ -3238,7 +3238,7 @@ export const MaisVendidos: React.FC = () => {
       {isListModalOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50 backdrop-blur-xs">
           <div className="bg-white rounded-lg border border-neutral-200 shadow-xl max-w-lg w-full max-h-[90vh] flex flex-col overflow-hidden animate-in fade-in zoom-in-95 duration-150">
-            <div className="px-5 py-4 border-b border-neutral-200 flex items-center justify-between shrink-0">
+            <div className="px-4 sm:px-5 py-4 border-b border-neutral-200 flex items-start justify-between gap-3 shrink-0 min-w-0">
               <h3 className="text-sm font-bold text-neutral-900">
                 {editingList ? 'Editar Vitrine Personalizada' : 'Criar Nova Vitrine Personalizada'}
               </h3>
@@ -3772,7 +3772,7 @@ export const MaisVendidos: React.FC = () => {
               </div>
 
               <div className="space-y-3 p-3 rounded-lg bg-neutral-50 border border-neutral-200">
-                <div className="flex flex-wrap items-center justify-between gap-2">
+                <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2 min-w-0">
                   <div>
                     <label className="font-semibold text-neutral-800">Vídeo de fundo (Opcional)</label>
                     <p className="text-[10px] text-neutral-500 mt-0.5">Fica fixo atrás da vitrine, sempre sem som, automático e em looping.</p>
@@ -5090,18 +5090,18 @@ export const MaisVendidos: React.FC = () => {
       {/* MODAL: Vídeo destaque 9:16                                                */}
       {/* ========================================================================= */}
       {isVideoBlockModalOpen && (
-        <div className="fixed inset-0 z-[60] flex items-center justify-center p-4 bg-black/50 backdrop-blur-xs">
-          <div className="bg-white rounded-lg border border-neutral-200 shadow-xl max-w-2xl w-full max-h-[90vh] flex flex-col overflow-hidden">
-            <div className="px-5 py-4 border-b border-neutral-200 flex items-center justify-between shrink-0">
-              <div>
+        <div className="fixed inset-0 z-[60] flex items-center justify-center p-2 sm:p-4 bg-black/50 backdrop-blur-xs overflow-x-hidden">
+          <div className="bg-white rounded-lg border border-neutral-200 shadow-xl w-[calc(100vw-1rem)] sm:w-full max-w-lg max-h-[92vh] flex flex-col overflow-hidden min-w-0">
+            <div className="px-4 sm:px-5 py-4 border-b border-neutral-200 flex items-start justify-between gap-3 shrink-0 min-w-0">
+              <div className="min-w-0">
                 <h3 className="text-sm font-bold text-neutral-900 flex items-center gap-2"><Video className="w-4 h-4" /> {editingVideoBlock ? 'Editar vídeo destaque' : 'Adicionar vídeo destaque'}</h3>
                 <p className="text-[10px] text-neutral-500 mt-0.5">Bloco editorial 9:16 que entra na mesma ordem dos produtos e pode ser movido para qualquer posição.</p>
               </div>
-              <button type="button" onClick={() => setIsVideoBlockModalOpen(false)} className="text-neutral-400 hover:text-neutral-700 p-1 cursor-pointer"><X className="w-4 h-4" /></button>
+              <button type="button" onClick={() => setIsVideoBlockModalOpen(false)} className="text-neutral-400 hover:text-neutral-700 p-1 cursor-pointer shrink-0"><X className="w-4 h-4" /></button>
             </div>
 
-            <form onSubmit={handleSaveVideoBlock} className="p-5 overflow-y-auto flex-1 min-h-0">
-              <div className="grid md:grid-cols-[1fr_230px] gap-5">
+            <form onSubmit={handleSaveVideoBlock} className="p-4 sm:p-5 overflow-y-auto overflow-x-hidden flex-1 min-h-0 min-w-0">
+              <div className="block min-w-0">
                 <div className="space-y-4">
                   {videoBlockError && <div className="p-3 rounded bg-red-50 text-red-800 border border-red-200 text-xs">{videoBlockError}</div>}
 
@@ -5119,23 +5119,24 @@ export const MaisVendidos: React.FC = () => {
                   </div>
 
                   <div className="rounded-lg border border-neutral-200 bg-neutral-50 p-3 space-y-3">
-                    <div className="flex flex-wrap items-center justify-between gap-2">
+                    <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2 min-w-0">
                       <div>
                         <p className="text-[11px] font-bold text-neutral-800">Vídeo 9:16</p>
                         <p className="text-[9px] text-neutral-500 mt-0.5">Use vídeo vertical. Ele será exibido grande, centralizado e sem caixa de produto.</p>
                       </div>
-                      <div className="flex flex-wrap gap-2">
+                      <div className="flex flex-wrap gap-2 min-w-0 w-full sm:w-auto">
                         <button
                           type="button"
                           onClick={() => videoBlockFileInputRef.current?.click()}
                           disabled={uploadingVideoBlock}
-                          className="px-3 py-2 bg-neutral-900 text-white rounded text-[10px] font-semibold inline-flex items-center gap-1.5 disabled:opacity-50 cursor-pointer"
+                          className="flex-1 sm:flex-none justify-center px-3 py-2 bg-neutral-900 text-white rounded text-[10px] font-semibold inline-flex items-center gap-1.5 disabled:opacity-50 cursor-pointer min-w-0"
                         >
                           {uploadingVideoBlock ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Upload className="w-3.5 h-3.5" />}
                           {uploadingVideoBlock ? 'Enviando...' : 'Upload'}
                         </button>
                         <CloudinaryMediaPicker
                           allowedTypes={['video']}
+                          className="flex-1 sm:flex-none justify-center px-3 py-2 border border-neutral-300 bg-white rounded text-[10px] font-semibold text-neutral-700 inline-flex items-center gap-1.5 hover:bg-neutral-50 cursor-pointer min-w-0"
                           label="Selecionar já enviado"
                           title="Vídeos já enviados"
                           onSelect={(asset) => {
@@ -5165,7 +5166,7 @@ export const MaisVendidos: React.FC = () => {
                       </div>
                     </div>
 
-                    <div className="grid grid-cols-[1fr_auto] gap-2">
+                    <div className="grid grid-cols-1 sm:grid-cols-[1fr_auto] gap-2 min-w-0">
                       <input
                         type="url"
                         value={videoBlockUrlInput}
@@ -5178,15 +5179,13 @@ export const MaisVendidos: React.FC = () => {
                     </div>
 
                     {videoBlockMedia && (
-                      <div className="flex items-center gap-3 rounded border border-neutral-200 bg-white p-2">
-                        <div className="h-16 w-10 overflow-hidden rounded bg-neutral-950 shrink-0">
-                          {videoBlockMedia.posterUrl ? <img src={videoBlockMedia.posterUrl} alt="Capa" className="w-full h-full object-cover" /> : <video src={videoBlockMedia.url} muted playsInline preload="metadata" className="w-full h-full object-cover" />}
-                        </div>
+                      <div className="flex items-center gap-2 rounded border border-neutral-200 bg-white p-2.5 min-w-0">
+                        <Video className="w-4 h-4 text-neutral-500 shrink-0" />
                         <div className="min-w-0 flex-1">
                           <p className="text-[11px] font-bold text-neutral-800">Vídeo selecionado</p>
                           <p className="text-[9px] text-neutral-400 truncate mt-0.5">{videoBlockMedia.url}</p>
                         </div>
-                        <button type="button" onClick={() => setVideoBlockMedia(null)} className="p-2 text-neutral-400 hover:text-red-600 cursor-pointer" aria-label="Remover vídeo"><Trash2 className="w-4 h-4" /></button>
+                        <button type="button" onClick={() => setVideoBlockMedia(null)} className="p-2 text-neutral-400 hover:text-red-600 cursor-pointer shrink-0" aria-label="Remover vídeo"><Trash2 className="w-4 h-4" /></button>
                       </div>
                     )}
                   </div>
@@ -5206,24 +5205,11 @@ export const MaisVendidos: React.FC = () => {
                     </label>
                   </div>
                 </div>
-
-                <div className="flex flex-col items-center">
-                  <p className="text-[9px] uppercase tracking-[0.18em] text-neutral-400 font-bold mb-2">Prévia 9:16</p>
-                  <div className="w-full max-w-[210px] aspect-[9/16] rounded-[12px] overflow-hidden bg-neutral-950 border border-neutral-800 relative">
-                    {videoBlockMedia ? (
-                      videoBlockMedia.posterUrl ? <img src={videoBlockMedia.posterUrl} alt="Prévia do vídeo" className="absolute inset-0 w-full h-full object-cover" /> : <video src={videoBlockMedia.url} muted playsInline preload="metadata" className="absolute inset-0 w-full h-full object-cover" />
-                    ) : (
-                      <div className="absolute inset-0 flex flex-col items-center justify-center text-neutral-600 gap-2"><Video className="w-8 h-8" /><span className="text-[9px] uppercase tracking-widest">9:16</span></div>
-                    )}
-                    {videoBlockMedia && <div className="absolute inset-0 flex items-center justify-center pointer-events-none"><div className="w-12 h-12 rounded-full bg-black/50 text-white flex items-center justify-center backdrop-blur-sm"><Play className="w-5 h-5 ml-0.5" fill="currentColor" /></div></div>}
-                  </div>
-                  {videoBlockTitle.trim() && <p className="mt-3 text-[10px] font-bold tracking-[0.16em] uppercase text-neutral-600 text-center">{videoBlockTitle}</p>}
-                </div>
               </div>
 
-              <div className="pt-4 mt-5 border-t border-neutral-200 flex items-center justify-end gap-2">
-                <button type="button" onClick={() => setIsVideoBlockModalOpen(false)} className="px-3.5 py-2 rounded text-xs font-semibold text-neutral-700 bg-white border border-neutral-300 hover:bg-neutral-50 cursor-pointer">Cancelar</button>
-                <button type="submit" disabled={savingVideoBlock || !videoBlockMedia} className="px-4 py-2 rounded text-xs font-semibold text-white bg-neutral-900 hover:bg-neutral-800 disabled:opacity-50 cursor-pointer">{savingVideoBlock ? 'Salvando...' : editingVideoBlock ? 'Salvar vídeo' : 'Adicionar à vitrine'}</button>
+              <div className="pt-4 mt-5 border-t border-neutral-200 flex flex-col-reverse sm:flex-row sm:items-center sm:justify-end gap-2">
+                <button type="button" onClick={() => setIsVideoBlockModalOpen(false)} className="w-full sm:w-auto px-3.5 py-2 rounded text-xs font-semibold text-neutral-700 bg-white border border-neutral-300 hover:bg-neutral-50 cursor-pointer">Cancelar</button>
+                <button type="submit" disabled={savingVideoBlock || !videoBlockMedia} className="w-full sm:w-auto px-4 py-2 rounded text-xs font-semibold text-white bg-neutral-900 hover:bg-neutral-800 disabled:opacity-50 cursor-pointer">{savingVideoBlock ? 'Salvando...' : editingVideoBlock ? 'Salvar vídeo' : 'Adicionar à vitrine'}</button>
               </div>
             </form>
           </div>

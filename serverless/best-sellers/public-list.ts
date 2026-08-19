@@ -71,6 +71,24 @@ function normalizePublicMediaItems(raw: any, imageUrl: any, imageUrls: any) {
   return Array.from(new Set(legacy)).map((url, i) => ({ id: `legacy-image-${i + 1}`, type: 'image' as const, url }));
 }
 
+
+const VIDEO_MARKER = '__ZHAYA_VIDEO_9X16__';
+const VIDEO_AUTOPLAY_ON = '__ZHAYA_AUTOPLAY_1__';
+const VIDEO_LOOP_ON = '__ZHAYA_LOOP_1__';
+const VIDEO_CONTROLS_ON = '__ZHAYA_CONTROLS_1__';
+
+function readVideoFlags(row: any) {
+  const colors = Array.isArray(row?.colors) ? row.colors.map((v: any) => String(v)) : [];
+  const legacy = colors.includes(VIDEO_MARKER) || String(row?.category || '').toLowerCase() === 'vídeo';
+  return {
+    itemType: row?.item_type === 'video' || legacy ? 'video' as const : 'product' as const,
+    autoplay: row?.video_autoplay !== undefined && row?.video_autoplay !== null ? Boolean(row.video_autoplay) : colors.includes(VIDEO_AUTOPLAY_ON),
+    loop: row?.video_loop !== undefined && row?.video_loop !== null ? row.video_loop !== false : colors.includes(VIDEO_LOOP_ON),
+    controls: row?.video_controls !== undefined && row?.video_controls !== null ? row.video_controls !== false : colors.includes(VIDEO_CONTROLS_ON),
+    title: row?.video_title || (legacy && row?.name !== 'Vídeo destaque' ? row?.name || null : null),
+  };
+}
+
 function normalizeOpacity(value: any, fallback = 0.22): number {
   const parsed = Number(value);
   if (!Number.isFinite(parsed)) return fallback;
@@ -209,17 +227,17 @@ export default async function handler(req: any, res: any) {
 
       return {
         id: p.id,
-        itemType: p.item_type === 'video' ? 'video' : 'product',
+        itemType: readVideoFlags(p).itemType,
         position: p.position,
         name: p.name,
         category: p.category,
         imageUrl: p.image_url || null,
         imageUrls,
         mediaItems: normalizePublicMediaItems(p.media_items, p.image_url, p.image_urls),
-        videoAutoplay: Boolean(p.video_autoplay),
-        videoLoop: p.video_loop !== false,
-        videoControls: p.video_controls !== false,
-        videoTitle: p.video_title || null,
+        videoAutoplay: readVideoFlags(p).autoplay,
+        videoLoop: readVideoFlags(p).loop,
+        videoControls: readVideoFlags(p).controls,
+        videoTitle: readVideoFlags(p).title,
         productUrl: p.product_url || null,
         originalPrice: p.original_price !== null && p.original_price !== undefined ? Number(p.original_price) : null,
         promotionalPrice: p.promotional_price !== null && p.promotional_price !== undefined ? Number(p.promotional_price) : null,

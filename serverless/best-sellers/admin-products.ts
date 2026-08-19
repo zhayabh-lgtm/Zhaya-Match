@@ -24,9 +24,51 @@ function isTableMissingError(error: any): boolean {
     code === '42P01' ||
     msg.includes('relation "best_seller_products" does not exist') ||
     msg.includes('relation "public.best_seller_products" does not exist') ||
-    msg.includes('could not find the table') ||
-    msg.includes('schema cache')
+    msg.includes('could not find the table')
   );
+}
+
+function isVideoSchemaCompatibilityError(error: any): boolean {
+  if (!error) return false;
+  const msg = String(error.message || '').toLowerCase();
+  const code = String(error.code || '');
+  const mentionsVideoColumn =
+    msg.includes('item_type') ||
+    msg.includes('video_autoplay') ||
+    msg.includes('video_loop') ||
+    msg.includes('video_controls') ||
+    msg.includes('video_title');
+  return mentionsVideoColumn && (msg.includes('schema cache') || msg.includes('column') || code === '42703' || code === 'PGRST204');
+}
+
+const VIDEO_MARKER = '__ZHAYA_VIDEO_9X16__';
+const VIDEO_AUTOPLAY_ON = '__ZHAYA_AUTOPLAY_1__';
+const VIDEO_LOOP_ON = '__ZHAYA_LOOP_1__';
+const VIDEO_CONTROLS_ON = '__ZHAYA_CONTROLS_1__';
+
+function videoLegacyMarkers(autoplay: any, loop: any, controls: any): string[] {
+  const markers = [VIDEO_MARKER];
+  if (Boolean(autoplay)) markers.push(VIDEO_AUTOPLAY_ON);
+  if (loop !== false) markers.push(VIDEO_LOOP_ON);
+  if (controls !== false) markers.push(VIDEO_CONTROLS_ON);
+  return markers;
+}
+
+function isLegacyVideoBlockRow(row: any): boolean {
+  const colors = Array.isArray(row?.colors) ? row.colors.map((v: any) => String(v)) : [];
+  return colors.includes(VIDEO_MARKER) || String(row?.category || '').toLowerCase() === 'vídeo';
+}
+
+function readVideoFlags(row: any) {
+  const colors = Array.isArray(row?.colors) ? row.colors.map((v: any) => String(v)) : [];
+  const legacy = isLegacyVideoBlockRow(row);
+  return {
+    itemType: row?.item_type === 'video' || legacy ? 'video' as const : 'product' as const,
+    autoplay: row?.video_autoplay !== undefined && row?.video_autoplay !== null ? Boolean(row.video_autoplay) : colors.includes(VIDEO_AUTOPLAY_ON),
+    loop: row?.video_loop !== undefined && row?.video_loop !== null ? row.video_loop !== false : colors.includes(VIDEO_LOOP_ON),
+    controls: row?.video_controls !== undefined && row?.video_controls !== null ? row.video_controls !== false : colors.includes(VIDEO_CONTROLS_ON),
+    title: row?.video_title || (legacy && row?.name !== 'Vídeo destaque' ? row?.name || null : null),
+  };
 }
 
 // Sanitização simples contra tags XSS
@@ -159,7 +201,7 @@ function reusableMediaItems(raw: any, imageUrl: any, imageUrls: any) {
 
 async function syncProductToLibrary(supabase: any, productRow: any): Promise<string | null> {
   try {
-    if (String(productRow?.item_type || 'product') === 'video') return productRow?.library_product_id || null;
+    if (String(productRow?.item_type || 'product') === 'video' || isLegacyVideoBlockRow(productRow)) return productRow?.library_product_id || null;
     const reusableMedia = reusableMediaItems(productRow.media_items, productRow.image_url, productRow.image_urls);
     const imageUrls = reusableMedia.filter((item: any) => item.type === 'image').map((item: any) => item.url);
     const payload: Record<string, any> = {
@@ -286,7 +328,7 @@ export default async function handler(req: any, res: any) {
 
       const products: BestSellerProduct[] = (data || []).map((p) => ({
         id: p.id,
-        itemType: p.item_type === 'video' ? 'video' : 'product',
+        itemType: readVideoFlags(p).itemType,
         libraryProductId: p.library_product_id || null,
         listId: p.list_id,
         position: p.position,
@@ -295,10 +337,10 @@ export default async function handler(req: any, res: any) {
         imageUrl: p.image_url,
         imageUrls: Array.isArray(p.image_urls) ? p.image_urls : [],
         mediaItems: normalizeMediaItems(p.media_items).length > 0 ? normalizeMediaItems(p.media_items) : mediaItemsFromLegacy(p.image_url, p.image_urls),
-        videoAutoplay: Boolean(p.video_autoplay),
-        videoLoop: p.video_loop !== false,
-        videoControls: p.video_controls !== false,
-        videoTitle: p.video_title || null,
+        videoAutoplay: readVideoFlags(p).autoplay,
+        videoLoop: readVideoFlags(p).loop,
+        videoControls: readVideoFlags(p).controls,
+        videoTitle: readVideoFlags(p).title,
         productUrl: p.product_url || null,
         originalPrice: p.original_price !== null && p.original_price !== undefined ? Number(p.original_price) : null,
         promotionalPrice: p.promotional_price !== null && p.promotional_price !== undefined ? Number(p.promotional_price) : null,
@@ -441,7 +483,10 @@ export default async function handler(req: any, res: any) {
       }
 
       const validImageUrls = cleanMediaItems.filter((item) => item.type === 'image').map((item) => item.url);
-      const cleanImageUrl = validImageUrls[0] || null;
+      const videoFallback = cleanMediaItems.find((item) => item.type === 'video');
+      // Bancos antigos podem ter image_url NOT NULL. Para o bloco 9:16 usamos
+      // a capa do vídeo (ou a própria URL) apenas como compatibilidade interna.
+      const cleanImageUrl = validImageUrls[0] || (cleanItemType === 'video' ? (videoFallback?.posterUrl || videoFallback?.url || null) : null);
       const cleanProductUrl = productUrl ? String(productUrl).trim() : null;
 
       if (!cleanName) {
@@ -526,53 +571,71 @@ export default async function handler(req: any, res: any) {
       }
       const cleanProductTimerColor = normalizeHexColor(timerColor);
 
-      const { data, error } = await supabase
+      const insertPayload: Record<string, any> = {
+        list_id: listId,
+        item_type: cleanItemType,
+        video_autoplay: Boolean(videoAutoplay),
+        video_loop: videoLoop !== undefined ? Boolean(videoLoop) : true,
+        video_controls: videoControls !== undefined ? Boolean(videoControls) : true,
+        video_title: cleanVideoTitle,
+        library_product_id: body.libraryProductId || body.library_product_id || null,
+        position,
+        name: cleanName,
+        category: cleanCategory,
+        image_url: cleanImageUrl,
+        image_urls: validImageUrls,
+        media_items: cleanMediaItems,
+        product_url: cleanProductUrl,
+        original_price: parsedOriginalPrice,
+        promotional_price: parsedPromotionalPrice,
+        sold_quantity: parsedSold,
+        show_sold_quantity: showSoldQuantity !== undefined ? Boolean(showSoldQuantity) : true,
+        available_quantity: parsedAvailable,
+        sizes: cleanSizes,
+        out_of_stock_sizes: cleanOutOfStockSizes,
+        colors: cleanItemType === 'video' ? videoLegacyMarkers(videoAutoplay, videoLoop, videoControls) : cleanColors,
+        installments_count: parsedInstallmentsCount,
+        installment_value: parsedInstallmentValue,
+        badge_enabled: isBadgeActive,
+        badge_text: cleanBadgeText,
+        badge_color: cleanBadgeColor,
+        badge_use_list_default: useListBadge,
+        gift_mode: cleanGiftMode,
+        gift_image_url: cleanGiftImageUrl,
+        gift_image_path: cleanGiftImagePath,
+        gift_title: cleanGiftTitle,
+        gift_label: cleanGiftLabel,
+        gift_text_color: cleanGiftTextColor,
+        gift_image_size: cleanGiftImageSize,
+        timer_enabled: isProductTimerEnabled,
+        timer_end: isProductTimerEnabled && !isProductTimerLooping ? cleanProductTimerEnd : null,
+        timer_looping: isProductTimerLooping,
+        timer_duration_minutes: isProductTimerLooping ? cleanProductTimerDuration : null,
+        timer_color: cleanProductTimerColor,
+        clicks: 0,
+      };
+
+      let { data, error } = await supabase
         .from('best_seller_products')
-        .insert({
-          list_id: listId,
-          item_type: cleanItemType,
-          video_autoplay: Boolean(videoAutoplay),
-          video_loop: videoLoop !== undefined ? Boolean(videoLoop) : true,
-          video_controls: videoControls !== undefined ? Boolean(videoControls) : true,
-          video_title: cleanVideoTitle,
-          library_product_id: body.libraryProductId || body.library_product_id || null,
-          position,
-          name: cleanName,
-          category: cleanCategory,
-          image_url: cleanImageUrl,
-          image_urls: validImageUrls,
-          media_items: cleanMediaItems,
-          product_url: cleanProductUrl,
-          original_price: parsedOriginalPrice,
-          promotional_price: parsedPromotionalPrice,
-          sold_quantity: parsedSold,
-          show_sold_quantity: showSoldQuantity !== undefined ? Boolean(showSoldQuantity) : true,
-          available_quantity: parsedAvailable,
-          sizes: cleanSizes,
-          out_of_stock_sizes: cleanOutOfStockSizes,
-          colors: cleanColors,
-          installments_count: parsedInstallmentsCount,
-          installment_value: parsedInstallmentValue,
-          badge_enabled: isBadgeActive,
-          badge_text: cleanBadgeText,
-          badge_color: cleanBadgeColor,
-          badge_use_list_default: useListBadge,
-          gift_mode: cleanGiftMode,
-          gift_image_url: cleanGiftImageUrl,
-          gift_image_path: cleanGiftImagePath,
-          gift_title: cleanGiftTitle,
-          gift_label: cleanGiftLabel,
-          gift_text_color: cleanGiftTextColor,
-          gift_image_size: cleanGiftImageSize,
-          timer_enabled: isProductTimerEnabled,
-          timer_end: isProductTimerEnabled && !isProductTimerLooping ? cleanProductTimerEnd : null,
-          timer_looping: isProductTimerLooping,
-          timer_duration_minutes: isProductTimerLooping ? cleanProductTimerDuration : null,
-          timer_color: cleanProductTimerColor,
-          clicks: 0,
-        })
+        .insert(insertPayload)
         .select()
         .single();
+
+      // Compatibilidade com bancos antigos: vídeo 9:16 passa a funcionar sem
+      // exigir que as colunas item_type/video_* já tenham sido migradas.
+      if (error && cleanItemType === 'video' && isVideoSchemaCompatibilityError(error)) {
+        const legacyPayload = { ...insertPayload };
+        delete legacyPayload.item_type;
+        delete legacyPayload.video_autoplay;
+        delete legacyPayload.video_loop;
+        delete legacyPayload.video_controls;
+        delete legacyPayload.video_title;
+        ({ data, error } = await supabase
+          .from('best_seller_products')
+          .insert(legacyPayload)
+          .select()
+          .single());
+      }
 
       if (error) {
         if (isTableMissingError(error)) {
@@ -590,7 +653,7 @@ export default async function handler(req: any, res: any) {
 
       const created: BestSellerProduct = {
         id: data.id,
-        itemType: data.item_type === 'video' ? 'video' : 'product',
+        itemType: readVideoFlags(data).itemType,
         libraryProductId: syncedLibraryId || data.library_product_id || null,
         listId: data.list_id,
         position: data.position,
@@ -599,10 +662,10 @@ export default async function handler(req: any, res: any) {
         imageUrl: data.image_url,
         imageUrls: Array.isArray(data.image_urls) ? data.image_urls : validImageUrls,
         mediaItems: normalizeMediaItems(data.media_items).length > 0 ? normalizeMediaItems(data.media_items) : cleanMediaItems,
-        videoAutoplay: Boolean(data.video_autoplay),
-        videoLoop: data.video_loop !== false,
-        videoControls: data.video_controls !== false,
-        videoTitle: data.video_title || null,
+        videoAutoplay: readVideoFlags(data).autoplay,
+        videoLoop: readVideoFlags(data).loop,
+        videoControls: readVideoFlags(data).controls,
+        videoTitle: readVideoFlags(data).title,
         productUrl: data.product_url || null,
         originalPrice: data.original_price !== null && data.original_price !== undefined ? Number(data.original_price) : null,
         promotionalPrice: data.promotional_price !== null && data.promotional_price !== undefined ? Number(data.promotional_price) : null,
@@ -693,9 +756,10 @@ export default async function handler(req: any, res: any) {
           return res.status(400).json({ success: false, message: 'O bloco de vídeo destaque precisa conter um vídeo.' });
         }
         const imageOnlyUrls = cleanMedia.filter((item) => item.type === 'image').map((item) => item.url);
+        const videoFallback = cleanMedia.find((item) => item.type === 'video');
         updates.media_items = cleanMedia;
         updates.image_urls = imageOnlyUrls;
-        updates.image_url = imageOnlyUrls[0] || null;
+        updates.image_url = imageOnlyUrls[0] || (requestedItemType === 'video' ? (videoFallback?.posterUrl || videoFallback?.url || null) : null);
       } else {
         if (body.imageUrls !== undefined && Array.isArray(body.imageUrls)) {
           const cleanUrls = body.imageUrls
@@ -871,12 +935,33 @@ export default async function handler(req: any, res: any) {
         updates.position = body.position;
       }
 
-      const { data, error } = await supabase
+      const updatingVideoBlock = String(body.itemType ?? body.item_type ?? '') === 'video';
+      if (updatingVideoBlock) {
+        updates.category = 'Vídeo';
+        updates.colors = videoLegacyMarkers(body.videoAutoplay, body.videoLoop, body.videoControls);
+      }
+
+      let { data, error } = await supabase
         .from('best_seller_products')
         .update(updates)
         .eq('id', id)
         .select()
         .single();
+
+      if (error && updatingVideoBlock && isVideoSchemaCompatibilityError(error)) {
+        const legacyUpdates = { ...updates };
+        delete legacyUpdates.item_type;
+        delete legacyUpdates.video_autoplay;
+        delete legacyUpdates.video_loop;
+        delete legacyUpdates.video_controls;
+        delete legacyUpdates.video_title;
+        ({ data, error } = await supabase
+          .from('best_seller_products')
+          .update(legacyUpdates)
+          .eq('id', id)
+          .select()
+          .single());
+      }
 
       if (error) {
         if (isTableMissingError(error)) {
@@ -889,7 +974,7 @@ export default async function handler(req: any, res: any) {
 
       const updated: BestSellerProduct = {
         id: data.id,
-        itemType: data.item_type === 'video' ? 'video' : 'product',
+        itemType: readVideoFlags(data).itemType,
         libraryProductId: syncedLibraryId || data.library_product_id || null,
         listId: data.list_id,
         position: data.position,
@@ -898,10 +983,10 @@ export default async function handler(req: any, res: any) {
         imageUrl: data.image_url,
         imageUrls: Array.isArray(data.image_urls) ? data.image_urls : [],
         mediaItems: normalizeMediaItems(data.media_items).length > 0 ? normalizeMediaItems(data.media_items) : mediaItemsFromLegacy(data.image_url, data.image_urls),
-        videoAutoplay: Boolean(data.video_autoplay),
-        videoLoop: data.video_loop !== false,
-        videoControls: data.video_controls !== false,
-        videoTitle: data.video_title || null,
+        videoAutoplay: readVideoFlags(data).autoplay,
+        videoLoop: readVideoFlags(data).loop,
+        videoControls: readVideoFlags(data).controls,
+        videoTitle: readVideoFlags(data).title,
         productUrl: data.product_url || null,
         originalPrice: data.original_price !== null && data.original_price !== undefined ? Number(data.original_price) : null,
         promotionalPrice: data.promotional_price !== null && data.promotional_price !== undefined ? Number(data.promotional_price) : null,
