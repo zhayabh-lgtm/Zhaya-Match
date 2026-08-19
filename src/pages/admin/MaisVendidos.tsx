@@ -3114,11 +3114,11 @@ export const MaisVendidos: React.FC = () => {
                   type="text"
                   value={listFormCtaText}
                   onChange={(e) => setListFormCtaText(e.target.value)}
-                  placeholder="VER PRODUTO"
+                  placeholder="GARANTIR MEU PAR"
                   maxLength={40}
                   className="w-full px-3 py-2 border border-neutral-300 rounded focus:ring-1 focus:ring-neutral-900 focus:outline-none text-xs"
                 />
-                <p className="text-[10px] text-neutral-500">Se ficar vazio, todos os produtos usam “VER PRODUTO”.</p>
+                <p className="text-[10px] text-neutral-500">Se ficar vazio, todos os produtos usam “GARANTIR MEU PAR”.</p>
               </div>
 
               <div className="space-y-3 rounded-lg bg-neutral-50 border border-neutral-200 p-3">
@@ -4444,7 +4444,7 @@ export const MaisVendidos: React.FC = () => {
                     {prodFormProductUrl && (
                       <div className="pt-2">
                         <div className="w-full py-2 px-3 rounded-[3px] bg-white text-black font-semibold text-[10px] tracking-wider uppercase text-center">
-                          {(selectedList?.ctaText || '').trim() || 'VER PRODUTO'}
+                          {(selectedList?.ctaText || '').trim() || 'GARANTIR MEU PAR'}
                         </div>
                       </div>
                     )}

@@ -309,8 +309,10 @@ const GalleryVideo: React.FC<{
   label: string;
   onError: () => void;
   posterUrl?: string;
-  onPlayIntent?: () => void;
-}> = ({ src, label, onError, posterUrl, onPlayIntent }) => {
+  fallbackPosterUrl?: string;
+  onPlaybackStarted?: () => void;
+  autoPlayRequestKey?: number;
+}> = ({ src, label, onError, posterUrl, fallbackPosterUrl, onPlaybackStarted, autoPlayRequestKey = 0 }) => {
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const containerRef = useRef<HTMLDivElement | null>(null);
   const [activated, setActivated] = useState(false);
@@ -321,8 +323,9 @@ const GalleryVideo: React.FC<{
   const [duration, setDuration] = useState(0);
   const [currentTime, setCurrentTime] = useState(0);
   const [posterFailed, setPosterFailed] = useState(false);
-  const runtimeCover = useRuntimeVideoCover(src, !posterUrl || posterFailed);
-  const coverUrl = posterFailed ? runtimeCover : (posterUrl || runtimeCover);
+  const playReportedRef = useRef(false);
+  const runtimeCover = useRuntimeVideoCover(src, (!posterUrl && !fallbackPosterUrl) || (posterFailed && !fallbackPosterUrl));
+  const coverUrl = posterFailed ? (fallbackPosterUrl || runtimeCover) : (posterUrl || fallbackPosterUrl || runtimeCover);
 
   useEffect(() => {
     setActivated(false);
@@ -331,7 +334,14 @@ const GalleryVideo: React.FC<{
     setCurrentTime(0);
     setDuration(0);
     setPosterFailed(false);
-  }, [src, posterUrl]);
+    playReportedRef.current = false;
+  }, [src, posterUrl, fallbackPosterUrl]);
+
+  // Um toque em "VER NO PÉ" pode abrir o slide e iniciar o vídeo. A capa
+  // continua na frente até o primeiro frame estar pronto, evitando tela preta no iPhone.
+  useEffect(() => {
+    if (autoPlayRequestKey > 0) setActivated(true);
+  }, [autoPlayRequestKey]);
 
   // Ao sair completamente da tela, o vídeo do produto para e volta para a capa.
   useEffect(() => {
@@ -365,7 +375,6 @@ const GalleryVideo: React.FC<{
 
   const startPlayback = () => {
     // Antes do toque não existe <video> no DOM: só a capa estática é carregada.
-    onPlayIntent?.();
     setActivated(true);
   };
 
@@ -387,7 +396,6 @@ const GalleryVideo: React.FC<{
       return;
     }
     if (video.paused) {
-      onPlayIntent?.();
       void video.play().catch(() => undefined);
     } else {
       video.pause();
@@ -436,7 +444,14 @@ const GalleryVideo: React.FC<{
             const nextDuration = Number.isFinite(event.currentTarget.duration) ? event.currentTarget.duration : 0;
             setDuration(nextDuration);
           }}
-          onPlay={() => { setPlaying(true); }}
+          onPlay={() => {
+            setPlaying(true);
+            signalBestSellerActivity();
+            if (!playReportedRef.current) {
+              playReportedRef.current = true;
+              onPlaybackStarted?.();
+            }
+          }}
           onPause={() => setPlaying(false)}
           onEnded={() => setPlaying(false)}
           onTimeUpdate={(event) => {
@@ -566,13 +581,18 @@ const ProductMediaGallery: React.FC<{
   sizes: string[];
   outOfStockSizes: string[];
   timerContent?: React.ReactNode;
-  onVideoPlay?: () => void;
+  onVideoStarted?: () => void;
   onSlideSeen?: (index: number, total: number) => void;
-}> = ({ mediaItems, productName, isFirst, rankLabel, rankColor, sizeColor, showRanking, badgeContent, giftContent, sizes, outOfStockSizes, timerContent, onVideoPlay, onSlideSeen }) => {
+}> = ({ mediaItems, productName, isFirst, rankLabel, rankColor, sizeColor, showRanking, badgeContent, giftContent, sizes, outOfStockSizes, timerContent, onVideoStarted, onSlideSeen }) => {
   const [currentIndex, setCurrentIndex] = useState(0);
   const [failedMedia, setFailedMedia] = useState<Record<number, boolean>>({});
   const [direction, setDirection] = useState(0);
+  const [autoPlayVideoIndex, setAutoPlayVideoIndex] = useState<number | null>(null);
+  const [autoPlayRequestKey, setAutoPlayRequestKey] = useState(0);
   const totalItems = mediaItems.length;
+  const firstVideoIndex = useMemo(() => mediaItems.findIndex((item) => item.type === 'video'), [mediaItems]);
+  const firstImageUrl = useMemo(() => mediaItems.find((item) => item.type === 'image')?.url || '', [mediaItems]);
+  const hasVideo = firstVideoIndex >= 0;
 
   // Pré-carrega imagens e capas de vídeo como imagens comuns. Assim, no iPhone,
   // a capa do vídeo entra na mesma fila das demais fotos e o arquivo de vídeo
@@ -633,6 +653,14 @@ const ProductMediaGallery: React.FC<{
     else handlePrev();
   };
 
+  const openFirstVideo = (event: React.MouseEvent<HTMLButtonElement>) => {
+    event.stopPropagation();
+    if (firstVideoIndex < 0) return;
+    setAutoPlayVideoIndex(firstVideoIndex);
+    setAutoPlayRequestKey((value) => value + 1);
+    goToIndex(firstVideoIndex, firstVideoIndex >= currentIndex ? 1 : -1);
+  };
+
   const currentMedia = mediaItems[currentIndex];
   const hasError = failedMedia[currentIndex];
   const unavailableSet = new Set(outOfStockSizes);
@@ -661,7 +689,9 @@ const ProductMediaGallery: React.FC<{
                 label={`${productName} - vídeo ${currentIndex + 1}`}
                 onError={() => setFailedMedia((prev) => ({ ...prev, [currentIndex]: true }))}
                 posterUrl={currentMedia.posterUrl || undefined}
-                onPlayIntent={onVideoPlay}
+                fallbackPosterUrl={firstImageUrl || undefined}
+                onPlaybackStarted={onVideoStarted}
+                autoPlayRequestKey={currentIndex === autoPlayVideoIndex ? autoPlayRequestKey : 0}
               />
             ) : (
               <img
@@ -722,6 +752,20 @@ const ProductMediaGallery: React.FC<{
         </div>
       )}
 
+      {/* Convite discreto para o principal diferencial da vitrine. Ele só aparece
+          enquanto a cliente está em uma foto; um toque abre o primeiro vídeo. */}
+      {hasVideo && currentMedia?.type !== 'video' && !hasError && (
+        <button
+          type="button"
+          onClick={openFirstVideo}
+          aria-label={`Ver ${productName} em vídeo`}
+          className="absolute left-1/2 -translate-x-1/2 bottom-10 z-40 inline-flex h-8 items-center gap-1.5 rounded-full border border-white/25 bg-black/55 px-3 text-[9px] font-black tracking-[0.12em] uppercase text-white backdrop-blur-sm transition-all duration-150 hover:bg-black/70 active:scale-[0.98]"
+        >
+          <Play size={11} fill="currentColor" strokeWidth={1.8} />
+          <span>Ver em vídeo</span>
+        </button>
+      )}
+
       {totalItems > 1 && (
         <>
           <button
@@ -742,16 +786,32 @@ const ProductMediaGallery: React.FC<{
           >
             <ChevronRight size={32} strokeWidth={2.4} />
           </button>
-          <div className="absolute left-1/2 -translate-x-1/2 bottom-3.5 z-30 flex items-center justify-center gap-1.5" aria-label="Galeria de mídia">
-            {mediaItems.map((item, dotIndex) => (
-              <button
-                key={item.id || dotIndex}
-                type="button"
-                onClick={(e) => { e.stopPropagation(); goToIndex(dotIndex, dotIndex > currentIndex ? 1 : -1); }}
-                aria-label={`Ver ${item.type === 'video' ? 'vídeo' : 'imagem'} ${dotIndex + 1}`}
-                className={`h-1.5 rounded-full transition-all duration-200 ${dotIndex === currentIndex ? 'w-5 bg-white' : 'w-1.5 bg-white/45 hover:bg-white/70'}`}
-              />
-            ))}
+          <div className="absolute left-1/2 -translate-x-1/2 bottom-3 z-30 flex items-center justify-center gap-1.5" aria-label="Galeria de mídia">
+            {mediaItems.map((item, dotIndex) => {
+              const active = dotIndex === currentIndex;
+              if (item.type === 'video') {
+                return (
+                  <button
+                    key={item.id || dotIndex}
+                    type="button"
+                    onClick={(e) => { e.stopPropagation(); goToIndex(dotIndex, dotIndex > currentIndex ? 1 : -1); }}
+                    aria-label={`Ver vídeo ${dotIndex + 1}`}
+                    className={`flex h-[18px] w-[18px] items-center justify-center rounded-full border transition-all duration-200 ${active ? 'border-white bg-white text-black' : 'border-white/55 bg-black/35 text-white hover:bg-black/55'}`}
+                  >
+                    <Play size={7} fill="currentColor" strokeWidth={2.2} />
+                  </button>
+                );
+              }
+              return (
+                <button
+                  key={item.id || dotIndex}
+                  type="button"
+                  onClick={(e) => { e.stopPropagation(); goToIndex(dotIndex, dotIndex > currentIndex ? 1 : -1); }}
+                  aria-label={`Ver imagem ${dotIndex + 1}`}
+                  className={`h-1.5 rounded-full transition-all duration-200 ${active ? 'w-5 bg-white' : 'w-1.5 bg-white/45 hover:bg-white/70'}`}
+                />
+              );
+            })}
           </div>
         </>
       )}
@@ -833,7 +893,8 @@ const ProductItem: React.FC<{
     Repository.trackBestSellerProductClick(product.id, listId);
   };
 
-  const handleVideoPlay = () => {
+  const handleVideoStarted = () => {
+    // Conta play somente quando o navegador confirma que o vídeo realmente iniciou.
     Repository.trackBestSellerAnalyticsEvent({ eventType: 'product_play', listId, productId: product.id });
   };
 
@@ -914,7 +975,7 @@ const ProductItem: React.FC<{
         sizes={sizes}
         outOfStockSizes={outOfStockSizes}
         timerContent={productTimerElement}
-        onVideoPlay={handleVideoPlay}
+        onVideoStarted={handleVideoStarted}
         onSlideSeen={(slideIndex, slideCount) => {
           Repository.trackBestSellerAnalyticsEvent({
             eventType: 'product_behavior',
@@ -984,6 +1045,7 @@ const ProductItem: React.FC<{
           <div className="w-full pt-6">
             <a
               id={`btn-ver-produto-${product.id}`}
+              data-best-seller-native-cta={product.id}
               href={product.productUrl}
               target="_blank"
               rel="noopener noreferrer"
@@ -1005,6 +1067,8 @@ export const MaisVendidosPage: React.FC = () => {
   const [loading, setLoading] = useState<boolean>(true);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [now, setNow] = useState<number>(Date.now());
+  const [activeProductId, setActiveProductId] = useState<string | null>(null);
+  const [visibleNativeCtaIds, setVisibleNativeCtaIds] = useState<string[]>([]);
 
   const lastDataRef = useRef<string>('');
   const isFetchingRef = useRef<boolean>(false);
@@ -1131,6 +1195,78 @@ export const MaisVendidosPage: React.FC = () => {
     if (!listData?.listDate) return '';
     return formatBestSellerDate(listData.listDate, listData.timezone);
   }, [listData]);
+
+  // CTA flutuante contextual no mobile: acompanha o produto mais presente na tela
+  // e some quando o botão normal daquele produto já está visível, evitando duplicação.
+  useEffect(() => {
+    if (loading || !listData?.products?.length || typeof window === 'undefined' || typeof document === 'undefined') {
+      setActiveProductId(null);
+      setVisibleNativeCtaIds([]);
+      return;
+    }
+
+    const ratios = new Map<string, number>();
+    const productNodes = Array.from(document.querySelectorAll<HTMLElement>('[data-best-seller-product-id]'));
+    const ctaNodes = Array.from(document.querySelectorAll<HTMLElement>('[data-best-seller-native-cta]'));
+    const visibleCtas = new Set<string>();
+
+    const chooseActive = () => {
+      let bestId = '';
+      let bestRatio = 0;
+      ratios.forEach((ratio, productId) => {
+        if (ratio > bestRatio) {
+          bestRatio = ratio;
+          bestId = productId;
+        }
+      });
+      setActiveProductId(bestId && bestRatio >= 0.12 ? bestId : null);
+    };
+
+    const productObserver = new IntersectionObserver((entries) => {
+      entries.forEach((entry) => {
+        const node = entry.target as HTMLElement;
+        const productId = node.dataset.bestSellerProductId || '';
+        if (productId) ratios.set(productId, entry.isIntersecting ? entry.intersectionRatio : 0);
+      });
+      chooseActive();
+    }, {
+      threshold: [0, 0.08, 0.12, 0.2, 0.35, 0.5, 0.7],
+      rootMargin: '-8% 0px -24% 0px',
+    });
+
+    const ctaObserver = new IntersectionObserver((entries) => {
+      entries.forEach((entry) => {
+        const node = entry.target as HTMLElement;
+        const productId = node.dataset.bestSellerNativeCta || '';
+        if (!productId) return;
+        if (entry.isIntersecting && entry.intersectionRatio >= 0.45) visibleCtas.add(productId);
+        else visibleCtas.delete(productId);
+      });
+      setVisibleNativeCtaIds(Array.from(visibleCtas));
+    }, { threshold: [0, 0.45, 0.8] });
+
+    productNodes.forEach((node) => productObserver.observe(node));
+    ctaNodes.forEach((node) => ctaObserver.observe(node));
+
+    return () => {
+      productObserver.disconnect();
+      ctaObserver.disconnect();
+    };
+  }, [loading, listData?.id, listData?.products?.length]);
+
+  const activeStickyProduct = useMemo(() => {
+    if (!activeProductId || !listData?.products) return null;
+    return listData.products.find((product) => product.id === activeProductId) || null;
+  }, [activeProductId, listData?.products]);
+
+  const stickyCtaText = (listData?.ctaText || '').trim() || 'GARANTIR MEU PAR';
+  const activeStickyPrice = activeStickyProduct
+    ? (activeStickyProduct.promotionalPrice ?? activeStickyProduct.originalPrice ?? null)
+    : null;
+  const showStickyCta = Boolean(
+    activeStickyProduct?.productUrl &&
+    !visibleNativeCtaIds.includes(activeStickyProduct.id)
+  );
 
   // Registra uma entrada por carregamento da lista. O visitorId fica persistente
   // no navegador para permitir uma estimativa simples de visitantes únicos.
@@ -1433,7 +1569,7 @@ export const MaisVendidosPage: React.FC = () => {
           />
         </div>
       )}
-      <main className="relative z-10 w-full max-w-[540px] px-4 sm:px-6 py-6 sm:py-10 flex flex-col items-center">
+      <main className="relative z-10 w-full max-w-[540px] px-4 sm:px-6 pt-6 pb-28 sm:py-10 flex flex-col items-center">
         {/* ========================================================================= */}
         {/* ESTADO 1: LOADING                                                         */}
         {/* ========================================================================= */}
@@ -1551,7 +1687,7 @@ export const MaisVendidosPage: React.FC = () => {
                     product={prod}
                     index={idx}
                     isFirst={idx === 0}
-                    ctaText={(listData.ctaText || '').trim() || 'VER PRODUTO'}
+                    ctaText={(listData.ctaText || '').trim() || 'GARANTIR MEU PAR'}
                     rankColor={listData.rankColor || '#FFFFFF'}
                     sizeColor={listData.sizeColor || '#FFFFFF'}
                     showRanking={listData.showRanking !== false}
@@ -1568,6 +1704,33 @@ export const MaisVendidosPage: React.FC = () => {
           </div>
         )}
       </main>
+
+      {showStickyCta && activeStickyProduct && (
+        <div
+          className="fixed inset-x-0 bottom-0 z-[90] sm:hidden border-t border-white/10 bg-black/88 backdrop-blur-xl"
+          style={{ paddingBottom: 'max(10px, env(safe-area-inset-bottom))' }}
+        >
+          <div className="mx-auto flex w-full max-w-[540px] items-center gap-3 px-4 pt-2.5">
+            {activeStickyPrice !== null && (
+              <div className="min-w-0 shrink-0">
+                <span className="block text-[8px] font-bold uppercase tracking-[0.16em] text-neutral-500">Agora</span>
+                <strong className="block whitespace-nowrap text-[17px] font-black tracking-[-0.035em] text-white">
+                  {formatPriceBRL(activeStickyPrice)}
+                </strong>
+              </div>
+            )}
+            <a
+              href={activeStickyProduct.productUrl || '#'}
+              target="_blank"
+              rel="noopener noreferrer"
+              onClick={() => Repository.trackBestSellerProductClick(activeStickyProduct.id, listData?.id)}
+              className="inline-flex min-h-11 flex-1 items-center justify-center rounded-[3px] bg-white px-4 text-center text-[10px] font-black uppercase tracking-[0.11em] text-black transition-transform duration-150 active:scale-[0.99]"
+            >
+              {stickyCtaText}
+            </a>
+          </div>
+        </div>
+      )}
     </div>
   );
 };

@@ -12,11 +12,9 @@ import { Aparencia } from './pages/admin/Aparencia';
 import { TextosEImagens } from './pages/admin/TextosEImagens';
 import { Visualizacao } from './pages/admin/Visualizacao';
 import { AnalyticsPage } from './pages/admin/Analytics';
-import { ConviteLive } from './pages/admin/ConviteLive';
 import { MaisVendidos } from './pages/admin/MaisVendidos';
 import { Configuracoes } from './pages/admin/Configuracoes';
 import { Preview } from './pages/Preview';
-import { LiveInvitePage } from './pages/public/LiveInvitePage';
 import { MaisVendidosPage } from './pages/public/MaisVendidosPage';
 
 export default function App() {
@@ -26,7 +24,7 @@ export default function App() {
         <BrowserRouter>
           <Routes>
             {/* 1. Fully Isolated Public Routes (No AdminLayout, No Zhaya Match chrome) */}
-            <Route path="/live/:slug" element={<LiveInvitePage />} />
+            <Route path="/live/:slug" element={<Navigate to="/mais-vendidos" replace />} />
             <Route path="/mais-vendidos" element={<MaisVendidosPage />} />
             <Route path="/mais-vendidos/:slug" element={<MaisVendidosPage />} />
 
@@ -119,18 +117,7 @@ export default function App() {
                 </VisitorLockGuard>
               }
             />
-            <Route
-              path="/admin/convite-live"
-              element={
-                <VisitorLockGuard>
-                  <ProtectedRoute>
-                    <AdminLayout>
-                      <ConviteLive />
-                    </AdminLayout>
-                  </ProtectedRoute>
-                </VisitorLockGuard>
-              }
-            />
+            <Route path="/admin/convite-live" element={<Navigate to="/admin/mais-vendidos" replace />} />
             <Route
               path="/admin/mais-vendidos"
               element={
