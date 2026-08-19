@@ -16,6 +16,7 @@ import {
   BestSellerList,
   BestSellerProduct,
   BestSellerLibraryProduct,
+  BestSellerGiftPreset,
   BestSellerAnalyticsSummary,
   PublicBestSellerList,
 } from '../types/zhaya';
@@ -1255,7 +1256,7 @@ export const Repository = {
     return runWithRetry(async () => {
       const client = ensureSupabase();
 
-      if (storagePath) {
+      if (storagePath && !storagePath.startsWith('cloudinary:')) {
         const { error: storageErr } = await client.storage
           .from('zhaya-match-media')
           .remove([storagePath]);
@@ -2133,6 +2134,38 @@ export const Repository = {
       return res.ok && json.success ? { success: true, product: json.product } : { success: false, error: json.message || json.error || 'Não foi possível adicionar o produto.' };
     } catch (e: any) {
       return { success: false, error: e?.message || 'Erro ao reutilizar produto.' };
+    }
+  },
+
+
+  async getBestSellerGiftPresets(): Promise<{ gifts: BestSellerGiftPreset[]; configured: boolean; error?: string }> {
+    try {
+      const token = isSupabaseConfigured && supabase ? (await supabase.auth.getSession())?.data?.session?.access_token : undefined;
+      const headers: Record<string, string> = {};
+      if (token) headers['Authorization'] = `Bearer ${token}`;
+      const res = await fetch('/api/best-sellers?mode=admin-library&kind=gifts', { headers, cache: 'no-store' });
+      const json = await res.json().catch(() => ({}));
+      if (res.ok) return { gifts: Array.isArray(json.gifts) ? json.gifts : [], configured: json.configured !== false, error: json.message || undefined };
+      return { gifts: [], configured: false, error: json.message || json.error || 'Não foi possível carregar os presentes salvos.' };
+    } catch (e: any) {
+      return { gifts: [], configured: false, error: e?.message || 'Erro ao carregar os presentes salvos.' };
+    }
+  },
+
+  async saveBestSellerGiftPreset(payload: Omit<BestSellerGiftPreset, 'id' | 'createdAt' | 'updatedAt'>): Promise<{ success: boolean; gift?: BestSellerGiftPreset; configured?: boolean; error?: string }> {
+    try {
+      const token = isSupabaseConfigured && supabase ? (await supabase.auth.getSession())?.data?.session?.access_token : undefined;
+      const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+      if (token) headers['Authorization'] = `Bearer ${token}`;
+      const res = await fetch('/api/best-sellers?mode=admin-library', {
+        method: 'POST', headers, body: JSON.stringify({ action: 'save-gift', gift: payload }),
+      });
+      const json = await res.json().catch(() => ({}));
+      return res.ok && json.success
+        ? { success: true, gift: json.gift, configured: json.configured !== false }
+        : { success: false, configured: json.configured !== false, error: json.message || json.error || 'Não foi possível salvar o presente.' };
+    } catch (e: any) {
+      return { success: false, error: e?.message || 'Erro ao salvar o presente.' };
     }
   },
 

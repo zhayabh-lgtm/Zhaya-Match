@@ -1,7 +1,8 @@
 import React, { useState, useRef } from 'react';
 import { Upload, X, Check, Image as ImageIcon, RefreshCw, AlertTriangle, ExternalLink, ChevronDown, ChevronUp, Type } from 'lucide-react';
-import { supabase, isSupabaseConfigured } from '../../lib/supabase';
 import { Repository } from '../../lib/repository';
+import { uploadFileToCloudinary } from '../../lib/cloudinaryMedia';
+import { CloudinaryMediaPicker } from './CloudinaryMediaPicker';
 
 export type MediaCategory =
   | 'logos'
@@ -246,51 +247,31 @@ export const MediaUploader: React.FC<MediaUploaderProps> = ({
     setProgress(20);
 
     try {
-      const timestamp = Date.now();
-      const sanitizedName = file.name.replace(/[^a-zA-Z0-9.-]/g, '_');
-      const storagePath = `${config.folder}/${timestamp}_${sanitizedName}`;
+      setProgress(45);
+      const uploaded = await uploadFileToCloudinary(file, isFont ? 'raw' : 'image', `shared/${config.folder}`);
+      setProgress(80);
+      const storagePath = `cloudinary:${uploaded.resourceType}:${uploaded.publicId}`;
 
-      let publicUrl = '';
-
-      if (isSupabaseConfigured && supabase) {
-        setProgress(50);
-        const { data, error } = await supabase.storage
-          .from('zhaya-match-media')
-          .upload(storagePath, file, {
-            cacheControl: '3600',
-            upsert: true,
-          });
-
-        if (error) {
-          throw new Error(`Falha no upload para o Supabase Storage: ${error.message}`);
-        }
-
-        setProgress(80);
-        const { data: publicUrlData } = supabase.storage
-          .from('zhaya-match-media')
-          .getPublicUrl(storagePath);
-
-        publicUrl = publicUrlData.publicUrl;
-
-        // Register in media_assets table
+      // Mantém o catálogo interno de mídia útil para as telas antigas, mas o arquivo
+      // físico agora fica no Cloudinary e pode ser reaproveitado em qualquer upload.
+      try {
         await Repository.saveMediaAsset({
           name: file.name,
           category: config.folder,
           storage_path: storagePath,
-          public_url: publicUrl,
+          public_url: uploaded.url,
           mime_type: file.type || (isFont ? 'font/woff2' : 'application/octet-stream'),
           width: metrics.width,
           height: metrics.height,
           file_size: file.size,
           alt_text: altText || file.name,
         });
-      } else {
-        // Local preview fallback if Supabase credentials are not connected
-        publicUrl = URL.createObjectURL(file);
+      } catch (registryError) {
+        console.warn('Arquivo enviado ao Cloudinary, mas não pôde ser registrado no catálogo legado:', registryError);
       }
 
       setProgress(100);
-      onChange(publicUrl, storagePath);
+      onChange(uploaded.url, storagePath);
     } catch (err: any) {
       setErrorMessage(err?.message || 'Erro ao realizar o upload do arquivo.');
     } finally {
@@ -457,6 +438,18 @@ export const MediaUploader: React.FC<MediaUploaderProps> = ({
         }}
         className="hidden"
       />
+
+      <div className="flex justify-end">
+        <CloudinaryMediaPicker
+          allowedTypes={[isFont ? 'raw' : 'image']}
+          label="Selecionar já enviado"
+          onSelect={(asset) => {
+            setErrorMessage(null);
+            setValidationDetails(null);
+            onChange(asset.url, `cloudinary:${asset.resourceType}:${asset.publicId}`);
+          }}
+        />
+      </div>
 
       {/* Alt text field if image & provided callback */}
       {value && !isFont && onAltTextChange && (

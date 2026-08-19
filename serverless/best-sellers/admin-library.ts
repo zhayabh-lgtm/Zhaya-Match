@@ -1,7 +1,7 @@
 import { createClient } from '@supabase/supabase-js';
 import { verifyAdminAuth } from '../../src/lib/adminAuth.js';
 import { isValidServiceRoleKey } from '../../src/lib/supabaseKeyValidator.js';
-import type { BestSellerLibraryProduct, BestSellerMediaItem, BestSellerProduct } from '../../src/types/zhaya.js';
+import type { BestSellerLibraryProduct, BestSellerGiftPreset, BestSellerMediaItem, BestSellerProduct } from '../../src/types/zhaya.js';
 
 function getSupabaseClient() {
   const supabaseUrl = process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL || '';
@@ -17,22 +17,50 @@ function isMissingTable(error: any): boolean {
   return code === '42P01' || msg.includes('best_seller_product_library') || msg.includes('schema cache') || msg.includes('could not find the table');
 }
 
-function imageMediaOnly(raw: any, imageUrl?: any, imageUrls?: any): BestSellerMediaItem[] {
+function isMissingGiftTable(error: any): boolean {
+  if (!error) return false;
+  const code = String(error.code || '');
+  const msg = String(error.message || '').toLowerCase();
+  return code === '42P01' || msg.includes('best_seller_gift_library') || msg.includes('schema cache') || msg.includes('could not find the table');
+}
+
+function normalizeGiftSize(value: any): number {
+  const n = Number(value || 48);
+  return Math.max(36, Math.min(80, Number.isFinite(n) ? n : 48));
+}
+
+function mapGift(row: any): BestSellerGiftPreset {
+  return {
+    id: row.id,
+    imageUrl: row.image_url,
+    imagePath: row.image_path || null,
+    title: row.title || null,
+    label: row.label ?? null,
+    textColor: row.text_color || '#FFFFFF',
+    imageSize: normalizeGiftSize(row.image_size),
+    createdAt: row.created_at,
+    updatedAt: row.updated_at,
+  };
+}
+
+function reusableMediaItems(raw: any, imageUrl?: any, imageUrls?: any): BestSellerMediaItem[] {
   const source = Array.isArray(raw) ? raw : [];
   const seen = new Set<string>();
   const out: BestSellerMediaItem[] = [];
 
-  for (let index = 0; index < source.length && out.length < 16; index += 1) {
+  for (let index = 0; index < source.length && out.length < 24; index += 1) {
     const item = source[index] || {};
-    if (item.type === 'video') continue;
+    const type = item.type === 'video' ? 'video' : 'image';
     const url = typeof item.url === 'string' ? item.url.trim() : '';
     if (!url || seen.has(url)) continue;
     seen.add(url);
     out.push({
-      id: typeof item.id === 'string' && item.id.trim() ? item.id.trim() : `image-${index + 1}`,
-      type: 'image',
+      id: typeof item.id === 'string' && item.id.trim() ? item.id.trim() : `${type}-${index + 1}`,
+      type,
       url,
       storagePath: typeof item.storagePath === 'string' ? item.storagePath : null,
+      posterUrl: type === 'video' && typeof item.posterUrl === 'string' ? item.posterUrl : null,
+      posterStoragePath: type === 'video' && typeof item.posterStoragePath === 'string' ? item.posterStoragePath : null,
       source: item.storagePath ? 'upload' : 'url',
     });
   }
@@ -48,8 +76,8 @@ function imageMediaOnly(raw: any, imageUrl?: any, imageUrls?: any): BestSellerMe
 }
 
 function libraryPayloadFromProduct(product: any) {
-  const mediaItems = imageMediaOnly(product.media_items, product.image_url, product.image_urls);
-  const imageUrls = mediaItems.map((item) => item.url);
+  const mediaItems = reusableMediaItems(product.media_items, product.image_url, product.image_urls);
+  const imageUrls = mediaItems.filter((item) => item.type === 'image').map((item) => item.url);
   return {
     name: product.name || 'Produto',
     category: product.category || 'Produto',
@@ -71,13 +99,13 @@ function libraryPayloadFromProduct(product: any) {
 }
 
 function mapLibrary(row: any): BestSellerLibraryProduct {
-  const mediaItems = imageMediaOnly(row.media_items, row.image_url, row.image_urls);
+  const mediaItems = reusableMediaItems(row.media_items, row.image_url, row.image_urls);
   return {
     id: row.id,
     name: row.name,
     category: row.category || 'Produto',
-    imageUrl: row.image_url || mediaItems[0]?.url || null,
-    imageUrls: Array.isArray(row.image_urls) ? row.image_urls : mediaItems.map((item) => item.url),
+    imageUrl: row.image_url || mediaItems.find((item) => item.type === 'image')?.url || mediaItems.find((item) => item.type === 'video')?.posterUrl || null,
+    imageUrls: Array.isArray(row.image_urls) ? row.image_urls : mediaItems.filter((item) => item.type === 'image').map((item) => item.url),
     mediaItems,
     productUrl: row.product_url || null,
     originalPrice: row.original_price !== null && row.original_price !== undefined ? Number(row.original_price) : null,
@@ -179,6 +207,17 @@ export default async function handler(req: any, res: any) {
 
   try {
     if (req.method === 'GET') {
+      const requestUrl = new URL(req.url || '/', `http://${req.headers?.host || 'localhost'}`);
+      const kind = String(req.query?.kind || requestUrl.searchParams.get('kind') || 'products');
+      if (kind === 'gifts') {
+        const { data, error } = await supabase.from('best_seller_gift_library').select('*').order('updated_at', { ascending: false }).limit(250);
+        if (error) {
+          if (isMissingGiftTable(error)) return res.status(200).json({ success: true, configured: false, gifts: [], message: 'Execute o SQL da Biblioteca de Presentes no Supabase.' });
+          return res.status(500).json({ success: false, error: 'DATABASE_ERROR', message: error.message });
+        }
+        return res.status(200).json({ success: true, configured: true, gifts: (data || []).map(mapGift) });
+      }
+
       const { data, error } = await supabase.from('best_seller_product_library').select('*').order('updated_at', { ascending: false }).limit(500);
       if (error) {
         if (isMissingTable(error)) return res.status(200).json({ success: true, configured: false, products: [] });
@@ -190,6 +229,41 @@ export default async function handler(req: any, res: any) {
     if (req.method === 'POST') {
       const body = req.body || {};
       const action = String(body.action || '');
+
+      if (action === 'save-gift') {
+        const gift = body.gift || {};
+        const imageUrl = String(gift.imageUrl || '').trim();
+        if (!imageUrl) return res.status(400).json({ success: false, message: 'A imagem do presente é obrigatória.' });
+        const payload = {
+          image_url: imageUrl,
+          image_path: gift.imagePath ? String(gift.imagePath) : null,
+          title: gift.title ? String(gift.title).trim() : null,
+          label: gift.label !== undefined && gift.label !== null ? String(gift.label).trim() : null,
+          text_color: /^#[0-9a-f]{6}$/i.test(String(gift.textColor || '')) ? String(gift.textColor) : '#FFFFFF',
+          image_size: normalizeGiftSize(gift.imageSize),
+          updated_at: new Date().toISOString(),
+        };
+
+        const { data: existing, error: findError } = await supabase.from('best_seller_gift_library').select('id').eq('image_url', imageUrl).limit(1).maybeSingle();
+        if (findError) {
+          if (isMissingGiftTable(findError)) return res.status(400).json({ success: false, configured: false, message: 'Execute o SQL da Biblioteca de Presentes no Supabase.' });
+          throw findError;
+        }
+        let saved: any = null;
+        if (existing?.id) {
+          const { data, error } = await supabase.from('best_seller_gift_library').update(payload).eq('id', existing.id).select().single();
+          if (error) throw error;
+          saved = data;
+        } else {
+          const { data, error } = await supabase.from('best_seller_gift_library').insert(payload).select().single();
+          if (error) {
+            if (isMissingGiftTable(error)) return res.status(400).json({ success: false, configured: false, message: 'Execute o SQL da Biblioteca de Presentes no Supabase.' });
+            throw error;
+          }
+          saved = data;
+        }
+        return res.status(200).json({ success: true, configured: true, gift: mapGift(saved) });
+      }
 
       if (action === 'sync-existing') {
         try {
@@ -215,8 +289,8 @@ export default async function handler(req: any, res: any) {
 
         const { data: last } = await supabase.from('best_seller_products').select('position').eq('list_id', listId).order('position', { ascending: false }).limit(1);
         const position = (last?.[0]?.position || 0) + 1;
-        const mediaItems = imageMediaOnly(library.media_items, library.image_url, library.image_urls);
-        const imageUrls = mediaItems.map((item) => item.url);
+        const mediaItems = reusableMediaItems(library.media_items, library.image_url, library.image_urls);
+        const imageUrls = mediaItems.filter((item) => item.type === 'image').map((item) => item.url);
 
         const { data: created, error: createError } = await supabase.from('best_seller_products').insert({
           list_id: listId,

@@ -555,13 +555,25 @@ export interface BestSellerProduct {
 }
 
 
+export interface BestSellerGiftPreset {
+  id: string;
+  imageUrl: string;
+  imagePath?: string | null;
+  title?: string | null;
+  label?: string | null;
+  textColor?: string;
+  imageSize?: number;
+  createdAt?: string;
+  updatedAt?: string;
+}
+
 export interface BestSellerLibraryProduct {
   id: string;
   name: string;
   category?: string;
   imageUrl?: string | null;
   imageUrls: string[];
-  mediaItems: BestSellerMediaItem[]; // somente imagens; vídeos nunca entram na biblioteca
+  mediaItems: BestSellerMediaItem[]; // imagens e vídeos ficam salvos para reutilização
   productUrl?: string | null;
   originalPrice?: number | null;
   promotionalPrice?: number | null;

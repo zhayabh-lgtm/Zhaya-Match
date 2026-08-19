@@ -152,21 +152,21 @@ function mediaItemsFromLegacy(imageUrl: any, imageUrls: any): Array<{ id: string
   }));
 }
 
-function reusableImageMediaItems(raw: any, imageUrl: any, imageUrls: any) {
-  const normalized = normalizeMediaItems(raw).filter((item) => item.type === 'image');
+function reusableMediaItems(raw: any, imageUrl: any, imageUrls: any) {
+  const normalized = normalizeMediaItems(raw);
   return normalized.length > 0 ? normalized : mediaItemsFromLegacy(imageUrl, imageUrls);
 }
 
 async function syncProductToLibrary(supabase: any, productRow: any): Promise<string | null> {
   try {
-    const imageMedia = reusableImageMediaItems(productRow.media_items, productRow.image_url, productRow.image_urls);
-    const imageUrls = imageMedia.map((item: any) => item.url);
+    const reusableMedia = reusableMediaItems(productRow.media_items, productRow.image_url, productRow.image_urls);
+    const imageUrls = reusableMedia.filter((item: any) => item.type === 'image').map((item: any) => item.url);
     const payload: Record<string, any> = {
       name: productRow.name || 'Produto',
       category: productRow.category || 'Produto',
       image_url: imageUrls[0] || null,
       image_urls: imageUrls,
-      media_items: imageMedia,
+      media_items: reusableMedia,
       product_url: productRow.product_url || null,
       original_price: productRow.original_price ?? null,
       promotional_price: productRow.promotional_price ?? null,
@@ -181,13 +181,6 @@ async function syncProductToLibrary(supabase: any, productRow: any): Promise<str
     };
 
     let libraryId = productRow.library_product_id || null;
-    // Se uma ocorrência temporária ficar apenas com vídeo, não apaga as imagens já
-    // guardadas no cadastro reutilizável. Vídeo nunca substitui a mídia permanente.
-    if (libraryId && imageMedia.length === 0) {
-      delete payload.image_url;
-      delete payload.image_urls;
-      delete payload.media_items;
-    }
     if (libraryId) {
       const { error } = await supabase.from('best_seller_product_library').update(payload).eq('id', libraryId);
       if (!error) return libraryId;

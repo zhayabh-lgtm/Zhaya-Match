@@ -309,8 +309,9 @@ const GalleryVideo: React.FC<{
   label: string;
   onError: () => void;
   posterUrl?: string;
-  onPlayIntent?: () => void;
-}> = ({ src, label, onError, posterUrl, onPlayIntent }) => {
+  fallbackPosterUrl?: string;
+  onPlaybackStarted?: () => void;
+}> = ({ src, label, onError, posterUrl, fallbackPosterUrl, onPlaybackStarted }) => {
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const containerRef = useRef<HTMLDivElement | null>(null);
   const [activated, setActivated] = useState(false);
@@ -321,8 +322,9 @@ const GalleryVideo: React.FC<{
   const [duration, setDuration] = useState(0);
   const [currentTime, setCurrentTime] = useState(0);
   const [posterFailed, setPosterFailed] = useState(false);
-  const runtimeCover = useRuntimeVideoCover(src, !posterUrl || posterFailed);
-  const coverUrl = posterFailed ? runtimeCover : (posterUrl || runtimeCover);
+  const playReportedRef = useRef(false);
+  const runtimeCover = useRuntimeVideoCover(src, (!posterUrl && !fallbackPosterUrl) || (posterFailed && !fallbackPosterUrl));
+  const coverUrl = posterFailed ? (fallbackPosterUrl || runtimeCover) : (posterUrl || fallbackPosterUrl || runtimeCover);
 
   useEffect(() => {
     setActivated(false);
@@ -331,7 +333,9 @@ const GalleryVideo: React.FC<{
     setCurrentTime(0);
     setDuration(0);
     setPosterFailed(false);
-  }, [src, posterUrl]);
+    playReportedRef.current = false;
+  }, [src, posterUrl, fallbackPosterUrl]);
+
 
   // Ao sair completamente da tela, o vídeo do produto para e volta para a capa.
   useEffect(() => {
@@ -365,7 +369,6 @@ const GalleryVideo: React.FC<{
 
   const startPlayback = () => {
     // Antes do toque não existe <video> no DOM: só a capa estática é carregada.
-    onPlayIntent?.();
     setActivated(true);
   };
 
@@ -387,7 +390,6 @@ const GalleryVideo: React.FC<{
       return;
     }
     if (video.paused) {
-      onPlayIntent?.();
       void video.play().catch(() => undefined);
     } else {
       video.pause();
@@ -436,7 +438,14 @@ const GalleryVideo: React.FC<{
             const nextDuration = Number.isFinite(event.currentTarget.duration) ? event.currentTarget.duration : 0;
             setDuration(nextDuration);
           }}
-          onPlay={() => { setPlaying(true); }}
+          onPlay={() => {
+            setPlaying(true);
+            signalBestSellerActivity();
+            if (!playReportedRef.current) {
+              playReportedRef.current = true;
+              onPlaybackStarted?.();
+            }
+          }}
           onPause={() => setPlaying(false)}
           onEnded={() => setPlaying(false)}
           onTimeUpdate={(event) => {
@@ -477,10 +486,10 @@ const GalleryVideo: React.FC<{
             type="button"
             onPointerDown={stopPointer}
             onClick={(event) => { event.stopPropagation(); startPlayback(); }}
-            aria-label="Reproduzir vídeo"
-            className="absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 z-30 flex h-20 w-20 items-center justify-center text-white transition-transform duration-150 active:scale-95"
+            aria-label="Assistir vídeo"
+            className="zhaya-video-watch-button absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 z-30 inline-flex min-h-12 min-w-[170px] items-center justify-center rounded-full px-6 py-3 text-[11px] font-black uppercase tracking-[0.14em] backdrop-blur-[2px] transition-transform duration-150 active:scale-[0.98]"
           >
-            <Play size={48} strokeWidth={1.8} fill="currentColor" />
+            ASSISTIR VÍDEO
           </button>}
         </div>
       )}
@@ -566,13 +575,14 @@ const ProductMediaGallery: React.FC<{
   sizes: string[];
   outOfStockSizes: string[];
   timerContent?: React.ReactNode;
-  onVideoPlay?: () => void;
+  onVideoStarted?: () => void;
   onSlideSeen?: (index: number, total: number) => void;
-}> = ({ mediaItems, productName, isFirst, rankLabel, rankColor, sizeColor, showRanking, badgeContent, giftContent, sizes, outOfStockSizes, timerContent, onVideoPlay, onSlideSeen }) => {
+}> = ({ mediaItems, productName, isFirst, rankLabel, rankColor, sizeColor, showRanking, badgeContent, giftContent, sizes, outOfStockSizes, timerContent, onVideoStarted, onSlideSeen }) => {
   const [currentIndex, setCurrentIndex] = useState(0);
   const [failedMedia, setFailedMedia] = useState<Record<number, boolean>>({});
   const [direction, setDirection] = useState(0);
   const totalItems = mediaItems.length;
+  const firstImageUrl = useMemo(() => mediaItems.find((item) => item.type === 'image')?.url || '', [mediaItems]);
 
   // Pré-carrega imagens e capas de vídeo como imagens comuns. Assim, no iPhone,
   // a capa do vídeo entra na mesma fila das demais fotos e o arquivo de vídeo
@@ -633,13 +643,14 @@ const ProductMediaGallery: React.FC<{
     else handlePrev();
   };
 
+
   const currentMedia = mediaItems[currentIndex];
   const hasError = failedMedia[currentIndex];
   const unavailableSet = new Set(outOfStockSizes);
   const canSwipe = totalItems > 1;
 
   return (
-    <div className="relative w-full aspect-[4/5] bg-transparent rounded-[10px] overflow-hidden mb-5 select-none touch-pan-y group">
+    <div className="relative w-full aspect-[4/5] bg-transparent rounded-[10px] overflow-hidden mb-3 sm:mb-5 select-none touch-pan-y group">
       <AnimatePresence initial={false} mode="popLayout" custom={direction}>
         <motion.div
           key={`${currentIndex}-${currentMedia?.id || currentMedia?.url || 'empty'}`}
@@ -661,7 +672,8 @@ const ProductMediaGallery: React.FC<{
                 label={`${productName} - vídeo ${currentIndex + 1}`}
                 onError={() => setFailedMedia((prev) => ({ ...prev, [currentIndex]: true }))}
                 posterUrl={currentMedia.posterUrl || undefined}
-                onPlayIntent={onVideoPlay}
+                fallbackPosterUrl={firstImageUrl || undefined}
+                onPlaybackStarted={onVideoStarted}
               />
             ) : (
               <img
@@ -722,6 +734,7 @@ const ProductMediaGallery: React.FC<{
         </div>
       )}
 
+
       {totalItems > 1 && (
         <>
           <button
@@ -742,16 +755,32 @@ const ProductMediaGallery: React.FC<{
           >
             <ChevronRight size={32} strokeWidth={2.4} />
           </button>
-          <div className="absolute left-1/2 -translate-x-1/2 bottom-3.5 z-30 flex items-center justify-center gap-1.5" aria-label="Galeria de mídia">
-            {mediaItems.map((item, dotIndex) => (
-              <button
-                key={item.id || dotIndex}
-                type="button"
-                onClick={(e) => { e.stopPropagation(); goToIndex(dotIndex, dotIndex > currentIndex ? 1 : -1); }}
-                aria-label={`Ver ${item.type === 'video' ? 'vídeo' : 'imagem'} ${dotIndex + 1}`}
-                className={`h-1.5 rounded-full transition-all duration-200 ${dotIndex === currentIndex ? 'w-5 bg-white' : 'w-1.5 bg-white/45 hover:bg-white/70'}`}
-              />
-            ))}
+          <div className="absolute left-1/2 -translate-x-1/2 bottom-3 z-30 flex items-center justify-center gap-1.5" aria-label="Galeria de mídia">
+            {mediaItems.map((item, dotIndex) => {
+              const active = dotIndex === currentIndex;
+              if (item.type === 'video') {
+                return (
+                  <button
+                    key={item.id || dotIndex}
+                    type="button"
+                    onClick={(e) => { e.stopPropagation(); goToIndex(dotIndex, dotIndex > currentIndex ? 1 : -1); }}
+                    aria-label={`Ver vídeo ${dotIndex + 1}`}
+                    className={`flex h-[18px] w-[18px] items-center justify-center rounded-full border transition-all duration-200 ${active ? 'border-white bg-white text-black' : 'border-white/55 bg-black/35 text-white hover:bg-black/55'}`}
+                  >
+                    <Play size={7} fill="currentColor" strokeWidth={2.2} />
+                  </button>
+                );
+              }
+              return (
+                <button
+                  key={item.id || dotIndex}
+                  type="button"
+                  onClick={(e) => { e.stopPropagation(); goToIndex(dotIndex, dotIndex > currentIndex ? 1 : -1); }}
+                  aria-label={`Ver imagem ${dotIndex + 1}`}
+                  className={`h-1.5 rounded-full transition-all duration-200 ${active ? 'w-5 bg-white' : 'w-1.5 bg-white/45 hover:bg-white/70'}`}
+                />
+              );
+            })}
           </div>
         </>
       )}
@@ -833,7 +862,8 @@ const ProductItem: React.FC<{
     Repository.trackBestSellerProductClick(product.id, listId);
   };
 
-  const handleVideoPlay = () => {
+  const handleVideoStarted = () => {
+    // Conta play somente quando o navegador confirma que o vídeo realmente iniciou.
     Repository.trackBestSellerAnalyticsEvent({ eventType: 'product_play', listId, productId: product.id });
   };
 
@@ -899,7 +929,7 @@ const ProductItem: React.FC<{
       whileInView={{ opacity: 1, y: 0 }}
       viewport={{ once: true, amount: 0.08 }}
       transition={{ duration: 0.32, ease: 'easeOut' }}
-      className="w-full flex flex-col pb-12 last:pb-4"
+      className="w-full flex flex-col pb-7 sm:pb-12 last:pb-3 sm:last:pb-4"
     >
       <ProductMediaGallery
         mediaItems={galleryMedia}
@@ -914,7 +944,7 @@ const ProductItem: React.FC<{
         sizes={sizes}
         outOfStockSizes={outOfStockSizes}
         timerContent={productTimerElement}
-        onVideoPlay={handleVideoPlay}
+        onVideoStarted={handleVideoStarted}
         onSlideSeen={(slideIndex, slideCount) => {
           Repository.trackBestSellerAnalyticsEvent({
             eventType: 'product_behavior',
@@ -927,13 +957,13 @@ const ProductItem: React.FC<{
       />
 
       <div className="flex flex-col items-center text-center px-2 sm:px-4">
-        <h2 className="max-w-md text-[19px] sm:text-[22px] font-bold text-white tracking-[-0.025em] leading-[1.16] break-words">
+        <h2 className="max-w-md text-[19px] sm:text-[22px] font-bold text-white tracking-[-0.025em] leading-[1.10] sm:leading-[1.16] break-words">
           {product.name}
         </h2>
 
         {((product.promotionalPrice !== null && product.promotionalPrice !== undefined) ||
           (product.originalPrice !== null && product.originalPrice !== undefined)) && (
-          <div className="mt-3 flex flex-col items-center gap-0.5">
+          <div className="mt-1.5 sm:mt-3 flex flex-col items-center gap-0.5">
             {product.promotionalPrice !== null && product.promotionalPrice !== undefined ? (
               <>
                 {product.originalPrice !== null &&
@@ -956,13 +986,13 @@ const ProductItem: React.FC<{
         )}
 
         {hasInstallment && (
-          <p className="mt-2 text-[12px] text-neutral-300 font-semibold tracking-[-0.01em]">
+          <p className="mt-1 sm:mt-2 text-[12px] leading-tight text-neutral-300 font-semibold tracking-[-0.01em]">
             Até {product.installmentsCount}x de {formatPriceBRL(product.installmentValue)} sem juros
           </p>
         )}
 
         {(soldText || availableText) && (
-          <div className="mt-3 flex flex-wrap justify-center items-center gap-x-2 gap-y-1 text-[10px] sm:text-[11px] text-neutral-500 font-medium">
+          <div className="mt-1.5 sm:mt-3 flex flex-wrap justify-center items-center gap-x-2 gap-y-0.5 sm:gap-y-1 text-[10px] sm:text-[11px] leading-tight text-neutral-500 font-medium">
             {soldText && <span className="text-neutral-300 font-medium">{soldText}</span>}
             {soldText && availableText && <span className="text-neutral-700">·</span>}
             {availableText && <span>{availableText}</span>}
@@ -970,7 +1000,7 @@ const ProductItem: React.FC<{
         )}
 
         {product.colors && product.colors.length > 0 && (
-          <div className="mt-4 flex flex-wrap justify-center items-center gap-x-2 gap-y-1 text-[10px] sm:text-[11px] uppercase tracking-[0.10em] text-neutral-400 font-semibold">
+          <div className="mt-2 sm:mt-4 flex flex-wrap justify-center items-center gap-x-2 gap-y-0.5 sm:gap-y-1 text-[10px] sm:text-[11px] leading-tight uppercase tracking-[0.10em] text-neutral-400 font-semibold">
             {product.colors.map((color, cIdx) => (
               <React.Fragment key={`${color}-${cIdx}`}>
                 <span>{color}</span>
@@ -981,9 +1011,10 @@ const ProductItem: React.FC<{
         )}
 
         {product.productUrl && (
-          <div className="w-full pt-6">
+          <div className="w-full pt-3 sm:pt-6">
             <a
               id={`btn-ver-produto-${product.id}`}
+              data-best-seller-native-cta={product.id}
               href={product.productUrl}
               target="_blank"
               rel="noopener noreferrer"
@@ -1433,7 +1464,7 @@ export const MaisVendidosPage: React.FC = () => {
           />
         </div>
       )}
-      <main className="relative z-10 w-full max-w-[540px] px-4 sm:px-6 py-6 sm:py-10 flex flex-col items-center">
+      <main className="relative z-10 w-full max-w-[540px] px-4 sm:px-6 pt-6 pb-28 sm:py-10 flex flex-col items-center">
         {/* ========================================================================= */}
         {/* ESTADO 1: LOADING                                                         */}
         {/* ========================================================================= */}
@@ -1495,11 +1526,11 @@ export const MaisVendidosPage: React.FC = () => {
               )}
 
               {listData.logoUrl ? (
-                <div className="w-full flex justify-center items-center overflow-hidden">
+                <div className="w-[calc(100%+2rem)] -mx-4 sm:w-[calc(100%+3rem)] sm:-mx-6 max-w-[100vw] flex justify-center items-center overflow-hidden">
                   <img
                     src={listData.logoUrl}
                     alt={listData.title || 'Zhaya'}
-                    className="w-auto max-w-[230px] sm:max-w-[280px] max-h-32 sm:max-h-40 object-contain block mx-auto"
+                    className="w-full h-auto max-w-none object-contain block"
                   />
                 </div>
               ) : (
@@ -1544,14 +1575,14 @@ export const MaisVendidosPage: React.FC = () => {
 
             {/* Vitrine de Produtos */}
             {listData.products && listData.products.length > 0 ? (
-              <div className="w-full flex flex-col space-y-6 sm:space-y-10">
+              <div className="w-full flex flex-col space-y-4 sm:space-y-10">
                 {listData.products.map((prod, idx) => (
                   <ProductItem
                     key={prod.id}
                     product={prod}
                     index={idx}
                     isFirst={idx === 0}
-                    ctaText={(listData.ctaText || '').trim() || 'VER PRODUTO'}
+                    ctaText={(listData.ctaText || '').trim() || 'GARANTIR MEU PAR'}
                     rankColor={listData.rankColor || '#FFFFFF'}
                     sizeColor={listData.sizeColor || '#FFFFFF'}
                     showRanking={listData.showRanking !== false}
@@ -1568,6 +1599,8 @@ export const MaisVendidosPage: React.FC = () => {
           </div>
         )}
       </main>
+
+
     </div>
   );
 };

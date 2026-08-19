@@ -43,3 +43,17 @@
   background: #404040;
 }
 
+
+/* CTA do vídeo: mantém o visual mesmo quando estilos globais de botão são carregados depois. */
+.zhaya-video-watch-button {
+  background: rgba(0, 0, 0, 0.64) !important;
+  color: #ffffff !important;
+  border: 1px solid rgba(255, 255, 255, 0.10) !important;
+  border-radius: 9999px !important;
+  box-shadow: none !important;
+}
+.zhaya-video-watch-button:hover,
+.zhaya-video-watch-button:focus {
+  background: rgba(0, 0, 0, 0.72) !important;
+  color: #ffffff !important;
+}

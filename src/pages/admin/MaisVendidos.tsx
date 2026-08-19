@@ -42,7 +42,9 @@ import {
 import { Repository } from '../../lib/repository';
 import { getReadableTextColor } from '../../lib/contrast';
 import { supabase, isSupabaseConfigured } from '../../lib/supabase';
-import type { BestSellerList, BestSellerProduct, BestSellerMediaItem, BestSellerLibraryProduct, BestSellerAnalyticsSummary, BestSellerAnalyticsHourItem } from '../../types/zhaya';
+import { uploadFileToCloudinary } from '../../lib/cloudinaryMedia';
+import { CloudinaryMediaPicker } from '../../components/admin/CloudinaryMediaPicker';
+import type { BestSellerList, BestSellerProduct, BestSellerMediaItem, BestSellerLibraryProduct, BestSellerGiftPreset, BestSellerAnalyticsSummary, BestSellerAnalyticsHourItem } from '../../types/zhaya';
 
 const BEST_SELLERS_SQL = `-- ==============================================================================
 -- ZHAYA MATCH - SETUP DE MAIS VENDIDOS DO DIA (100% COMPLETO E IDEMPOTENTE)
@@ -347,7 +349,7 @@ END $$;
 -- 10. Recarga do schema cache do PostgREST / Supabase API
 
 
--- 12. Biblioteca reutilizável de produtos (vídeos não entram)
+-- 12. Biblioteca reutilizável de produtos (imagens e vídeos)
 CREATE TABLE IF NOT EXISTS public.best_seller_product_library (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   name TEXT NOT NULL,
@@ -382,6 +384,25 @@ CREATE INDEX IF NOT EXISTS idx_best_seller_products_library_product ON public.be
 ALTER TABLE public.best_seller_product_library ENABLE ROW LEVEL SECURITY;
 REVOKE ALL ON public.best_seller_product_library FROM anon, authenticated;
 GRANT ALL ON public.best_seller_product_library TO service_role;
+
+-- 12.1 Biblioteca reutilizável de presentes
+CREATE TABLE IF NOT EXISTS public.best_seller_gift_library (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  image_url TEXT NOT NULL,
+  image_path TEXT,
+  title TEXT,
+  label TEXT,
+  text_color TEXT NOT NULL DEFAULT '#FFFFFF',
+  image_size INTEGER NOT NULL DEFAULT 48 CHECK (image_size >= 36 AND image_size <= 80),
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS idx_best_seller_gift_library_updated ON public.best_seller_gift_library(updated_at DESC);
+CREATE INDEX IF NOT EXISTS idx_best_seller_gift_library_image ON public.best_seller_gift_library(image_url);
+ALTER TABLE public.best_seller_gift_library ENABLE ROW LEVEL SECURITY;
+REVOKE ALL ON public.best_seller_gift_library FROM anon, authenticated;
+GRANT ALL ON public.best_seller_gift_library TO service_role;
+
 ALTER TABLE public.best_seller_media_assets ADD COLUMN IF NOT EXISTS purpose TEXT NOT NULL DEFAULT 'product_video';
 
 -- 12. Analytics simples por lista
@@ -681,13 +702,16 @@ export const MaisVendidos: React.FC = () => {
   const [listAnalytics, setListAnalytics] = useState<BestSellerAnalyticsSummary | null>(null);
   const [analyticsLoading, setAnalyticsLoading] = useState<boolean>(false);
 
-  // Biblioteca reutilizável: guarda dados e imagens, nunca vídeos.
+  // Biblioteca reutilizável: guarda dados, imagens e vídeos para novas vitrines.
   const [isLibraryModalOpen, setIsLibraryModalOpen] = useState<boolean>(false);
   const [libraryProducts, setLibraryProducts] = useState<BestSellerLibraryProduct[]>([]);
   const [librarySearch, setLibrarySearch] = useState('');
   const [loadingLibrary, setLoadingLibrary] = useState(false);
   const [libraryError, setLibraryError] = useState<string | null>(null);
   const [addingLibraryProductId, setAddingLibraryProductId] = useState<string | null>(null);
+  const [giftPresets, setGiftPresets] = useState<BestSellerGiftPreset[]>([]);
+  const [giftLibraryConfigured, setGiftLibraryConfigured] = useState<boolean>(true);
+  const [lastAppliedBadge, setLastAppliedBadge] = useState<{ text: string; color: string } | null>(null);
 
   // State: List Modal (Create / Edit)
   const [isListModalOpen, setIsListModalOpen] = useState<boolean>(false);
@@ -789,6 +813,9 @@ export const MaisVendidos: React.FC = () => {
   const [draggedSizeIndex, setDraggedSizeIndex] = useState<number | null>(null);
   const [savingProduct, setSavingProduct] = useState<boolean>(false);
   const [productError, setProductError] = useState<string | null>(null);
+  const [showJsonImporter, setShowJsonImporter] = useState(false);
+  const [productJsonInput, setProductJsonInput] = useState('');
+  const [productJsonMessage, setProductJsonMessage] = useState<string | null>(null);
   const [uploadingProdImage, setUploadingProdImage] = useState<boolean>(false);
   const prodFileInputRef = useRef<HTMLInputElement>(null);
   const prodMediaFileInputRef = useRef<HTMLInputElement>(null);
@@ -838,8 +865,56 @@ export const MaisVendidos: React.FC = () => {
     }
   };
 
+  const loadGiftPresets = async () => {
+    const result = await Repository.getBestSellerGiftPresets();
+    setGiftLibraryConfigured(result.configured !== false);
+    if (result.configured !== false) setGiftPresets(result.gifts);
+  };
+
+  const applyGiftPresetToList = (gift: BestSellerGiftPreset) => {
+    setListFormGiftEnabled(true);
+    setListFormGiftImageUrl(gift.imageUrl || '');
+    setListFormGiftImagePath(gift.imagePath || '');
+    setListFormGiftTitle(gift.title || '');
+    setListFormGiftLabel(gift.label ?? 'Você ganha');
+    setListFormGiftTextColor(gift.textColor || '#FFFFFF');
+    setListFormGiftImageSize(String(gift.imageSize || 48));
+  };
+
+  const applyGiftPresetToProduct = (gift: BestSellerGiftPreset) => {
+    setProdFormGiftMode('custom');
+    setProdFormGiftImageUrl(gift.imageUrl || '');
+    setProdFormGiftImagePath(gift.imagePath || '');
+    setProdFormGiftTitle(gift.title || '');
+    setProdFormGiftLabel(gift.label ?? 'Você ganha');
+    setProdFormGiftTextColor(gift.textColor || '#FFFFFF');
+    setProdFormGiftImageSize(String(gift.imageSize || 48));
+  };
+
+  const persistGiftPreset = async (gift: Omit<BestSellerGiftPreset, 'id' | 'createdAt' | 'updatedAt'>) => {
+    if (!gift.imageUrl) return;
+    const result = await Repository.saveBestSellerGiftPreset(gift);
+    if (result.configured === false) {
+      setGiftLibraryConfigured(false);
+      return;
+    }
+    if (result.gift) {
+      setGiftPresets((current) => [result.gift!, ...current.filter((item) => item.id !== result.gift!.id && item.imageUrl !== result.gift!.imageUrl)]);
+    }
+  };
+
   useEffect(() => {
     loadLists();
+    void loadGiftPresets();
+    try {
+      const raw = window.localStorage.getItem('zhaya_match_last_badge_v1');
+      if (raw) {
+        const parsed = JSON.parse(raw);
+        if (parsed?.text && parsed?.color) setLastAppliedBadge({ text: String(parsed.text), color: String(parsed.color) });
+      }
+    } catch {
+      // localStorage pode estar indisponível no modo privado.
+    }
   }, []);
 
   // Atualiza contagem de produtos/cliques da visão geral sem precisar recarregar o admin.
@@ -1030,35 +1105,18 @@ export const MaisVendidos: React.FC = () => {
     file: File,
     mediaType: 'image' | 'video',
     purpose: 'product' | 'background' | 'logo' | 'poster' | 'gift',
-  ): Promise<{ url: string; storagePath: string }> => {
-    if (!isSupabaseConfigured || !supabase) {
-      throw new Error('Supabase não está configurado para upload persistente.');
-    }
-
-    const prepared = await Repository.prepareBestSellerMediaUpload({
-      fileName: file.name,
-      mimeType: file.type,
-      fileSize: file.size,
-      mediaType,
-      purpose,
-    });
-
-    if (!prepared.success || !prepared.path || !prepared.token || !prepared.publicUrl) {
-      throw new Error(prepared.error || 'Não foi possível preparar o upload.');
-    }
-
-    const { error } = await supabase.storage
-      .from('zhaya-match-media')
-      .uploadToSignedUrl(prepared.path, prepared.token, file, {
-        cacheControl: '3600',
-        contentType: file.type,
-      });
-
-    if (error) throw new Error(`Falha no upload: ${error.message}`);
-    return { url: prepared.publicUrl, storagePath: prepared.path };
+  ): Promise<{ url: string; storagePath: string; posterUrl?: string | null }> => {
+    // O arquivo vai direto do navegador ao Cloudinary. A Function só gera a assinatura,
+    // então vídeos grandes não passam pelo body/limite da Vercel.
+    const uploaded = await uploadFileToCloudinary(file, mediaType, `bestsellers/${purpose}`);
+    return {
+      url: uploaded.url,
+      storagePath: `cloudinary:${uploaded.resourceType}:${uploaded.publicId}`,
+      posterUrl: mediaType === 'video' ? (uploaded.thumbnailUrl || null) : null,
+    };
   };
 
-  // Uploads usam URL assinada: o arquivo vai direto ao Supabase Storage sem passar pelo corpo da Function.
+  // Upload assinado direto para o Cloudinary; o segredo permanece somente no servidor.
   const handleLogoFileUpload = async (file: File) => {
     if (!file) return;
     const validTypes = ['image/svg+xml', 'image/png', 'image/jpeg', 'image/jpg', 'image/webp'];
@@ -1257,16 +1315,7 @@ export const MaisVendidos: React.FC = () => {
       setUploadingProdImage(isImage);
       setProductError(null);
       const type: 'image' | 'video' = isVideo ? 'video' : 'image';
-      const posterFile = isVideo ? await generateVideoPosterFile(file) : null;
       const uploaded = await uploadBestSellerFile(file, type, 'product');
-      let posterUpload: { url: string; storagePath: string } | null = null;
-      if (posterFile) {
-        try {
-          posterUpload = await uploadBestSellerFile(posterFile, 'image', 'poster');
-        } catch (posterError) {
-          console.warn('Vídeo enviado, mas a capa automática não pôde ser salva:', posterError);
-        }
-      }
       setProdFormMediaItems((prev) => [
         ...prev,
         {
@@ -1274,17 +1323,16 @@ export const MaisVendidos: React.FC = () => {
           type,
           url: uploaded.url,
           storagePath: uploaded.storagePath,
-          posterUrl: posterUpload?.url || null,
-          posterStoragePath: posterUpload?.storagePath || null,
+          // Cloudinary entrega um frame real do próprio vídeo. Assim mantemos a capa
+          // estática no iPhone sem precisar enviar uma segunda imagem manualmente.
+          posterUrl: isVideo ? (uploaded.posterUrl || null) : null,
+          posterStoragePath: null,
           source: 'upload',
         },
       ]);
-      if (isVideo && !posterUpload) {
-        setProductError('Vídeo enviado. A capa automática não pôde ser gerada neste navegador/formato. O vídeo continuará sem capa até que um frame próprio possa ser capturado.');
-      }
     } catch (err: any) {
       console.error('Erro no upload de mídia do produto:', err);
-      setProductError(err?.message || 'Erro ao enviar mídia para o Supabase Storage.');
+      setProductError(err?.message || 'Erro ao enviar mídia para o Cloudinary.');
     } finally {
       setUploadingProductMedia(false);
       setUploadingProdImage(false);
@@ -1415,6 +1463,17 @@ export const MaisVendidos: React.FC = () => {
     try {
       setSavingList(true);
       setListError(null);
+
+      if (listFormGiftEnabled && listFormGiftImageUrl.trim()) {
+        void persistGiftPreset({
+          imageUrl: listFormGiftImageUrl.trim(),
+          imagePath: listFormGiftImagePath.trim() || null,
+          title: listFormGiftTitle.trim() || null,
+          label: listFormGiftLabel.trim() || null,
+          textColor: listFormGiftTextColor || '#FFFFFF',
+          imageSize: Math.max(36, Math.min(80, Number(listFormGiftImageSize) || 48)),
+        });
+      }
 
       if (editingList) {
         // Update
@@ -1634,7 +1693,11 @@ export const MaisVendidos: React.FC = () => {
     setProdFormTimerDate(selectedList.listDate || new Date().toISOString().slice(0, 10));
     setProdFormTimerTime('23:59');
     setProdFormTimerColor('#FFFFFF');
+    setShowJsonImporter(false);
+    setProductJsonInput('');
+    setProductJsonMessage(null);
     setProductError(null);
+    void loadGiftPresets();
     setIsProductModalOpen(true);
   };
 
@@ -1702,8 +1765,79 @@ export const MaisVendidos: React.FC = () => {
       setProdFormTimerDate(selectedList?.listDate || new Date().toISOString().slice(0, 10));
       setProdFormTimerTime('23:59');
     }
+    setShowJsonImporter(false);
+    setProductJsonInput('');
+    setProductJsonMessage(null);
     setProductError(null);
+    void loadGiftPresets();
     setIsProductModalOpen(true);
+  };
+
+  const handleImportProductJson = () => {
+    setProductJsonMessage(null);
+    setProductError(null);
+    try {
+      const parsed = JSON.parse(productJsonInput.trim());
+      const data = parsed?.data || parsed;
+      const product = data?.product || parsed?.product;
+      const source = data?.source || parsed?.source || {};
+      if (!product || typeof product !== 'object') throw new Error('O JSON não contém um produto válido.');
+
+      const media = Array.isArray(product.mediaItems) ? product.mediaItems : [];
+      const mediaItems: BestSellerMediaItem[] = media
+        .map((item: any, index: number) => {
+          const type = item?.type === 'video' ? 'video' : 'image';
+          const url = String(item?.url || '').trim();
+          if (!url) return null;
+          return {
+            id: `json-${type}-${Date.now()}-${index}`,
+            type,
+            url,
+            posterUrl: type === 'video' ? (String(item?.poster || item?.posterUrl || '').trim() || null) : null,
+            source: 'url' as const,
+          };
+        })
+        .filter(Boolean) as BestSellerMediaItem[];
+      if (!mediaItems.length) throw new Error('O JSON não trouxe imagens ou vídeos do produto.');
+
+      const sizeObjects = Array.isArray(product.sizes) ? product.sizes : [];
+      const sizes = sizeObjects.map((item: any) => typeof item === 'string' ? item : item?.label).filter(Boolean).map(String);
+      const outOfStock = Array.isArray(product.outOfStockSizes)
+        ? product.outOfStockSizes.map(String)
+        : sizeObjects.filter((item: any) => typeof item === 'object' && item?.available === false).map((item: any) => String(item.label));
+      const colors = Array.isArray(product.colors)
+        ? product.colors.map((item: any) => typeof item === 'string' ? item : item?.name).filter(Boolean).map(String)
+        : [];
+      const firstImage = mediaItems.find((item) => item.type === 'image')?.url || '';
+      const stock = Number(product.stockQuantity);
+      const sold = Number(product.soldQuantity);
+      const discount = Number(product.discountPercent || 0);
+
+      setProdFormName(String(product.name || '').trim());
+      setProdFormProductUrl(String(product.productUrl || source.pageUrl || '').trim());
+      setProdFormMediaItems(mediaItems);
+      setProdFormImageUrls(mediaItems.filter((item) => item.type === 'image').map((item) => item.url));
+      setProdFormImageUrl(firstImage);
+      setProdFormOriginalPrice(Number.isFinite(Number(product.originalPrice)) ? String(Number(product.originalPrice)) : '');
+      setProdFormPromotionalPrice(Number.isFinite(Number(product.promotionalPrice)) ? String(Number(product.promotionalPrice)) : '');
+      setProdFormInstallmentsCount(Number(product.installmentsCount) > 0 ? String(Math.round(Number(product.installmentsCount))) : '');
+      setProdFormInstallmentValue(Number.isFinite(Number(product.installmentValue)) ? String(Number(product.installmentValue)) : '');
+      setProdFormSoldQty(Number.isFinite(sold) ? String(Math.max(1, Math.min(10, Math.round(sold)))) : String(Math.floor(Math.random() * 10) + 1));
+      setProdFormShowSoldQty(true);
+      setProdFormAvailableQty(Number.isFinite(stock) && stock >= 0 ? String(stock > 0 ? Math.max(1, Math.min(2, Math.round(stock))) : 0) : '1');
+      setProdFormSizes(normalizeSizeValues(sizes));
+      setProdFormOutOfStockSizes(normalizeSizeValues(outOfStock));
+      setProdFormColors(colors);
+      if (!selectedList?.defaultBadgeEnabled && discount > 0) {
+        setProdFormBadgeUseListDefault(false);
+        setProdFormBadgeEnabled(true);
+        setProdFormBadgeText(`${Math.round(discount)}% OFF`);
+      }
+      setProductJsonMessage(`Produto importado: ${mediaItems.filter((item) => item.type === 'image').length} foto(s), ${mediaItems.filter((item) => item.type === 'video').length} vídeo(s) e ${sizes.length} tamanho(s). Confira e salve.`);
+      setShowJsonImporter(false);
+    } catch (error: any) {
+      setProductError(error?.message || 'JSON inválido. Copie novamente pela extensão Zhaya Match.');
+    }
   };
 
   const handleAddMediaUrl = async () => {
@@ -1992,6 +2126,17 @@ export const MaisVendidos: React.FC = () => {
         timerColor: prodFormTimerColor || '#FFFFFF',
       };
 
+      if (prodFormGiftMode === 'custom' && prodFormGiftImageUrl.trim()) {
+        void persistGiftPreset({
+          imageUrl: prodFormGiftImageUrl.trim(),
+          imagePath: prodFormGiftImagePath.trim() || null,
+          title: prodFormGiftTitle.trim() || null,
+          label: prodFormGiftLabel.trim() || null,
+          textColor: prodFormGiftTextColor || '#FFFFFF',
+          imageSize: Math.max(36, Math.min(80, Number(prodFormGiftImageSize) || 48)),
+        });
+      }
+
       if (editingProduct) {
         const res = await Repository.updateBestSellerProduct(editingProduct.id, payload);
         if (!res.success) {
@@ -2004,6 +2149,16 @@ export const MaisVendidos: React.FC = () => {
           setProductError(res.error || 'Erro ao adicionar produto.');
           return;
         }
+      }
+
+      const appliedBadge = prodFormBadgeUseListDefault && selectedList.defaultBadgeEnabled && selectedList.defaultBadgeText
+        ? { text: selectedList.defaultBadgeText, color: selectedList.defaultBadgeColor || '#FFFFFF' }
+        : (!prodFormBadgeUseListDefault && prodFormBadgeEnabled && prodFormBadgeText.trim()
+          ? { text: prodFormBadgeText.trim(), color: prodFormBadgeColor || '#FFFFFF' }
+          : null);
+      if (appliedBadge) {
+        setLastAppliedBadge(appliedBadge);
+        try { window.localStorage.setItem('zhaya_match_last_badge_v1', JSON.stringify(appliedBadge)); } catch { /* noop */ }
       }
 
       setIsProductModalOpen(false);
@@ -3019,7 +3174,7 @@ export const MaisVendidos: React.FC = () => {
                         {uploadingLogo ? (
                           <div className="flex flex-col items-center gap-2 py-2">
                             <Loader2 className="w-5 h-5 text-neutral-900 animate-spin" />
-                            <span className="text-xs font-medium text-neutral-700">Enviando para o Supabase Storage...</span>
+                            <span className="text-xs font-medium text-neutral-700">Enviando para o Cloudinary...</span>
                             <div className="w-36 h-1.5 bg-neutral-200 rounded-full overflow-hidden">
                               <div
                                 className="h-full bg-neutral-900 transition-all duration-300"
@@ -3044,6 +3199,17 @@ export const MaisVendidos: React.FC = () => {
                         )}
                       </div>
                     )}
+                    <div className="mt-2 flex justify-end">
+                      <CloudinaryMediaPicker
+                        allowedTypes={['image']}
+                        label="Selecionar já enviado"
+                        title="Logos e imagens já enviadas"
+                        onSelect={(asset) => {
+                          setListFormLogoUrl(asset.url);
+                          setLogoUploadError(null);
+                        }}
+                      />
+                    </div>
                   </div>
                 ) : logoInputMode === 'library' ? (
                   <div className="space-y-2">
@@ -3114,11 +3280,11 @@ export const MaisVendidos: React.FC = () => {
                   type="text"
                   value={listFormCtaText}
                   onChange={(e) => setListFormCtaText(e.target.value)}
-                  placeholder="VER PRODUTO"
+                  placeholder="GARANTIR MEU PAR"
                   maxLength={40}
                   className="w-full px-3 py-2 border border-neutral-300 rounded focus:ring-1 focus:ring-neutral-900 focus:outline-none text-xs"
                 />
-                <p className="text-[10px] text-neutral-500">Se ficar vazio, todos os produtos usam “VER PRODUTO”.</p>
+                <p className="text-[10px] text-neutral-500">Se ficar vazio, todos os produtos usam “GARANTIR MEU PAR”.</p>
               </div>
 
               <div className="space-y-3 rounded-lg bg-neutral-50 border border-neutral-200 p-3">
@@ -3166,6 +3332,21 @@ export const MaisVendidos: React.FC = () => {
                 </div>
                 {listFormGiftEnabled && (
                   <div className="pl-6 space-y-2">
+                    {giftPresets.length > 0 && (
+                      <select
+                        defaultValue=""
+                        onChange={(e) => {
+                          const gift = giftPresets.find((item) => item.id === e.target.value);
+                          if (gift) applyGiftPresetToList(gift);
+                          e.currentTarget.value = '';
+                        }}
+                        className="w-full px-3 py-2 border border-neutral-300 rounded bg-white text-[10px] font-semibold text-neutral-700"
+                      >
+                        <option value="">Usar presente salvo...</option>
+                        {giftPresets.map((gift) => <option key={gift.id} value={gift.id}>{gift.title || gift.label || gift.imageUrl.split('/').pop() || 'Presente salvo'}</option>)}
+                      </select>
+                    )}
+                    {!giftLibraryConfigured && <p className="text-[9px] text-amber-700">Biblioteca de presentes: execute o SQL desta versão para salvar e reutilizar configurações completas.</p>}
                     <input ref={listGiftFileInputRef} type="file" accept="image/png,image/jpeg" className="hidden" onChange={(e) => { const file = e.target.files?.[0]; if (file) handleListGiftUpload(file); e.target.value = ''; }} />
                     {listFormGiftImageUrl ? (
                       <div className="flex items-center gap-3 rounded border border-neutral-200 bg-white p-2.5">
@@ -3184,6 +3365,18 @@ export const MaisVendidos: React.FC = () => {
                         {uploadingListGift ? 'Enviando...' : 'Enviar PNG ou JPEG'}
                       </button>
                     )}
+                    <div className="flex justify-end">
+                      <CloudinaryMediaPicker
+                        allowedTypes={['image']}
+                        label="Selecionar já enviado"
+                        title="Imagens já enviadas"
+                        onSelect={(asset) => {
+                          setListFormGiftImageUrl(asset.url);
+                          setListFormGiftImagePath(`cloudinary:${asset.resourceType}:${asset.publicId}`);
+                          setListFormGiftEnabled(true);
+                        }}
+                      />
+                    </div>
                     <div className="space-y-1">
                       <label className="text-[10px] font-semibold text-neutral-600">Título acima da imagem (Opcional)</label>
                       <input type="text" maxLength={40} value={listFormGiftLabel} onChange={(e) => setListFormGiftLabel(e.target.value)} placeholder="Você ganha" className="w-full px-3 py-2 border border-neutral-300 rounded text-xs bg-white" />
@@ -3325,15 +3518,26 @@ export const MaisVendidos: React.FC = () => {
                 />
 
                 {backgroundVideoInputMode === 'upload' ? (
-                  <button
-                    type="button"
-                    onClick={() => backgroundVideoFileInputRef.current?.click()}
-                    disabled={uploadingBackgroundVideo}
-                    className="w-full py-2.5 border border-dashed border-neutral-300 rounded bg-white text-[11px] font-semibold text-neutral-700 hover:border-neutral-500 disabled:opacity-50 cursor-pointer flex items-center justify-center gap-2"
-                  >
-                    {uploadingBackgroundVideo ? <Loader2 className="w-4 h-4 animate-spin" /> : <Video className="w-4 h-4" />}
-                    {uploadingBackgroundVideo ? 'Enviando vídeo...' : (listFormBackgroundVideoUrl ? 'Trocar vídeo de fundo' : 'Enviar vídeo de fundo')}
-                  </button>
+                  <div className="grid grid-cols-1 sm:grid-cols-[1fr_auto] gap-2">
+                    <button
+                      type="button"
+                      onClick={() => backgroundVideoFileInputRef.current?.click()}
+                      disabled={uploadingBackgroundVideo}
+                      className="w-full py-2.5 border border-dashed border-neutral-300 rounded bg-white text-[11px] font-semibold text-neutral-700 hover:border-neutral-500 disabled:opacity-50 cursor-pointer flex items-center justify-center gap-2"
+                    >
+                      {uploadingBackgroundVideo ? <Loader2 className="w-4 h-4 animate-spin" /> : <Video className="w-4 h-4" />}
+                      {uploadingBackgroundVideo ? 'Enviando vídeo...' : (listFormBackgroundVideoUrl ? 'Trocar vídeo de fundo' : 'Enviar vídeo de fundo')}
+                    </button>
+                    <CloudinaryMediaPicker
+                      allowedTypes={['video']}
+                      label="Selecionar já enviado"
+                      title="Vídeos já enviados"
+                      onSelect={(asset) => {
+                        setListFormBackgroundVideoUrl(asset.url);
+                        setListFormBackgroundVideoPath(`cloudinary:${asset.resourceType}:${asset.publicId}`);
+                      }}
+                    />
+                  </div>
                 ) : (
                   <input
                     type="url"
@@ -3598,6 +3802,43 @@ export const MaisVendidos: React.FC = () => {
                 </div>
               )}
 
+              {productJsonMessage && (
+                <div className="p-3 rounded bg-emerald-50 text-emerald-800 border border-emerald-200 text-[11px]">
+                  {productJsonMessage}
+                </div>
+              )}
+
+              {!editingProduct && (
+                <div className="rounded-lg border border-neutral-200 bg-neutral-50 p-3 space-y-2">
+                  <div className="flex items-center justify-between gap-3">
+                    <div>
+                      <p className="text-[11px] font-bold text-neutral-800">Importar da extensão Zhaya</p>
+                      <p className="text-[10px] text-neutral-500 mt-0.5">Cole o JSON copiado na página do produto para preencher tudo de uma vez.</p>
+                    </div>
+                    <button type="button" onClick={() => setShowJsonImporter((value) => !value)} className="px-3 py-1.5 rounded-full bg-neutral-900 text-white text-[10px] font-bold cursor-pointer whitespace-nowrap">
+                      {'{ }'} COLAR JSON
+                    </button>
+                  </div>
+                  {showJsonImporter && (
+                    <div className="space-y-2 pt-1">
+                      <textarea
+                        value={productJsonInput}
+                        onChange={(e) => setProductJsonInput(e.target.value)}
+                        rows={7}
+                        spellCheck={false}
+                        autoFocus
+                        placeholder="Cole aqui o JSON gerado pela extensão..."
+                        className="w-full rounded border border-neutral-300 bg-white px-3 py-2 font-mono text-[10px] leading-relaxed focus:outline-none focus:ring-1 focus:ring-neutral-900"
+                      />
+                      <div className="flex justify-end gap-2">
+                        <button type="button" onClick={() => { setShowJsonImporter(false); setProductJsonInput(''); }} className="px-3 py-1.5 rounded border border-neutral-300 bg-white text-[10px] font-semibold text-neutral-600 cursor-pointer">Cancelar</button>
+                        <button type="button" onClick={handleImportProductJson} disabled={!productJsonInput.trim()} className="px-3 py-1.5 rounded bg-neutral-900 text-white text-[10px] font-bold disabled:opacity-40 cursor-pointer">IMPORTAR E PREENCHER</button>
+                      </div>
+                    </div>
+                  )}
+                </div>
+              )}
+
               {/* SEÇÃO 1: PRODUTO */}
               <div className="space-y-3">
                 <h4 className="font-bold text-neutral-800 uppercase tracking-wider text-[10px] font-mono border-b border-neutral-100 pb-1">
@@ -3622,15 +3863,34 @@ export const MaisVendidos: React.FC = () => {
                       <label className="font-semibold text-neutral-800">Mídia do produto *</label>
                       <p className="text-[10px] text-neutral-500 mt-0.5">Imagens e vídeos aparecem exatamente nesta ordem na vitrine.</p>
                     </div>
-                    <button
-                      type="button"
-                      onClick={() => prodMediaFileInputRef.current?.click()}
-                      disabled={uploadingProductMedia}
-                      className="px-3 py-2 bg-neutral-900 text-white rounded text-[11px] font-semibold inline-flex items-center gap-1.5 hover:bg-black disabled:opacity-50 cursor-pointer"
-                    >
-                      {uploadingProductMedia ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Upload className="w-3.5 h-3.5" />}
-                      {uploadingProductMedia ? 'Enviando...' : 'Upload imagem/vídeo'}
-                    </button>
+                    <div className="flex flex-wrap gap-2 justify-end">
+                      <button
+                        type="button"
+                        onClick={() => prodMediaFileInputRef.current?.click()}
+                        disabled={uploadingProductMedia}
+                        className="px-3 py-2 bg-neutral-900 text-white rounded text-[11px] font-semibold inline-flex items-center gap-1.5 hover:bg-black disabled:opacity-50 cursor-pointer"
+                      >
+                        {uploadingProductMedia ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Upload className="w-3.5 h-3.5" />}
+                        {uploadingProductMedia ? 'Enviando...' : 'Upload imagem/vídeo'}
+                      </button>
+                      <CloudinaryMediaPicker
+                        allowedTypes={['image', 'video']}
+                        label="Selecionar já enviado"
+                        title="Mídias de produto já enviadas"
+                        onSelect={(asset) => {
+                          setProdFormMediaItems((prev) => [...prev, {
+                            id: makeMediaId(),
+                            type: asset.resourceType === 'video' ? 'video' : 'image',
+                            url: asset.url,
+                            storagePath: `cloudinary:${asset.resourceType}:${asset.publicId}`,
+                            posterUrl: asset.resourceType === 'video' ? (asset.thumbnailUrl || null) : null,
+                            posterStoragePath: null,
+                            source: 'upload',
+                          }]);
+                          setProductError(null);
+                        }}
+                      />
+                    </div>
                     <input
                       ref={prodMediaFileInputRef}
                       type="file"
@@ -4077,6 +4337,17 @@ export const MaisVendidos: React.FC = () => {
                       />
                       <div className="flex items-center gap-1.5 pt-1">
                         <span className="text-[11px] text-neutral-500">Sugestões:</span>
+                        {lastAppliedBadge && (
+                          <button
+                            type="button"
+                            onClick={() => { setProdFormBadgeText(lastAppliedBadge.text); setProdFormBadgeColor(lastAppliedBadge.color); }}
+                            className="px-1.5 py-0.5 rounded text-[10px] cursor-pointer border border-neutral-300 font-semibold"
+                            style={{ backgroundColor: lastAppliedBadge.color, color: getReadableTextColor(lastAppliedBadge.color) }}
+                            title={`Última aplicada: ${lastAppliedBadge.text}`}
+                          >
+                            ↻ {lastAppliedBadge.text}
+                          </button>
+                        )}
                         {['50% OFF', '30% OFF', 'NOVO', 'ÚLTIMOS PARES', 'EXCLUSIVO'].map((sug) => (
                           <button
                             key={sug}
@@ -4154,6 +4425,21 @@ export const MaisVendidos: React.FC = () => {
 
                 {prodFormGiftMode === 'custom' && (
                   <div className="space-y-2">
+                    {giftPresets.length > 0 && (
+                      <select
+                        defaultValue=""
+                        onChange={(e) => {
+                          const gift = giftPresets.find((item) => item.id === e.target.value);
+                          if (gift) applyGiftPresetToProduct(gift);
+                          e.currentTarget.value = '';
+                        }}
+                        className="w-full px-3 py-2 border border-neutral-300 rounded bg-white text-[10px] font-semibold text-neutral-700"
+                      >
+                        <option value="">Usar presente salvo...</option>
+                        {giftPresets.map((gift) => <option key={gift.id} value={gift.id}>{gift.title || gift.label || gift.imageUrl.split('/').pop() || 'Presente salvo'}</option>)}
+                      </select>
+                    )}
+                    {!giftLibraryConfigured && <p className="text-[9px] text-amber-700">Biblioteca de presentes indisponível até executar o SQL desta versão.</p>}
                     <input ref={prodGiftFileInputRef} type="file" accept="image/png,image/jpeg" className="hidden" onChange={(e) => { const file = e.target.files?.[0]; if (file) handleProductGiftUpload(file); e.target.value = ''; }} />
                     {prodFormGiftImageUrl ? (
                       <div className="flex items-center gap-3 rounded border border-neutral-200 bg-neutral-50 p-2.5">
@@ -4172,6 +4458,18 @@ export const MaisVendidos: React.FC = () => {
                         {uploadingProdGift ? 'Enviando...' : 'Enviar imagem do presente'}
                       </button>
                     )}
+                    <div className="flex justify-end">
+                      <CloudinaryMediaPicker
+                        allowedTypes={['image']}
+                        label="Selecionar já enviado"
+                        title="Imagens já enviadas"
+                        onSelect={(asset) => {
+                          setProdFormGiftImageUrl(asset.url);
+                          setProdFormGiftImagePath(`cloudinary:${asset.resourceType}:${asset.publicId}`);
+                          setProdFormGiftMode('custom');
+                        }}
+                      />
+                    </div>
                     <div className="space-y-1">
                       <label className="font-semibold text-neutral-700">Título acima da imagem (Opcional)</label>
                       <input type="text" maxLength={40} value={prodFormGiftLabel} onChange={(e) => setProdFormGiftLabel(e.target.value)} placeholder="Você ganha" className="w-full px-3 py-2 border border-neutral-300 rounded text-xs" />
@@ -4444,7 +4742,7 @@ export const MaisVendidos: React.FC = () => {
                     {prodFormProductUrl && (
                       <div className="pt-2">
                         <div className="w-full py-2 px-3 rounded-[3px] bg-white text-black font-semibold text-[10px] tracking-wider uppercase text-center">
-                          {(selectedList?.ctaText || '').trim() || 'VER PRODUTO'}
+                          {(selectedList?.ctaText || '').trim() || 'GARANTIR MEU PAR'}
                         </div>
                       </div>
                     )}
@@ -4482,7 +4780,7 @@ export const MaisVendidos: React.FC = () => {
             <div className="px-5 py-4 border-b border-neutral-200 flex items-center justify-between shrink-0">
               <div>
                 <h3 className="text-sm font-bold text-neutral-900 flex items-center gap-2"><Database className="w-4 h-4" /> Biblioteca de Produtos</h3>
-                <p className="text-[10px] text-neutral-500 mt-0.5">Dados e imagens ficam salvos. Vídeos ficam somente nas listas e nunca entram aqui.</p>
+                <p className="text-[10px] text-neutral-500 mt-0.5">Dados, imagens e vídeos ficam salvos para reutilização em outras vitrines.</p>
               </div>
               <button type="button" onClick={() => setIsLibraryModalOpen(false)} className="text-neutral-400 hover:text-neutral-700 p-1 cursor-pointer"><X className="w-4 h-4" /></button>
             </div>
@@ -4498,7 +4796,8 @@ export const MaisVendidos: React.FC = () => {
                 const visible = libraryProducts.filter((item) => !query || item.name.toLowerCase().includes(query) || (item.productUrl || '').toLowerCase().includes(query));
                 if (visible.length === 0) return <div className="py-12 text-center text-xs text-neutral-500"><Package className="w-8 h-8 text-neutral-300 mx-auto mb-2" />Nenhum produto salvo encontrado.</div>;
                 return <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">{visible.map((item) => {
-                  const cover = item.mediaItems?.[0]?.url || item.imageUrl || item.imageUrls?.[0] || '';
+                  const firstMedia = item.mediaItems?.[0];
+                  const cover = firstMedia?.type === 'video' ? (firstMedia.posterUrl || item.imageUrl || item.imageUrls?.[0] || '') : (firstMedia?.url || item.imageUrl || item.imageUrls?.[0] || '');
                   const alreadyInList = products.some((product) => product.libraryProductId === item.id);
                   const shownPrice = item.promotionalPrice ?? item.originalPrice;
                   return (
