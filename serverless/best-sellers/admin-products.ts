@@ -459,7 +459,9 @@ export default async function handler(req: any, res: any) {
       const cleanItemType: 'product' | 'video' = String(itemType || body.item_type) === 'video' ? 'video' : 'product';
       const cleanVideoTitle = videoTitle ? sanitizeText(String(videoTitle)).slice(0, 80) : null;
       const cleanName = sanitizeText(name) || (cleanItemType === 'video' ? (cleanVideoTitle || 'Vídeo destaque') : '');
-      const cleanCategory = cleanItemType === 'video' ? 'Vídeo' : (sanitizeText(category) || 'Produto');
+      const cleanCategory = cleanItemType === 'video'
+        ? (sanitizeText(category).slice(0, 120) || 'Vídeo')
+        : (sanitizeText(category) || 'Produto');
       const parsedOriginalPrice = parsePriceInput(originalPrice !== undefined ? originalPrice : body.original_price);
       const parsedPromotionalPrice = parsePriceInput(promotionalPrice !== undefined ? promotionalPrice : body.promotional_price);
       const rawInstallmentsCount = installmentsCount !== undefined ? installmentsCount : body.installments_count;
@@ -937,7 +939,13 @@ export default async function handler(req: any, res: any) {
 
       const updatingVideoBlock = String(body.itemType ?? body.item_type ?? '') === 'video';
       if (updatingVideoBlock) {
-        updates.category = 'Vídeo';
+        // Em blocos de vídeo, category funciona como descrição editorial opcional.
+        // O marcador em colors mantém a compatibilidade com bancos antigos.
+        if (body.category !== undefined) {
+          updates.category = sanitizeText(body.category).slice(0, 120) || 'Vídeo';
+        } else if (!updates.category) {
+          updates.category = 'Vídeo';
+        }
         updates.colors = videoLegacyMarkers(body.videoAutoplay, body.videoLoop, body.videoControls);
       }
 

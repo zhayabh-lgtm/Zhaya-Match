@@ -1,7 +1,7 @@
 import React, { useEffect, useState, useMemo, useRef } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import { useParams } from 'react-router-dom';
-import { Play, Pause, Volume2, VolumeX, ChevronLeft, ChevronRight } from 'lucide-react';
+import { Play, Pause, Volume2, VolumeX, ChevronLeft, ChevronRight, ChevronDown } from 'lucide-react';
 import { Repository } from '../../lib/repository';
 import { getReadableTextColor } from '../../lib/contrast';
 import type { PublicBestSellerList, PublicBestSellerProduct, PublicBestSellerMediaItem } from '../../types/zhaya';
@@ -1113,11 +1113,25 @@ const ProductItem: React.FC<{
 const VideoHighlightItem: React.FC<{
   item: PublicBestSellerProduct;
   listId: string;
-}> = ({ item, listId }) => {
+  hasProductBelow?: boolean;
+  nextProductId?: string | null;
+  isHero?: boolean;
+  timerContent?: React.ReactNode;
+}> = ({ item, listId, hasProductBelow = false, nextProductId = null, isHero = false, timerContent = null }) => {
   const video = useMemo(
     () => (item.mediaItems || []).find((media) => media.type === 'video'),
     [item.mediaItems],
   );
+
+  const description = item.category && item.category.toLowerCase() !== 'vídeo'
+    ? item.category
+    : '';
+
+  const scrollToNextProduct = () => {
+    if (!nextProductId || typeof document === 'undefined') return;
+    const target = document.getElementById(`best-seller-product-${nextProductId}`);
+    target?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  };
 
   if (!video?.url) return null;
 
@@ -1130,15 +1144,9 @@ const VideoHighlightItem: React.FC<{
       whileInView={{ opacity: 1, y: 0 }}
       viewport={{ once: true, amount: 0.08 }}
       transition={{ duration: 0.35, ease: 'easeOut' }}
-      className="w-full flex flex-col items-center py-2 pb-9 sm:pb-14"
+      className={`w-full flex flex-col items-center ${isHero ? 'pt-0 pb-7 sm:pb-10' : 'py-2 pb-9 sm:pb-14'}`}
     >
-      {item.videoTitle && (
-        <p className="mb-3 text-[9px] sm:text-[10px] font-bold tracking-[0.22em] uppercase text-neutral-400 text-center">
-          {item.videoTitle}
-        </p>
-      )}
-
-      <div className="relative w-[92%] max-w-[430px] aspect-[9/16] overflow-hidden rounded-[14px] bg-neutral-950 ring-1 ring-white/5">
+      <div className={`relative ${isHero ? 'w-[94%]' : 'w-[92%]'} max-w-[430px] aspect-[9/16] overflow-hidden rounded-[14px] bg-neutral-950 ring-1 ring-white/5`}>
         <GalleryVideo
           src={video.url}
           label={item.videoTitle || 'Vídeo de apresentação do produto'}
@@ -1152,6 +1160,48 @@ const VideoHighlightItem: React.FC<{
           }}
         />
       </div>
+
+      {(item.videoTitle || description) && (
+        <div className="w-[92%] max-w-[430px] text-center mt-4 px-1">
+          {item.videoTitle && (
+            <h2 className="text-[15px] sm:text-base font-semibold leading-tight tracking-normal text-white normal-case">
+              {item.videoTitle}
+            </h2>
+          )}
+          {description && (
+            <p className={`${item.videoTitle ? 'mt-1.5' : ''} text-[12px] sm:text-[13px] leading-relaxed font-normal text-neutral-400`}>
+              {description}
+            </p>
+          )}
+        </div>
+      )}
+
+      {timerContent && (
+        <div className="w-full mt-4 sm:mt-5">
+          {timerContent}
+        </div>
+      )}
+
+      {hasProductBelow && nextProductId && (
+        <button
+          type="button"
+          onClick={scrollToNextProduct}
+          className="mt-3 sm:mt-4 inline-flex flex-col items-center justify-center text-neutral-400 hover:text-white transition-colors cursor-pointer"
+          aria-label="Ver produto abaixo"
+        >
+          {!description && (
+            <span className="mb-1 text-[10px] sm:text-[11px] font-medium tracking-[0.08em]">Confira</span>
+          )}
+          <motion.span
+            aria-hidden="true"
+            animate={{ y: [0, 5, 0] }}
+            transition={{ duration: 1.35, repeat: Infinity, ease: 'easeInOut' }}
+            className="flex items-center justify-center"
+          >
+            <ChevronDown className="w-5 h-5" strokeWidth={1.8} />
+          </motion.span>
+        </button>
+      )}
     </motion.section>
   );
 };
@@ -1542,6 +1592,36 @@ export const MaisVendidosPage: React.FC = () => {
     };
   }, [listData?.id, listData?.products?.length]);
 
+  const firstItemIsHeroVideo = Boolean(
+    listData?.products?.[0]?.itemType === 'video' &&
+    listData.products[0].mediaItems?.some((media) => media.type === 'video' && Boolean(media.url))
+  );
+
+  const listTimerElement = listData?.timerEnabled && timeRemaining ? (
+    <div
+      id="best-sellers-timer-container"
+      className="flex flex-col items-center text-center"
+      aria-live="polite"
+    >
+      <span className="text-[8px] sm:text-[9px] tracking-[0.28em] text-neutral-500 uppercase font-bold leading-none mb-1.5">
+        {timeRemaining.isExpired ? 'ENCERRADO' : 'TERMINA EM'}
+      </span>
+      <div
+        className="flex items-baseline justify-center text-[35px] sm:text-[42px] leading-none font-black text-white tracking-[-0.045em] tabular-nums"
+        aria-label={timeRemaining.formattedString}
+      >
+        {timeRemaining.formattedString.split(':').map((part, index, parts) => (
+          <React.Fragment key={`${part}-${index}`}>
+            <span>{part}</span>
+            {index < parts.length - 1 && (
+              <span className="mx-1 sm:mx-1.5 text-neutral-600 font-bold">:</span>
+            )}
+          </React.Fragment>
+        ))}
+      </div>
+    </div>
+  ) : null;
+
   return (
     <div
       id="mais-vendidos-page-container"
@@ -1673,28 +1753,9 @@ export const MaisVendidosPage: React.FC = () => {
                 </p>
               )}
 
-              {listData.timerEnabled && timeRemaining && (
-                <div
-                  id="best-sellers-timer-container"
-                  className="mt-3 flex flex-col items-center text-center"
-                  aria-live="polite"
-                >
-                  <span className="text-[8px] sm:text-[9px] tracking-[0.28em] text-neutral-500 uppercase font-bold leading-none mb-1.5">
-                    {timeRemaining.isExpired ? 'ENCERRADO' : 'TERMINA EM'}
-                  </span>
-                  <div
-                    className="flex items-baseline justify-center text-[35px] sm:text-[42px] leading-none font-black text-white tracking-[-0.045em] tabular-nums"
-                    aria-label={timeRemaining.formattedString}
-                  >
-                    {timeRemaining.formattedString.split(':').map((part, index, parts) => (
-                      <React.Fragment key={`${part}-${index}`}>
-                        <span>{part}</span>
-                        {index < parts.length - 1 && (
-                          <span className="mx-1 sm:mx-1.5 text-neutral-600 font-bold">:</span>
-                        )}
-                      </React.Fragment>
-                    ))}
-                  </div>
+              {!firstItemIsHeroVideo && listTimerElement && (
+                <div className="mt-3">
+                  {listTimerElement}
                 </div>
               )}
             </header>
@@ -1704,7 +1765,21 @@ export const MaisVendidosPage: React.FC = () => {
               <div className="w-full flex flex-col space-y-4 sm:space-y-10">
                 {listData.products.map((prod, idx) => {
                   if (prod.itemType === 'video') {
-                    return <VideoHighlightItem key={prod.id} item={prod} listId={listData.id} />;
+                    const nextProduct = listData.products
+                      .slice(idx + 1)
+                      .find((item) => item.itemType !== 'video');
+                    const isHeroVideo = idx === 0;
+                    return (
+                      <VideoHighlightItem
+                        key={prod.id}
+                        item={prod}
+                        listId={listData.id}
+                        isHero={isHeroVideo}
+                        hasProductBelow={Boolean(nextProduct)}
+                        nextProductId={nextProduct?.id || null}
+                        timerContent={isHeroVideo ? listTimerElement : null}
+                      />
+                    );
                   }
                   const displayRank = listData.products
                     .slice(0, idx + 1)

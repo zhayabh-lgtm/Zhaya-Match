@@ -841,6 +841,7 @@ export const MaisVendidos: React.FC = () => {
   const [isVideoBlockModalOpen, setIsVideoBlockModalOpen] = useState<boolean>(false);
   const [editingVideoBlock, setEditingVideoBlock] = useState<BestSellerProduct | null>(null);
   const [videoBlockTitle, setVideoBlockTitle] = useState('');
+  const [videoBlockDescription, setVideoBlockDescription] = useState('');
   const [videoBlockMedia, setVideoBlockMedia] = useState<BestSellerMediaItem | null>(null);
   const [videoBlockUrlInput, setVideoBlockUrlInput] = useState('');
   const [videoBlockAutoplay, setVideoBlockAutoplay] = useState<boolean>(true);
@@ -1450,6 +1451,7 @@ export const MaisVendidos: React.FC = () => {
     if (!selectedList) return;
     setEditingVideoBlock(null);
     setVideoBlockTitle('');
+    setVideoBlockDescription('');
     setVideoBlockMedia(null);
     setVideoBlockUrlInput('');
     setVideoBlockAutoplay(true);
@@ -1462,6 +1464,7 @@ export const MaisVendidos: React.FC = () => {
   const handleOpenEditVideoBlock = (item: BestSellerProduct) => {
     setEditingVideoBlock(item);
     setVideoBlockTitle(item.videoTitle || '');
+    setVideoBlockDescription(item.category && item.category.toLowerCase() !== 'vídeo' ? item.category : '');
     setVideoBlockMedia((item.mediaItems || []).find((media) => media.type === 'video') || null);
     setVideoBlockUrlInput('');
     setVideoBlockAutoplay(Boolean(item.videoAutoplay));
@@ -1526,7 +1529,7 @@ export const MaisVendidos: React.FC = () => {
         listId: selectedList.id,
         itemType: 'video' as const,
         name: videoBlockTitle.trim() || 'Vídeo destaque',
-        category: 'Vídeo',
+        category: videoBlockDescription.trim() || 'Vídeo',
         mediaItems: [videoBlockMedia],
         imageUrl: null,
         imageUrls: [],
@@ -5112,10 +5115,23 @@ export const MaisVendidos: React.FC = () => {
                       value={videoBlockTitle}
                       onChange={(e) => setVideoBlockTitle(e.target.value)}
                       maxLength={80}
-                      placeholder="Ex: VEJA NO PÉ"
+                      placeholder="Ex: Tênis Sport Glow em movimento"
                       className="w-full px-3 py-2 border border-neutral-300 rounded text-xs focus:outline-none focus:ring-1 focus:ring-neutral-900"
                     />
-                    <p className="text-[9px] text-neutral-500">Se vazio, o vídeo aparece sozinho, sem texto acima.</p>
+                    <p className="text-[9px] text-neutral-500">Quando preenchido, aparece em texto normal abaixo do vídeo.</p>
+                  </div>
+
+                  <div className="space-y-1">
+                    <label className="text-xs font-semibold text-neutral-700">Descrição opcional</label>
+                    <input
+                      type="text"
+                      value={videoBlockDescription}
+                      onChange={(e) => setVideoBlockDescription(e.target.value)}
+                      maxLength={120}
+                      placeholder="Ex: Confira"
+                      className="w-full px-3 py-2 border border-neutral-300 rounded text-xs focus:outline-none focus:ring-1 focus:ring-neutral-900"
+                    />
+                    <p className="text-[9px] text-neutral-500">Aparece abaixo do título. Se houver um produto depois deste vídeo, a seta para baixo é adicionada automaticamente.</p>
                   </div>
 
                   <div className="rounded-lg border border-neutral-200 bg-neutral-50 p-3 space-y-3">
