@@ -54,6 +54,42 @@ function videoLegacyMarkers(autoplay: any, loop: any, controls: any): string[] {
   return markers;
 }
 
+const VIDEO_INTERNAL_MARKERS = new Set([VIDEO_MARKER, VIDEO_AUTOPLAY_ON, VIDEO_LOOP_ON, VIDEO_CONTROLS_ON]);
+
+function visibleProductColors(input: any): string[] {
+  const source = Array.isArray(input) ? input : [];
+  return source
+    .map((value: any) => String(value))
+    .filter((value: string) => value && !VIDEO_INTERNAL_MARKERS.has(value));
+}
+
+function colorsWithLegacyVideoState(input: any, itemType: 'product' | 'video', autoplay: any, loop: any, controls: any): string[] {
+  const colors = visibleProductColors(input);
+  if (itemType === 'video') colors.push(VIDEO_MARKER);
+  if (Boolean(autoplay)) colors.push(VIDEO_AUTOPLAY_ON);
+  if (loop !== false) colors.push(VIDEO_LOOP_ON);
+  if (controls !== false) colors.push(VIDEO_CONTROLS_ON);
+  return Array.from(new Set(colors));
+}
+
+function stripUnsupportedVideoSchemaField(payload: Record<string, any>, error: any, fallbackColors: string[]): boolean {
+  const msg = String(error?.message || '').toLowerCase();
+  const fields = ['item_type', 'video_autoplay', 'video_loop', 'video_controls', 'video_title'];
+  let changed = false;
+  let needsLegacyFlags = false;
+
+  for (const field of fields) {
+    if (Object.prototype.hasOwnProperty.call(payload, field) && msg.includes(field)) {
+      delete payload[field];
+      changed = true;
+      if (field.startsWith('video_')) needsLegacyFlags = true;
+    }
+  }
+
+  if (needsLegacyFlags) payload.colors = fallbackColors;
+  return changed;
+}
+
 function isLegacyVideoBlockRow(row: any): boolean {
   const colors = Array.isArray(row?.colors) ? row.colors.map((v: any) => String(v)) : [];
   return colors.includes(VIDEO_MARKER) || String(row?.category || '').toLowerCase() === 'vídeo';
@@ -64,9 +100,9 @@ function readVideoFlags(row: any) {
   const legacy = isLegacyVideoBlockRow(row);
   return {
     itemType: row?.item_type === 'video' || legacy ? 'video' as const : 'product' as const,
-    autoplay: row?.video_autoplay !== undefined && row?.video_autoplay !== null ? Boolean(row.video_autoplay) : colors.includes(VIDEO_AUTOPLAY_ON),
-    loop: row?.video_loop !== undefined && row?.video_loop !== null ? row.video_loop !== false : colors.includes(VIDEO_LOOP_ON),
-    controls: row?.video_controls !== undefined && row?.video_controls !== null ? row.video_controls !== false : colors.includes(VIDEO_CONTROLS_ON),
+    autoplay: colors.includes(VIDEO_AUTOPLAY_ON) || (row?.video_autoplay !== undefined && row?.video_autoplay !== null ? Boolean(row.video_autoplay) : false),
+    loop: colors.includes(VIDEO_LOOP_ON) || (row?.video_loop !== undefined && row?.video_loop !== null ? row.video_loop !== false : false),
+    controls: colors.includes(VIDEO_CONTROLS_ON) || (row?.video_controls !== undefined && row?.video_controls !== null ? row.video_controls !== false : false),
     title: row?.video_title || (legacy && row?.name !== 'Vídeo destaque' ? row?.name || null : null),
   };
 }
@@ -214,7 +250,7 @@ async function syncProductToLibrary(supabase: any, productRow: any): Promise<str
       original_price: productRow.original_price ?? null,
       promotional_price: productRow.promotional_price ?? null,
       sizes: Array.isArray(productRow.sizes) ? productRow.sizes : [],
-      colors: Array.isArray(productRow.colors) ? productRow.colors : [],
+      colors: visibleProductColors(productRow.colors),
       installments_count: productRow.installments_count ?? null,
       installment_value: productRow.installment_value ?? null,
       badge_enabled: Boolean(productRow.badge_enabled),
@@ -349,7 +385,7 @@ export default async function handler(req: any, res: any) {
         availableQuantity: p.available_quantity ?? null,
         sizes: normalizeSizeList(p.sizes),
         outOfStockSizes: normalizeSizeList(p.out_of_stock_sizes),
-        colors: Array.isArray(p.colors) ? p.colors : [],
+        colors: visibleProductColors(p.colors),
         installmentsCount: p.installments_count ?? null,
         installmentValue: p.installment_value !== null && p.installment_value !== undefined ? Number(p.installment_value) : null,
         badgeEnabled: Boolean(p.badge_enabled),
@@ -575,11 +611,9 @@ export default async function handler(req: any, res: any) {
 
       const insertPayload: Record<string, any> = {
         list_id: listId,
-        item_type: cleanItemType,
         video_autoplay: Boolean(videoAutoplay),
         video_loop: videoLoop !== undefined ? Boolean(videoLoop) : true,
         video_controls: videoControls !== undefined ? Boolean(videoControls) : true,
-        video_title: cleanVideoTitle,
         library_product_id: body.libraryProductId || body.library_product_id || null,
         position,
         name: cleanName,
@@ -617,26 +651,43 @@ export default async function handler(req: any, res: any) {
         clicks: 0,
       };
 
+      // item_type/video_title são opcionais para manter compatibilidade com bancos
+      // que ainda não receberam a migração do Vídeo Destaque. Produto normal não
+      // precisa gravar item_type='product': esse é o comportamento padrão.
+      if (cleanItemType === 'video') {
+        insertPayload.item_type = 'video';
+        insertPayload.video_title = cleanVideoTitle;
+      }
+
+      const legacyVideoColors = colorsWithLegacyVideoState(
+        cleanItemType === 'video' ? [] : cleanColors,
+        cleanItemType,
+        videoAutoplay,
+        videoLoop,
+        videoControls,
+      );
+
       let { data, error } = await supabase
         .from('best_seller_products')
         .insert(insertPayload)
         .select()
         .single();
 
-      // Compatibilidade com bancos antigos: vídeo 9:16 passa a funcionar sem
-      // exigir que as colunas item_type/video_* já tenham sido migradas.
-      if (error && cleanItemType === 'video' && isVideoSchemaCompatibilityError(error)) {
-        const legacyPayload = { ...insertPayload };
-        delete legacyPayload.item_type;
-        delete legacyPayload.video_autoplay;
-        delete legacyPayload.video_loop;
-        delete legacyPayload.video_controls;
-        delete legacyPayload.video_title;
-        ({ data, error } = await supabase
-          .from('best_seller_products')
-          .insert(legacyPayload)
-          .select()
-          .single());
+      // Compatibilidade progressiva com schemas antigos. O PostgREST informa
+      // uma coluna ausente por vez; removemos apenas a coluna incompatível e
+      // tentamos novamente. Os flags de vídeo ficam preservados em `colors`
+      // como metadados internos quando as colunas video_* não existem.
+      if (error && isVideoSchemaCompatibilityError(error)) {
+        const compatiblePayload = { ...insertPayload };
+        for (let attempt = 0; attempt < 5 && error && isVideoSchemaCompatibilityError(error); attempt += 1) {
+          const changed = stripUnsupportedVideoSchemaField(compatiblePayload, error, legacyVideoColors);
+          if (!changed) break;
+          ({ data, error } = await supabase
+            .from('best_seller_products')
+            .insert(compatiblePayload)
+            .select()
+            .single());
+        }
       }
 
       if (error) {
@@ -676,7 +727,7 @@ export default async function handler(req: any, res: any) {
         availableQuantity: data.available_quantity ?? null,
         sizes: normalizeSizeList(data.sizes),
         outOfStockSizes: normalizeSizeList(data.out_of_stock_sizes),
-        colors: data.colors || [],
+        colors: visibleProductColors(data.colors),
         installmentsCount: data.installments_count ?? null,
         installmentValue: data.installment_value !== null && data.installment_value !== undefined ? Number(data.installment_value) : null,
         badgeEnabled: Boolean(data.badge_enabled),
@@ -740,8 +791,8 @@ export default async function handler(req: any, res: any) {
         updates.category = cleanCat;
       }
 
-      if (body.itemType !== undefined || body.item_type !== undefined) {
-        updates.item_type = String(body.itemType ?? body.item_type) === 'video' ? 'video' : 'product';
+      if ((body.itemType !== undefined || body.item_type !== undefined) && String(body.itemType ?? body.item_type) === 'video') {
+        updates.item_type = 'video';
       }
       if (body.videoAutoplay !== undefined) updates.video_autoplay = Boolean(body.videoAutoplay);
       if (body.videoLoop !== undefined) updates.video_loop = Boolean(body.videoLoop);
@@ -949,6 +1000,18 @@ export default async function handler(req: any, res: any) {
         updates.colors = videoLegacyMarkers(body.videoAutoplay, body.videoLoop, body.videoControls);
       }
 
+      const requestedItemTypeForCompat: 'product' | 'video' = updatingVideoBlock ? 'video' : 'product';
+      const updateBaseColors = Array.isArray(updates.colors)
+        ? updates.colors
+        : (Array.isArray(body.colors) ? body.colors : []);
+      const legacyUpdateColors = colorsWithLegacyVideoState(
+        requestedItemTypeForCompat === 'video' ? [] : updateBaseColors,
+        requestedItemTypeForCompat,
+        body.videoAutoplay,
+        body.videoLoop,
+        body.videoControls,
+      );
+
       let { data, error } = await supabase
         .from('best_seller_products')
         .update(updates)
@@ -956,19 +1019,18 @@ export default async function handler(req: any, res: any) {
         .select()
         .single();
 
-      if (error && updatingVideoBlock && isVideoSchemaCompatibilityError(error)) {
-        const legacyUpdates = { ...updates };
-        delete legacyUpdates.item_type;
-        delete legacyUpdates.video_autoplay;
-        delete legacyUpdates.video_loop;
-        delete legacyUpdates.video_controls;
-        delete legacyUpdates.video_title;
-        ({ data, error } = await supabase
-          .from('best_seller_products')
-          .update(legacyUpdates)
-          .eq('id', id)
-          .select()
-          .single());
+      if (error && isVideoSchemaCompatibilityError(error)) {
+        const compatibleUpdates = { ...updates };
+        for (let attempt = 0; attempt < 5 && error && isVideoSchemaCompatibilityError(error); attempt += 1) {
+          const changed = stripUnsupportedVideoSchemaField(compatibleUpdates, error, legacyUpdateColors);
+          if (!changed) break;
+          ({ data, error } = await supabase
+            .from('best_seller_products')
+            .update(compatibleUpdates)
+            .eq('id', id)
+            .select()
+            .single());
+        }
       }
 
       if (error) {
@@ -1003,7 +1065,7 @@ export default async function handler(req: any, res: any) {
         availableQuantity: data.available_quantity ?? null,
         sizes: normalizeSizeList(data.sizes),
         outOfStockSizes: normalizeSizeList(data.out_of_stock_sizes),
-        colors: data.colors || [],
+        colors: visibleProductColors(data.colors),
         installmentsCount: data.installments_count ?? null,
         installmentValue: data.installment_value !== null && data.installment_value !== undefined ? Number(data.installment_value) : null,
         badgeEnabled: Boolean(data.badge_enabled),

@@ -76,15 +76,23 @@ const VIDEO_MARKER = '__ZHAYA_VIDEO_9X16__';
 const VIDEO_AUTOPLAY_ON = '__ZHAYA_AUTOPLAY_1__';
 const VIDEO_LOOP_ON = '__ZHAYA_LOOP_1__';
 const VIDEO_CONTROLS_ON = '__ZHAYA_CONTROLS_1__';
+const VIDEO_INTERNAL_MARKERS = new Set([VIDEO_MARKER, VIDEO_AUTOPLAY_ON, VIDEO_LOOP_ON, VIDEO_CONTROLS_ON]);
+
+function visibleProductColors(input: any): string[] {
+  const source = Array.isArray(input) ? input : [];
+  return source
+    .map((value: any) => String(value))
+    .filter((value: string) => value && !VIDEO_INTERNAL_MARKERS.has(value));
+}
 
 function readVideoFlags(row: any) {
   const colors = Array.isArray(row?.colors) ? row.colors.map((v: any) => String(v)) : [];
   const legacy = colors.includes(VIDEO_MARKER) || String(row?.category || '').toLowerCase() === 'vídeo';
   return {
     itemType: row?.item_type === 'video' || legacy ? 'video' as const : 'product' as const,
-    autoplay: row?.video_autoplay !== undefined && row?.video_autoplay !== null ? Boolean(row.video_autoplay) : colors.includes(VIDEO_AUTOPLAY_ON),
-    loop: row?.video_loop !== undefined && row?.video_loop !== null ? row.video_loop !== false : colors.includes(VIDEO_LOOP_ON),
-    controls: row?.video_controls !== undefined && row?.video_controls !== null ? row.video_controls !== false : colors.includes(VIDEO_CONTROLS_ON),
+    autoplay: colors.includes(VIDEO_AUTOPLAY_ON) || (row?.video_autoplay !== undefined && row?.video_autoplay !== null ? Boolean(row.video_autoplay) : false),
+    loop: colors.includes(VIDEO_LOOP_ON) || (row?.video_loop !== undefined && row?.video_loop !== null ? row.video_loop !== false : false),
+    controls: colors.includes(VIDEO_CONTROLS_ON) || (row?.video_controls !== undefined && row?.video_controls !== null ? row.video_controls !== false : false),
     title: row?.video_title || (legacy && row?.name !== 'Vídeo destaque' ? row?.name || null : null),
   };
 }
@@ -246,7 +254,7 @@ export default async function handler(req: any, res: any) {
         availableQuantity: p.available_quantity ?? null,
         sizes: normalizeSizeList(p.sizes),
         outOfStockSizes: normalizeSizeList(p.out_of_stock_sizes),
-        colors: Array.isArray(p.colors) ? p.colors : [],
+        colors: visibleProductColors(p.colors),
         installmentsCount: p.installments_count ?? null,
         installmentValue: p.installment_value !== null && p.installment_value !== undefined ? Number(p.installment_value) : null,
         badgeEnabled: effectiveBadgeEnabled,

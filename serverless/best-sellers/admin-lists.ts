@@ -57,6 +57,26 @@ function normalizeHexColor(value: unknown, fallback = '#FFFFFF'): string {
   return /^#[0-9A-F]{6}$/.test(raw) ? raw : fallback;
 }
 
+const VIDEO_MARKER = '__ZHAYA_VIDEO_9X16__';
+const VIDEO_AUTOPLAY_ON = '__ZHAYA_AUTOPLAY_1__';
+const VIDEO_LOOP_ON = '__ZHAYA_LOOP_1__';
+const VIDEO_CONTROLS_ON = '__ZHAYA_CONTROLS_1__';
+const VIDEO_INTERNAL_MARKERS = new Set([VIDEO_MARKER, VIDEO_AUTOPLAY_ON, VIDEO_LOOP_ON, VIDEO_CONTROLS_ON]);
+
+function duplicateColorsWithVideoState(row: any): string[] {
+  const raw = Array.isArray(row?.colors) ? row.colors.map((v: any) => String(v)) : [];
+  const clean = raw.filter((v: string) => v && !VIDEO_INTERNAL_MARKERS.has(v));
+  const isVideo = row?.item_type === 'video' || raw.includes(VIDEO_MARKER) || String(row?.category || '').toLowerCase() === 'vídeo';
+  const autoplay = row?.video_autoplay !== undefined && row?.video_autoplay !== null ? Boolean(row.video_autoplay) : raw.includes(VIDEO_AUTOPLAY_ON);
+  const loop = row?.video_loop !== undefined && row?.video_loop !== null ? row.video_loop !== false : raw.includes(VIDEO_LOOP_ON);
+  const controls = row?.video_controls !== undefined && row?.video_controls !== null ? row.video_controls !== false : raw.includes(VIDEO_CONTROLS_ON);
+  if (isVideo) clean.push(VIDEO_MARKER);
+  if (autoplay) clean.push(VIDEO_AUTOPLAY_ON);
+  if (loop) clean.push(VIDEO_LOOP_ON);
+  if (controls) clean.push(VIDEO_CONTROLS_ON);
+  return Array.from(new Set(clean));
+}
+
 
 function normalizeGiftImageSize(value: unknown, fallback = 48): number {
   const parsed = Number(value);
@@ -399,11 +419,8 @@ export default async function handler(req: any, res: any) {
         if (srcProds && srcProds.length > 0) {
           const prodsToInsert = srcProds.map((p) => ({
             list_id: newListData.id,
-            item_type: p.item_type === 'video' ? 'video' : 'product',
-            video_autoplay: Boolean(p.video_autoplay),
-            video_loop: p.video_loop !== false,
-            video_controls: p.video_controls !== false,
-            video_title: p.video_title || null,
+            // Não depende das colunas novas item_type/video_*: o estado de vídeo
+            // também é carregado nos marcadores internos de colors.
             position: p.position,
             name: p.name,
             category: p.category,
@@ -418,7 +435,7 @@ export default async function handler(req: any, res: any) {
             available_quantity: p.available_quantity ?? null,
             sizes: p.sizes || [],
             out_of_stock_sizes: p.out_of_stock_sizes || [],
-            colors: p.colors || [],
+            colors: duplicateColorsWithVideoState(p),
             installments_count: p.installments_count ?? null,
             installment_value: p.installment_value ?? null,
             badge_enabled: Boolean(p.badge_enabled),
