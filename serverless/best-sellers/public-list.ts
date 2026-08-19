@@ -97,6 +97,12 @@ function readVideoFlags(row: any) {
   };
 }
 
+function readProductDescription(row: any): string | null {
+  if (readVideoFlags(row).itemType === 'video') return null;
+  const value = String(row?.category || '').trim().slice(0, 220);
+  return value && value.toLowerCase() !== 'produto' ? value : null;
+}
+
 function normalizeOpacity(value: any, fallback = 0.22): number {
   const parsed = Number(value);
   if (!Number.isFinite(parsed)) return fallback;
@@ -239,6 +245,7 @@ export default async function handler(req: any, res: any) {
         position: p.position,
         name: p.name,
         category: p.category,
+        description: readProductDescription(p),
         imageUrl: p.image_url || null,
         imageUrls,
         mediaItems: normalizePublicMediaItems(p.media_items, p.image_url, p.image_urls),

@@ -116,6 +116,12 @@ function sanitizeText(str: any): string {
     .trim();
 }
 
+function readProductDescription(row: any): string | null {
+  if (readVideoFlags(row).itemType === 'video') return null;
+  const value = sanitizeText(String(row?.category || '')).slice(0, 220);
+  return value && value.toLowerCase() !== 'produto' ? value : null;
+}
+
 function parsePriceInput(val: any): number | null {
   if (val === undefined || val === null || val === '') return null;
   if (typeof val === 'number') {
@@ -370,6 +376,7 @@ export default async function handler(req: any, res: any) {
         position: p.position,
         name: p.name,
         category: p.category,
+        description: readProductDescription(p),
         imageUrl: p.image_url,
         imageUrls: Array.isArray(p.image_urls) ? p.image_urls : [],
         mediaItems: normalizeMediaItems(p.media_items).length > 0 ? normalizeMediaItems(p.media_items) : mediaItemsFromLegacy(p.image_url, p.image_urls),
@@ -455,6 +462,7 @@ export default async function handler(req: any, res: any) {
         listId,
         name,
         category,
+        description,
         imageUrl,
         imageUrls,
         mediaItems,
@@ -495,9 +503,14 @@ export default async function handler(req: any, res: any) {
       const cleanItemType: 'product' | 'video' = String(itemType || body.item_type) === 'video' ? 'video' : 'product';
       const cleanVideoTitle = videoTitle ? sanitizeText(String(videoTitle)).slice(0, 80) : null;
       const cleanName = sanitizeText(name) || (cleanItemType === 'video' ? (cleanVideoTitle || 'Vídeo destaque') : '');
+      const cleanProductDescription = cleanItemType === 'product' && description
+        ? sanitizeText(String(description)).slice(0, 220)
+        : null;
+      // Compatibilidade: a descrição breve do produto usa a coluna category, que já existe
+      // em todos os bancos. Assim esta função não exige uma nova migração SQL.
       const cleanCategory = cleanItemType === 'video'
-        ? (sanitizeText(category).slice(0, 120) || 'Vídeo')
-        : (sanitizeText(category) || 'Produto');
+        ? (sanitizeText(category).slice(0, 260) || 'Vídeo')
+        : (cleanProductDescription || 'Produto');
       const parsedOriginalPrice = parsePriceInput(originalPrice !== undefined ? originalPrice : body.original_price);
       const parsedPromotionalPrice = parsePriceInput(promotionalPrice !== undefined ? promotionalPrice : body.promotional_price);
       const rawInstallmentsCount = installmentsCount !== undefined ? installmentsCount : body.installments_count;
@@ -712,6 +725,7 @@ export default async function handler(req: any, res: any) {
         position: data.position,
         name: data.name,
         category: data.category,
+        description: readProductDescription(data),
         imageUrl: data.image_url,
         imageUrls: Array.isArray(data.image_urls) ? data.image_urls : validImageUrls,
         mediaItems: normalizeMediaItems(data.media_items).length > 0 ? normalizeMediaItems(data.media_items) : cleanMediaItems,
@@ -993,11 +1007,18 @@ export default async function handler(req: any, res: any) {
         // Em blocos de vídeo, category funciona como descrição editorial opcional.
         // O marcador em colors mantém a compatibilidade com bancos antigos.
         if (body.category !== undefined) {
-          updates.category = sanitizeText(body.category).slice(0, 120) || 'Vídeo';
+          updates.category = sanitizeText(body.category).slice(0, 260) || 'Vídeo';
         } else if (!updates.category) {
           updates.category = 'Vídeo';
         }
         updates.colors = videoLegacyMarkers(body.videoAutoplay, body.videoLoop, body.videoControls);
+      }
+
+      if (!updatingVideoBlock && body.description !== undefined) {
+        const cleanDescription = body.description
+          ? sanitizeText(String(body.description)).slice(0, 220)
+          : '';
+        updates.category = cleanDescription || 'Produto';
       }
 
       const requestedItemTypeForCompat: 'product' | 'video' = updatingVideoBlock ? 'video' : 'product';
@@ -1050,6 +1071,7 @@ export default async function handler(req: any, res: any) {
         position: data.position,
         name: data.name,
         category: data.category,
+        description: readProductDescription(data),
         imageUrl: data.image_url,
         imageUrls: Array.isArray(data.image_urls) ? data.image_urls : [],
         mediaItems: normalizeMediaItems(data.media_items).length > 0 ? normalizeMediaItems(data.media_items) : mediaItemsFromLegacy(data.image_url, data.image_urls),

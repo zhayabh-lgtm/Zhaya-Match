@@ -1037,6 +1037,12 @@ const ProductItem: React.FC<{
           {product.name}
         </h2>
 
+        {product.description && product.description.trim() && (
+          <p className="mt-1.5 w-full max-w-[430px] px-1 text-[11px] sm:text-[12px] leading-[1.5] text-neutral-500 font-normal whitespace-pre-wrap break-words [overflow-wrap:anywhere]">
+            {product.description.trim()}
+          </p>
+        )}
+
         {((product.promotionalPrice !== null && product.promotionalPrice !== undefined) ||
           (product.originalPrice !== null && product.originalPrice !== undefined)) && (
           <div className="mt-1.5 sm:mt-3 flex flex-col items-center gap-0.5">
@@ -1162,14 +1168,14 @@ const VideoHighlightItem: React.FC<{
       </div>
 
       {(item.videoTitle || description) && (
-        <div className="w-[92%] max-w-[430px] text-center mt-4 px-1">
+        <div className="w-full max-w-[430px] min-w-0 text-center mt-4 px-4 sm:px-2 overflow-visible">
           {item.videoTitle && (
-            <h2 className="text-[15px] sm:text-base font-semibold leading-tight tracking-normal text-white normal-case">
+            <h2 className="w-full max-w-full text-[15px] sm:text-base font-semibold leading-snug tracking-normal text-white normal-case whitespace-normal break-words [overflow-wrap:anywhere]">
               {item.videoTitle}
             </h2>
           )}
           {description && (
-            <p className={`${item.videoTitle ? 'mt-1.5' : ''} text-[12px] sm:text-[13px] leading-relaxed font-normal text-neutral-400`}>
+            <p className={`${item.videoTitle ? 'mt-1.5' : ''} w-full max-w-full text-[12px] sm:text-[13px] leading-[1.55] font-normal text-neutral-400 whitespace-pre-wrap break-words [overflow-wrap:anywhere] overflow-visible`}>
               {description}
             </p>
           )}

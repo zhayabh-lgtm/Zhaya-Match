@@ -522,6 +522,8 @@ export interface BestSellerProduct {
   position: number;
   name: string;
   category: string;
+  /** Descrição breve opcional exibida abaixo do nome. Persistida via category por compatibilidade com bancos antigos. */
+  description?: string | null;
   imageUrl?: string | null;
   imageUrls?: string[];
   mediaItems?: BestSellerMediaItem[];
@@ -578,6 +580,7 @@ export interface BestSellerLibraryProduct {
   id: string;
   name: string;
   category?: string;
+  description?: string | null;
   imageUrl?: string | null;
   imageUrls: string[];
   mediaItems: BestSellerMediaItem[]; // imagens e vídeos ficam salvos para reutilização
@@ -601,6 +604,8 @@ export interface PublicBestSellerProduct {
   position: number;
   name: string;
   category: string;
+  /** Descrição breve opcional exibida abaixo do nome. Persistida via category por compatibilidade com bancos antigos. */
+  description?: string | null;
   imageUrl?: string | null;
   imageUrls?: string[];
   mediaItems?: PublicBestSellerMediaItem[];

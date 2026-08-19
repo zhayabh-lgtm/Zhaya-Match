@@ -1,0 +1,5 @@
+-- Zhaya Match - descrição breve do produto
+-- Nenhuma migração é necessária nesta versão.
+-- Por compatibilidade com instalações antigas, a descrição breve é persistida
+-- na coluna category de best_seller_products quando o item é um produto.
+-- Para blocos de vídeo, category continua armazenando a descrição do vídeo.

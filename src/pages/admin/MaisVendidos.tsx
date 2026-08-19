@@ -785,6 +785,7 @@ export const MaisVendidos: React.FC = () => {
   const [isProductModalOpen, setIsProductModalOpen] = useState<boolean>(false);
   const [editingProduct, setEditingProduct] = useState<BestSellerProduct | null>(null);
   const [prodFormName, setProdFormName] = useState('');
+  const [prodFormDescription, setProdFormDescription] = useState('');
   const [prodFormImageUrl, setProdFormImageUrl] = useState('');
   const [prodFormImageUrls, setProdFormImageUrls] = useState<string[]>([]);
   const [prodFormImageUrlInput, setProdFormImageUrlInput] = useState('');
@@ -1873,6 +1874,7 @@ export const MaisVendidos: React.FC = () => {
     if (!selectedList) return;
     setEditingProduct(null);
     setProdFormName('');
+    setProdFormDescription('');
     setProdFormImageUrl('');
     setProdFormImageUrls([]);
     setProdFormImageUrlInput('');
@@ -1924,6 +1926,12 @@ export const MaisVendidos: React.FC = () => {
   const handleOpenEditProduct = (prod: BestSellerProduct) => {
     setEditingProduct(prod);
     setProdFormName(prod.name);
+    setProdFormDescription(
+      String(
+        prod.description ??
+        (prod.category && prod.category.trim().toLowerCase() !== 'produto' ? prod.category : '')
+      ).trim()
+    );
     setProdFormImageUrl(prod.imageUrl || '');
     const existingImgs = Array.isArray(prod.imageUrls) && prod.imageUrls.length > 0 ? prod.imageUrls : (prod.imageUrl ? [prod.imageUrl] : []);
     setProdFormImageUrls(existingImgs);
@@ -2315,6 +2323,7 @@ export const MaisVendidos: React.FC = () => {
       const payload = {
         listId: selectedList.id,
         name: prodFormName.trim(),
+        description: prodFormDescription.trim() || null,
         imageUrl: finalMainImage,
         imageUrls: finalImageUrls,
         itemType: 'product' as const,
@@ -4149,6 +4158,22 @@ export const MaisVendidos: React.FC = () => {
                   />
                 </div>
 
+                <div className="space-y-1">
+                  <div className="flex items-center justify-between gap-3">
+                    <label className="font-semibold text-neutral-700">Descrição breve (Opcional)</label>
+                    <span className="text-[9px] text-neutral-400">{prodFormDescription.length}/220</span>
+                  </div>
+                  <textarea
+                    value={prodFormDescription}
+                    onChange={(e) => setProdFormDescription(e.target.value.slice(0, 220))}
+                    maxLength={220}
+                    rows={2}
+                    placeholder="Ex: Couro macio, shape elegante e acabamento premium."
+                    className="w-full resize-none px-3 py-2 border border-neutral-300 rounded focus:ring-1 focus:ring-neutral-900 focus:outline-none text-xs leading-relaxed"
+                  />
+                  <span className="text-[10px] text-neutral-400">Aparece discretamente abaixo do nome do produto.</span>
+                </div>
+
                 <div className="space-y-3 p-3 rounded-lg bg-neutral-50 border border-neutral-200">
                   <div className="flex flex-wrap items-center justify-between gap-2">
                     <div>
@@ -5021,6 +5046,12 @@ export const MaisVendidos: React.FC = () => {
                       {prodFormName.trim() || 'Nome do produto aparecerá aqui'}
                     </h5>
 
+                    {prodFormDescription.trim() && (
+                      <p className="max-w-[280px] text-[9px] leading-relaxed text-neutral-500 line-clamp-3">
+                        {prodFormDescription.trim()}
+                      </p>
+                    )}
+
                     {(prodFormPromotionalPrice || prodFormOriginalPrice) && (
                       <div className="flex flex-col items-center">
                         {prodFormPromotionalPrice && prodFormOriginalPrice && Number(prodFormOriginalPrice) > Number(prodFormPromotionalPrice) && (
@@ -5123,13 +5154,13 @@ export const MaisVendidos: React.FC = () => {
 
                   <div className="space-y-1">
                     <label className="text-xs font-semibold text-neutral-700">Descrição opcional</label>
-                    <input
-                      type="text"
+                    <textarea
                       value={videoBlockDescription}
-                      onChange={(e) => setVideoBlockDescription(e.target.value)}
-                      maxLength={120}
+                      onChange={(e) => setVideoBlockDescription(e.target.value.slice(0, 260))}
+                      maxLength={260}
+                      rows={3}
                       placeholder="Ex: Confira"
-                      className="w-full px-3 py-2 border border-neutral-300 rounded text-xs focus:outline-none focus:ring-1 focus:ring-neutral-900"
+                      className="w-full min-w-0 resize-none px-3 py-2 border border-neutral-300 rounded text-xs leading-relaxed whitespace-pre-wrap break-words focus:outline-none focus:ring-1 focus:ring-neutral-900"
                     />
                     <p className="text-[9px] text-neutral-500">Aparece abaixo do título. Se houver um produto depois deste vídeo, a seta para baixo é adicionada automaticamente.</p>
                   </div>
