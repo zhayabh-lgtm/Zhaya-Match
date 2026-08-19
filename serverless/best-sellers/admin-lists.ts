@@ -810,6 +810,19 @@ export default async function handler(req: any, res: any) {
         }
       }
 
+      if (body.applyDefaultBadgeColorToConfigured === true) {
+        const { error: badgeColorApplyError } = await supabase
+          .from('best_seller_products')
+          .update({ badge_color: data.default_badge_color || '#FFFFFF', updated_at: new Date().toISOString() })
+          .eq('list_id', id)
+          .eq('badge_enabled', true)
+          .eq('badge_use_list_default', false);
+        if (badgeColorApplyError) {
+          console.warn('[Admin BestSellers API] Não foi possível aplicar a cor padrão às badges configuradas:', badgeColorApplyError.message);
+          return res.status(500).json({ success: false, error: 'DATABASE_ERROR', message: 'A vitrine foi salva, mas não foi possível aplicar a cor padrão às badges configuradas.' });
+        }
+      }
+
       if (body.applyTimerToAll === true) {
         const timerUpdates = data.timer_enabled
           ? {

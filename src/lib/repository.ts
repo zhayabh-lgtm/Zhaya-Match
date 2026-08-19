@@ -2169,6 +2169,57 @@ export const Repository = {
     }
   },
 
+
+  async getZhayaExtensionInfo(): Promise<{ success: boolean; available: boolean; bucket?: string; fileName?: string; size?: number | null; updatedAt?: string | null; downloadUrl?: string | null; error?: string }> {
+    try {
+      const token = isSupabaseConfigured && supabase ? (await supabase.auth.getSession())?.data?.session?.access_token : undefined;
+      const headers: Record<string, string> = {};
+      if (token) headers['Authorization'] = `Bearer ${token}`;
+      const res = await fetch('/api/best-sellers?mode=extension', { headers, cache: 'no-store' });
+      const json = await res.json().catch(() => ({}));
+      return res.ok
+        ? {
+            success: true,
+            available: Boolean(json.available),
+            bucket: json.bucket,
+            fileName: json.fileName,
+            size: json.size ?? null,
+            updatedAt: json.updatedAt ?? null,
+            downloadUrl: json.downloadUrl ?? null,
+          }
+        : { success: false, available: Boolean(json.available), bucket: json.bucket, error: json.message || json.error || 'Não foi possível carregar a extensão.' };
+    } catch (e: any) {
+      return { success: false, available: false, error: e?.message || 'Erro ao carregar a extensão.' };
+    }
+  },
+
+  async publishZhayaExtension(input: { fileName: string; fileSize: number; base64: string }): Promise<{ success: boolean; available?: boolean; bucket?: string; fileName?: string; size?: number | null; updatedAt?: string | null; downloadUrl?: string | null; error?: string }> {
+    try {
+      const token = isSupabaseConfigured && supabase ? (await supabase.auth.getSession())?.data?.session?.access_token : undefined;
+      const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+      if (token) headers['Authorization'] = `Bearer ${token}`;
+      const res = await fetch('/api/best-sellers?mode=extension', {
+        method: 'POST',
+        headers,
+        body: JSON.stringify({ action: 'publish', ...input }),
+      });
+      const json = await res.json().catch(() => ({}));
+      return res.ok && json.success
+        ? {
+            success: true,
+            available: true,
+            bucket: json.bucket,
+            fileName: json.fileName,
+            size: json.size ?? null,
+            updatedAt: json.updatedAt ?? null,
+            downloadUrl: json.downloadUrl ?? null,
+          }
+        : { success: false, available: Boolean(json.available), bucket: json.bucket, error: json.message || json.error || 'Não foi possível publicar a extensão.' };
+    } catch (e: any) {
+      return { success: false, error: e?.message || 'Erro ao publicar a extensão.' };
+    }
+  },
+
   async getPublicBestSellers(slug?: string): Promise<PublicBestSellerList | null> {
     try {
       const slugQuery = slug ? `&slug=${encodeURIComponent(slug)}` : '';

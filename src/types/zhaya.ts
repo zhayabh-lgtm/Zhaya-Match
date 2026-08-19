@@ -488,6 +488,8 @@ export interface BestSellerList {
   defaultBadgeColor?: string;
   /** Admin-only action flag; not persisted on the list row. */
   applyDefaultBadgeToAll?: boolean;
+  /** Admin-only action flag; applies only the list badge color to individually configured badges. */
+  applyDefaultBadgeColorToConfigured?: boolean;
   giftEnabled?: boolean;
   giftImageUrl?: string | null;
   giftImagePath?: string | null;

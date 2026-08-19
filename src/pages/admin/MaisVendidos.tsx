@@ -26,6 +26,7 @@ import {
   RefreshCw,
   MousePointerClick,
   Upload,
+  Download,
   Loader2,
   GripVertical,
   Video,
@@ -38,6 +39,7 @@ import {
   Play,
   Gift,
   SlidersHorizontal,
+  Save,
 } from 'lucide-react';
 import { Repository } from '../../lib/repository';
 import { getReadableTextColor } from '../../lib/contrast';
@@ -711,6 +713,9 @@ export const MaisVendidos: React.FC = () => {
   const [addingLibraryProductId, setAddingLibraryProductId] = useState<string | null>(null);
   const [giftPresets, setGiftPresets] = useState<BestSellerGiftPreset[]>([]);
   const [giftLibraryConfigured, setGiftLibraryConfigured] = useState<boolean>(true);
+  const [savingGiftPreset, setSavingGiftPreset] = useState<boolean>(false);
+  const [giftPresetMessage, setGiftPresetMessage] = useState<string | null>(null);
+  const [downloadingExtension, setDownloadingExtension] = useState<boolean>(false);
   const [lastAppliedBadge, setLastAppliedBadge] = useState<{ text: string; color: string } | null>(null);
 
   // State: List Modal (Create / Edit)
@@ -733,6 +738,7 @@ export const MaisVendidos: React.FC = () => {
   const [listFormDefaultBadgeText, setListFormDefaultBadgeText] = useState('50% OFF');
   const [listFormDefaultBadgeColor, setListFormDefaultBadgeColor] = useState('#FFFFFF');
   const [listFormApplyBadgeToAll, setListFormApplyBadgeToAll] = useState<boolean>(false);
+  const [listFormApplyBadgeColorToConfigured, setListFormApplyBadgeColorToConfigured] = useState<boolean>(false);
   const [listFormGiftEnabled, setListFormGiftEnabled] = useState<boolean>(false);
   const [listFormGiftImageUrl, setListFormGiftImageUrl] = useState('');
   const [listFormGiftImagePath, setListFormGiftImagePath] = useState('');
@@ -891,15 +897,78 @@ export const MaisVendidos: React.FC = () => {
     setProdFormGiftImageSize(String(gift.imageSize || 48));
   };
 
-  const persistGiftPreset = async (gift: Omit<BestSellerGiftPreset, 'id' | 'createdAt' | 'updatedAt'>) => {
-    if (!gift.imageUrl) return;
+  const persistGiftPreset = async (gift: Omit<BestSellerGiftPreset, 'id' | 'createdAt' | 'updatedAt'>): Promise<boolean> => {
+    if (!gift.imageUrl) return false;
     const result = await Repository.saveBestSellerGiftPreset(gift);
     if (result.configured === false) {
       setGiftLibraryConfigured(false);
-      return;
+      return false;
     }
     if (result.gift) {
       setGiftPresets((current) => [result.gift!, ...current.filter((item) => item.id !== result.gift!.id && item.imageUrl !== result.gift!.imageUrl)]);
+      return true;
+    }
+    return false;
+  };
+
+  const saveCurrentListGiftPreset = async () => {
+    setGiftPresetMessage(null);
+    if (!listFormGiftImageUrl.trim()) {
+      setListError('Adicione a imagem do presente antes de salvá-lo.');
+      return;
+    }
+    setSavingGiftPreset(true);
+    try {
+      const ok = await persistGiftPreset({
+        imageUrl: listFormGiftImageUrl.trim(),
+        imagePath: listFormGiftImagePath.trim() || null,
+        title: listFormGiftTitle.trim() || null,
+        label: listFormGiftLabel.trim() || null,
+        textColor: listFormGiftTextColor || '#FFFFFF',
+        imageSize: Math.max(36, Math.min(80, Number(listFormGiftImageSize) || 48)),
+      });
+      if (ok) setGiftPresetMessage('Presente salvo com imagem e textos.');
+      else setListError('Não foi possível salvar o presente. Confira se o SQL da biblioteca foi executado.');
+    } finally {
+      setSavingGiftPreset(false);
+    }
+  };
+
+  const saveCurrentProductGiftPreset = async () => {
+    setGiftPresetMessage(null);
+    if (!prodFormGiftImageUrl.trim()) {
+      setProductError('Adicione a imagem do presente antes de salvá-lo.');
+      return;
+    }
+    setSavingGiftPreset(true);
+    try {
+      const ok = await persistGiftPreset({
+        imageUrl: prodFormGiftImageUrl.trim(),
+        imagePath: prodFormGiftImagePath.trim() || null,
+        title: prodFormGiftTitle.trim() || null,
+        label: prodFormGiftLabel.trim() || null,
+        textColor: prodFormGiftTextColor || '#FFFFFF',
+        imageSize: Math.max(36, Math.min(80, Number(prodFormGiftImageSize) || 48)),
+      });
+      if (ok) setGiftPresetMessage('Presente salvo com imagem e textos.');
+      else setProductError('Não foi possível salvar o presente. Confira se o SQL da biblioteca foi executado.');
+    } finally {
+      setSavingGiftPreset(false);
+    }
+  };
+
+  const handleDownloadExtension = async () => {
+    setDownloadingExtension(true);
+    setProductError(null);
+    try {
+      const result = await Repository.getZhayaExtensionInfo();
+      if (!result.success || !result.available || !result.downloadUrl) {
+        setProductError(result.error || 'Nenhuma extensão foi publicada em Configurações ainda.');
+        return;
+      }
+      window.location.assign(result.downloadUrl);
+    } finally {
+      setDownloadingExtension(false);
     }
   };
 
@@ -1009,6 +1078,7 @@ export const MaisVendidos: React.FC = () => {
     setListFormDefaultBadgeText('50% OFF');
     setListFormDefaultBadgeColor('#FFFFFF');
     setListFormApplyBadgeToAll(false);
+    setListFormApplyBadgeColorToConfigured(false);
     setListFormGiftEnabled(false);
     setListFormGiftImageUrl('');
     setListFormGiftImagePath('');
@@ -1028,6 +1098,7 @@ export const MaisVendidos: React.FC = () => {
     setListFormTimerTime('23:59');
     setListFormApplyTimerToAll(false);
     setListError(null);
+    setGiftPresetMessage(null);
     setLogoUploadError(null);
     setLogoInputMode('upload');
     setIsListModalOpen(true);
@@ -1054,6 +1125,7 @@ export const MaisVendidos: React.FC = () => {
     setListFormDefaultBadgeText(list.defaultBadgeText || '50% OFF');
     setListFormDefaultBadgeColor(list.defaultBadgeColor || '#FFFFFF');
     setListFormApplyBadgeToAll(false);
+    setListFormApplyBadgeColorToConfigured(false);
     setListFormGiftEnabled(Boolean(list.giftEnabled));
     setListFormGiftImageUrl(list.giftImageUrl || '');
     setListFormGiftImagePath(list.giftImagePath || '');
@@ -1098,6 +1170,7 @@ export const MaisVendidos: React.FC = () => {
       setListFormTimerTime('23:59');
     }
     setListError(null);
+    setGiftPresetMessage(null);
     setIsListModalOpen(true);
   };
 
@@ -1464,17 +1537,6 @@ export const MaisVendidos: React.FC = () => {
       setSavingList(true);
       setListError(null);
 
-      if (listFormGiftEnabled && listFormGiftImageUrl.trim()) {
-        void persistGiftPreset({
-          imageUrl: listFormGiftImageUrl.trim(),
-          imagePath: listFormGiftImagePath.trim() || null,
-          title: listFormGiftTitle.trim() || null,
-          label: listFormGiftLabel.trim() || null,
-          textColor: listFormGiftTextColor || '#FFFFFF',
-          imageSize: Math.max(36, Math.min(80, Number(listFormGiftImageSize) || 48)),
-        });
-      }
-
       if (editingList) {
         // Update
         const res = await Repository.updateBestSellerList(editingList.id, {
@@ -1495,6 +1557,7 @@ export const MaisVendidos: React.FC = () => {
           defaultBadgeText: listFormDefaultBadgeEnabled ? listFormDefaultBadgeText.trim() || null : null,
           defaultBadgeColor: listFormDefaultBadgeColor || '#FFFFFF',
           applyDefaultBadgeToAll: listFormDefaultBadgeEnabled && listFormApplyBadgeToAll,
+          applyDefaultBadgeColorToConfigured: listFormApplyBadgeColorToConfigured,
           giftEnabled: listFormGiftEnabled && Boolean(listFormGiftImageUrl),
           giftImageUrl: listFormGiftImageUrl.trim() || null,
           giftImagePath: listFormGiftImagePath.trim() || null,
@@ -1677,7 +1740,7 @@ export const MaisVendidos: React.FC = () => {
     setProdFormColorInput('');
     setProdFormBadgeEnabled(false);
     setProdFormBadgeText('50% OFF');
-    setProdFormBadgeColor('#FFFFFF');
+    setProdFormBadgeColor(selectedList.defaultBadgeColor || '#FFFFFF');
     setProdFormBadgeUseListDefault(Boolean(selectedList.defaultBadgeEnabled));
     setProdFormGiftMode(selectedList.giftEnabled ? 'inherit' : 'off');
     setProdFormGiftImageUrl('');
@@ -1696,6 +1759,7 @@ export const MaisVendidos: React.FC = () => {
     setShowJsonImporter(false);
     setProductJsonInput('');
     setProductJsonMessage(null);
+    setGiftPresetMessage(null);
     setProductError(null);
     void loadGiftPresets();
     setIsProductModalOpen(true);
@@ -1768,6 +1832,7 @@ export const MaisVendidos: React.FC = () => {
     setShowJsonImporter(false);
     setProductJsonInput('');
     setProductJsonMessage(null);
+    setGiftPresetMessage(null);
     setProductError(null);
     void loadGiftPresets();
     setIsProductModalOpen(true);
@@ -1775,6 +1840,7 @@ export const MaisVendidos: React.FC = () => {
 
   const handleImportProductJson = () => {
     setProductJsonMessage(null);
+    setGiftPresetMessage(null);
     setProductError(null);
     try {
       const parsed = JSON.parse(productJsonInput.trim());
@@ -1805,9 +1871,7 @@ export const MaisVendidos: React.FC = () => {
       const outOfStock = Array.isArray(product.outOfStockSizes)
         ? product.outOfStockSizes.map(String)
         : sizeObjects.filter((item: any) => typeof item === 'object' && item?.available === false).map((item: any) => String(item.label));
-      const colors = Array.isArray(product.colors)
-        ? product.colors.map((item: any) => typeof item === 'string' ? item : item?.name).filter(Boolean).map(String)
-        : [];
+      // Cor do produto é propositalmente ignorada no JSON. Ela continua sendo configurada manualmente quando necessário.
       const firstImage = mediaItems.find((item) => item.type === 'image')?.url || '';
       const stock = Number(product.stockQuantity);
       const sold = Number(product.soldQuantity);
@@ -1827,11 +1891,12 @@ export const MaisVendidos: React.FC = () => {
       setProdFormAvailableQty(Number.isFinite(stock) && stock >= 0 ? String(stock > 0 ? Math.max(1, Math.min(2, Math.round(stock))) : 0) : '1');
       setProdFormSizes(normalizeSizeValues(sizes));
       setProdFormOutOfStockSizes(normalizeSizeValues(outOfStock));
-      setProdFormColors(colors);
-      if (!selectedList?.defaultBadgeEnabled && discount > 0) {
+      setProdFormColors([]);
+      if (discount > 0) {
         setProdFormBadgeUseListDefault(false);
         setProdFormBadgeEnabled(true);
-        setProdFormBadgeText(`${Math.round(discount)}% OFF`);
+        setProdFormBadgeText(`-${Math.round(discount)}%OFF`);
+        setProdFormBadgeColor(selectedList?.defaultBadgeColor || '#FFFFFF');
       }
       setProductJsonMessage(`Produto importado: ${mediaItems.filter((item) => item.type === 'image').length} foto(s), ${mediaItems.filter((item) => item.type === 'video').length} vídeo(s) e ${sizes.length} tamanho(s). Confira e salve.`);
       setShowJsonImporter(false);
@@ -2125,17 +2190,6 @@ export const MaisVendidos: React.FC = () => {
         timerDurationMinutes: prodFormTimerEnabled && prodFormTimerLooping ? productTimerDurationValue : null,
         timerColor: prodFormTimerColor || '#FFFFFF',
       };
-
-      if (prodFormGiftMode === 'custom' && prodFormGiftImageUrl.trim()) {
-        void persistGiftPreset({
-          imageUrl: prodFormGiftImageUrl.trim(),
-          imagePath: prodFormGiftImagePath.trim() || null,
-          title: prodFormGiftTitle.trim() || null,
-          label: prodFormGiftLabel.trim() || null,
-          textColor: prodFormGiftTextColor || '#FFFFFF',
-          imageSize: Math.max(36, Math.min(80, Number(prodFormGiftImageSize) || 48)),
-        });
-      }
 
       if (editingProduct) {
         const res = await Repository.updateBestSellerProduct(editingProduct.id, payload);
@@ -3288,36 +3342,53 @@ export const MaisVendidos: React.FC = () => {
               </div>
 
               <div className="space-y-3 rounded-lg bg-neutral-50 border border-neutral-200 p-3">
-                <label className="flex items-start gap-2.5 cursor-pointer">
-                  <input type="checkbox" checked={listFormDefaultBadgeEnabled} onChange={(e) => setListFormDefaultBadgeEnabled(e.target.checked)} className="mt-0.5 rounded border-neutral-300 text-neutral-900 focus:ring-neutral-900" />
+                <div className="flex items-end justify-between gap-3">
                   <div>
-                    <span className="font-semibold text-neutral-800">Padrão de badge para a vitrine</span>
-                    <p className="text-[10px] text-neutral-500">Produtos marcados como “usar padrão” herdam este texto e esta cor.</p>
+                    <span className="font-semibold text-neutral-800">Cor padrão das badges</span>
+                    <p className="text-[10px] text-neutral-500 mt-0.5">É a cor inicial ao configurar badges e também pode ser aplicada às badges já configuradas sem trocar os textos.</p>
                   </div>
-                </label>
-                {listFormDefaultBadgeEnabled && (
-                  <>
-                  <div className="pl-6 grid grid-cols-[1fr_auto] gap-2 items-end">
-                    <div className="space-y-1">
-                      <label className="text-[10px] font-semibold text-neutral-600">Texto padrão</label>
-                      <input type="text" maxLength={40} value={listFormDefaultBadgeText} onChange={(e) => setListFormDefaultBadgeText(e.target.value)} placeholder="Ex: ÚLTIMOS PARES" className="w-full px-3 py-2 border border-neutral-300 rounded text-xs bg-white" />
-                    </div>
-                    <div className="space-y-1">
-                      <label className="text-[10px] font-semibold text-neutral-600">Cor</label>
-                      <input type="color" value={listFormDefaultBadgeColor} onChange={(e) => setListFormDefaultBadgeColor(e.target.value.toUpperCase())} className="h-9 w-11 p-1 border border-neutral-300 rounded bg-white cursor-pointer" />
-                    </div>
+                  <div className="flex items-center gap-2 shrink-0">
+                    <input type="color" value={listFormDefaultBadgeColor} onChange={(e) => setListFormDefaultBadgeColor(e.target.value.toUpperCase())} className="h-9 w-11 p-1 border border-neutral-300 rounded bg-white cursor-pointer" />
+                    <input type="text" value={listFormDefaultBadgeColor} onChange={(e) => setListFormDefaultBadgeColor(e.target.value.toUpperCase())} maxLength={7} className="w-24 px-2.5 py-2 border border-neutral-300 rounded text-xs font-mono uppercase bg-white" />
                   </div>
-                  {editingList && (
-                    <label className="ml-6 flex items-start gap-2 cursor-pointer rounded border border-neutral-200 bg-white px-2.5 py-2">
-                      <input type="checkbox" checked={listFormApplyBadgeToAll} onChange={(e) => setListFormApplyBadgeToAll(e.target.checked)} className="mt-0.5 rounded border-neutral-300 text-neutral-900 focus:ring-neutral-900" />
-                      <span>
-                        <span className="text-[10px] font-semibold text-neutral-700">Aplicar este padrão a todos os produtos ao salvar</span>
-                        <span className="block text-[9px] text-neutral-500 mt-0.5">Depois você ainda pode abrir um produto e desmarcar “usar padrão” para criar uma exceção.</span>
-                      </span>
-                    </label>
-                  )}
-                  </>
+                </div>
+
+                {editingList && (
+                  <label className="flex items-start gap-2 cursor-pointer rounded border border-neutral-200 bg-white px-2.5 py-2">
+                    <input type="checkbox" checked={listFormApplyBadgeColorToConfigured} onChange={(e) => setListFormApplyBadgeColorToConfigured(e.target.checked)} className="mt-0.5 rounded border-neutral-300 text-neutral-900 focus:ring-neutral-900" />
+                    <span>
+                      <span className="text-[10px] font-semibold text-neutral-700">Aplicar esta cor às badges já configuradas ao salvar</span>
+                      <span className="block text-[9px] text-neutral-500 mt-0.5">Mantém o texto de cada badge e altera apenas a cor.</span>
+                    </span>
+                  </label>
                 )}
+
+                <div className="border-t border-neutral-200 pt-3 space-y-3">
+                  <label className="flex items-start gap-2.5 cursor-pointer">
+                    <input type="checkbox" checked={listFormDefaultBadgeEnabled} onChange={(e) => setListFormDefaultBadgeEnabled(e.target.checked)} className="mt-0.5 rounded border-neutral-300 text-neutral-900 focus:ring-neutral-900" />
+                    <div>
+                      <span className="font-semibold text-neutral-800">Usar também uma badge padrão da Vitrine</span>
+                      <p className="text-[10px] text-neutral-500">Produtos marcados como “usar padrão” herdam este texto e a cor definida acima.</p>
+                    </div>
+                  </label>
+                  {listFormDefaultBadgeEnabled && (
+                    <>
+                      <div className="pl-6 space-y-1">
+                        <label className="text-[10px] font-semibold text-neutral-600">Texto padrão</label>
+                        <input type="text" maxLength={40} value={listFormDefaultBadgeText} onChange={(e) => setListFormDefaultBadgeText(e.target.value)} placeholder="Ex: ÚLTIMOS PARES" className="w-full px-3 py-2 border border-neutral-300 rounded text-xs bg-white" />
+                      </div>
+                      {editingList && (
+                        <label className="ml-6 flex items-start gap-2 cursor-pointer rounded border border-neutral-200 bg-white px-2.5 py-2">
+                          <input type="checkbox" checked={listFormApplyBadgeToAll} onChange={(e) => setListFormApplyBadgeToAll(e.target.checked)} className="mt-0.5 rounded border-neutral-300 text-neutral-900 focus:ring-neutral-900" />
+                          <span>
+                            <span className="text-[10px] font-semibold text-neutral-700">Aplicar esta badge padrão a todos os produtos ao salvar</span>
+                            <span className="block text-[9px] text-neutral-500 mt-0.5">Aqui troca texto e cor porque os produtos passam a usar o padrão da Vitrine.</span>
+                          </span>
+                        </label>
+                      )}
+                    </>
+                  )}
+                </div>
               </div>
 
               <div className="space-y-3 rounded-lg bg-neutral-50 border border-neutral-200 p-3">
@@ -3414,6 +3485,19 @@ export const MaisVendidos: React.FC = () => {
                         className="w-full accent-neutral-900 cursor-pointer"
                       />
                     </div>
+                    <div className="pt-1 flex items-center justify-between gap-3">
+                      <p className="text-[9px] text-neutral-500">Salvar guarda a imagem e todos os textos para reutilizar depois.</p>
+                      <button
+                        type="button"
+                        onClick={saveCurrentListGiftPreset}
+                        disabled={savingGiftPreset || !listFormGiftImageUrl.trim()}
+                        className="inline-flex items-center gap-1.5 px-3 py-2 rounded bg-neutral-900 text-white text-[10px] font-bold disabled:opacity-40 cursor-pointer shrink-0"
+                      >
+                        {savingGiftPreset ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Save className="w-3.5 h-3.5" />}
+                        Salvar presente
+                      </button>
+                    </div>
+                    {giftPresetMessage && <p className="text-[9px] text-emerald-700">{giftPresetMessage}</p>}
                   </div>
                 )}
               </div>
@@ -3810,14 +3894,25 @@ export const MaisVendidos: React.FC = () => {
 
               {!editingProduct && (
                 <div className="rounded-lg border border-neutral-200 bg-neutral-50 p-3 space-y-2">
-                  <div className="flex items-center justify-between gap-3">
+                  <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
                     <div>
                       <p className="text-[11px] font-bold text-neutral-800">Importar da extensão Zhaya</p>
                       <p className="text-[10px] text-neutral-500 mt-0.5">Cole o JSON copiado na página do produto para preencher tudo de uma vez.</p>
                     </div>
-                    <button type="button" onClick={() => setShowJsonImporter((value) => !value)} className="px-3 py-1.5 rounded-full bg-neutral-900 text-white text-[10px] font-bold cursor-pointer whitespace-nowrap">
-                      {'{ }'} COLAR JSON
-                    </button>
+                    <div className="flex flex-wrap items-center gap-2 shrink-0">
+                      <button
+                        type="button"
+                        onClick={handleDownloadExtension}
+                        disabled={downloadingExtension}
+                        className="px-3 py-1.5 rounded-full border border-neutral-300 bg-white text-neutral-700 text-[10px] font-bold cursor-pointer whitespace-nowrap inline-flex items-center gap-1.5 disabled:opacity-50"
+                      >
+                        {downloadingExtension ? <Loader2 className="w-3 h-3 animate-spin" /> : <Download className="w-3 h-3" />}
+                        BAIXAR EXTENSÃO
+                      </button>
+                      <button type="button" onClick={() => setShowJsonImporter((value) => !value)} className="px-3 py-1.5 rounded-full bg-neutral-900 text-white text-[10px] font-bold cursor-pointer whitespace-nowrap">
+                        {'{ }'} COLAR JSON
+                      </button>
+                    </div>
                   </div>
                   {showJsonImporter && (
                     <div className="space-y-2 pt-1">
@@ -4507,6 +4602,19 @@ export const MaisVendidos: React.FC = () => {
                         className="w-full accent-neutral-900 cursor-pointer"
                       />
                     </div>
+                    <div className="pt-1 flex items-center justify-between gap-3">
+                      <p className="text-[9px] text-neutral-500">Salvar guarda esta imagem e estes textos para usar em outros produtos.</p>
+                      <button
+                        type="button"
+                        onClick={saveCurrentProductGiftPreset}
+                        disabled={savingGiftPreset || !prodFormGiftImageUrl.trim()}
+                        className="inline-flex items-center gap-1.5 px-3 py-2 rounded bg-neutral-900 text-white text-[10px] font-bold disabled:opacity-40 cursor-pointer shrink-0"
+                      >
+                        {savingGiftPreset ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Save className="w-3.5 h-3.5" />}
+                        Salvar presente
+                      </button>
+                    </div>
+                    {giftPresetMessage && <p className="text-[9px] text-emerald-700">{giftPresetMessage}</p>}
                   </div>
                 )}
               </div>

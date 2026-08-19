@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { useConfigDraft } from '../../context/ConfigDraftContext';
 import { AppConfig, SystemActivityStatus, DiagnosticContract } from '../../types/zhaya';
 import { Repository } from '../../lib/repository';
@@ -20,6 +20,9 @@ import {
   CheckCircle,
   AlertTriangle,
   Play,
+  Upload,
+  Download,
+  Package,
 } from 'lucide-react';
 
 export const Configuracoes: React.FC = () => {
@@ -37,6 +40,88 @@ export const Configuracoes: React.FC = () => {
   const [checkingActivity, setCheckingActivity] = useState<boolean>(false);
   const [sendingTestEvent, setSendingTestEvent] = useState<boolean>(false);
   const [testEventResult, setTestEventResult] = useState<{ id: string; success: boolean; message: string } | null>(null);
+
+  // Publicação do ZIP da extensão Zhaya Match no Supabase Storage.
+  const extensionFileInputRef = useRef<HTMLInputElement>(null);
+  const [publishingExtension, setPublishingExtension] = useState(false);
+  const [extensionInfo, setExtensionInfo] = useState<{ available: boolean; bucket?: string; fileName?: string; size?: number | null; updatedAt?: string | null; downloadUrl?: string | null } | null>(null);
+  const [extensionMessage, setExtensionMessage] = useState<string | null>(null);
+  const [extensionError, setExtensionError] = useState<string | null>(null);
+
+
+  const loadExtensionInfo = async () => {
+    const result = await Repository.getZhayaExtensionInfo();
+    if (result.success) {
+      setExtensionInfo({
+        available: result.available,
+        bucket: result.bucket,
+        fileName: result.fileName,
+        size: result.size ?? null,
+        updatedAt: result.updatedAt ?? null,
+        downloadUrl: result.downloadUrl ?? null,
+      });
+      setExtensionError(null);
+    } else {
+      setExtensionInfo({ available: false, bucket: result.bucket });
+      setExtensionError(result.error || 'Não foi possível consultar a extensão publicada.');
+    }
+  };
+
+  const fileToBase64 = (file: File): Promise<string> => new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => {
+      const result = String(reader.result || '');
+      resolve(result.includes(',') ? result.split(',').pop() || '' : result);
+    };
+    reader.onerror = () => reject(reader.error || new Error('Não foi possível ler o arquivo.'));
+    reader.readAsDataURL(file);
+  });
+
+  const handlePublishExtension = async (file: File) => {
+    setExtensionMessage(null);
+    setExtensionError(null);
+    if (!file.name.toLowerCase().endsWith('.zip')) {
+      setExtensionError('Selecione o arquivo .zip da extensão.');
+      return;
+    }
+    if (file.size > 2 * 1024 * 1024) {
+      setExtensionError('O ZIP da extensão deve ter no máximo 2 MB.');
+      return;
+    }
+    setPublishingExtension(true);
+    try {
+      const base64 = await fileToBase64(file);
+      const result = await Repository.publishZhayaExtension({ fileName: file.name, fileSize: file.size, base64 });
+      if (!result.success) {
+        setExtensionError(result.error || 'Não foi possível publicar a extensão.');
+        return;
+      }
+      setExtensionInfo({
+        available: true,
+        bucket: result.bucket,
+        fileName: result.fileName,
+        size: result.size ?? file.size,
+        updatedAt: result.updatedAt ?? new Date().toISOString(),
+        downloadUrl: result.downloadUrl ?? null,
+      });
+      setExtensionMessage('Extensão publicada. O botão “Baixar extensão” passa a entregar esta versão.');
+    } catch (e: any) {
+      setExtensionError(e?.message || 'Erro ao publicar a extensão.');
+    } finally {
+      setPublishingExtension(false);
+      if (extensionFileInputRef.current) extensionFileInputRef.current.value = '';
+    }
+  };
+
+  const handleDownloadExtension = async () => {
+    setExtensionError(null);
+    const result = await Repository.getZhayaExtensionInfo();
+    if (!result.success || !result.available || !result.downloadUrl) {
+      setExtensionError(result.error || 'Nenhuma extensão foi publicada ainda.');
+      return;
+    }
+    window.location.assign(result.downloadUrl);
+  };
 
   const loadActivityStatus = async () => {
     setLoadingActivity(true);
@@ -138,6 +223,7 @@ export const Configuracoes: React.FC = () => {
     }
     loadActivityStatus();
     loadDiagnostics();
+    void loadExtensionInfo();
   }, [config.allowedDomains]);
 
   const handleSave = async () => {
@@ -575,6 +661,74 @@ export const Configuracoes: React.FC = () => {
                   </span>
                 </div>
               </div>
+            </div>
+
+            {/* Publicar extensão */}
+            <div className="bg-white border border-neutral-200 rounded-lg p-6 space-y-5">
+              <div className="flex items-center justify-between border-b border-neutral-100 pb-3 gap-4">
+                <div className="flex items-center gap-2">
+                  <Package className="w-4 h-4 text-neutral-800" />
+                  <div>
+                    <h2 className="text-xs font-bold text-neutral-900 uppercase tracking-wider">Publicar extensão</h2>
+                    <p className="text-[11px] text-neutral-500 mt-0.5">Envie o ZIP que será oferecido pelo botão “Baixar extensão” dentro da Vitrine Personalizada.</p>
+                  </div>
+                </div>
+                {extensionInfo?.available && (
+                  <span className="text-[10px] font-semibold text-emerald-700 bg-emerald-50 border border-emerald-200 rounded-full px-2.5 py-1 shrink-0">Publicada</span>
+                )}
+              </div>
+
+              <input
+                ref={extensionFileInputRef}
+                type="file"
+                accept=".zip,application/zip,application/x-zip-compressed"
+                className="hidden"
+                onChange={(e) => {
+                  const file = e.target.files?.[0];
+                  if (file) void handlePublishExtension(file);
+                }}
+              />
+
+              <div className="grid grid-cols-1 md:grid-cols-[1fr_auto] gap-4 items-center rounded-lg border border-neutral-200 bg-neutral-50 p-4">
+                <div className="min-w-0">
+                  <div className="text-[11px] font-bold text-neutral-800">Versão disponível</div>
+                  <div className="text-[11px] text-neutral-500 mt-1">
+                    {extensionInfo?.available
+                      ? `${extensionInfo.fileName || 'Zhaya-Match-Extensao.zip'}${extensionInfo.updatedAt ? ` · publicada em ${new Date(extensionInfo.updatedAt).toLocaleString('pt-BR')}` : ''}`
+                      : 'Nenhum ZIP publicado ainda.'}
+                  </div>
+                  <div className="text-[10px] text-neutral-400 mt-1 font-mono">
+                    Bucket: {extensionInfo?.bucket || 'zhaya-match-extension'}
+                    {extensionInfo?.size ? ` · ${(extensionInfo.size / 1024).toFixed(1)} KB` : ''}
+                  </div>
+                </div>
+                <div className="flex flex-wrap gap-2">
+                  <button
+                    type="button"
+                    onClick={() => extensionFileInputRef.current?.click()}
+                    disabled={publishingExtension}
+                    className="inline-flex items-center gap-2 px-4 py-2 bg-neutral-900 text-white rounded-md text-xs font-bold hover:bg-neutral-800 disabled:opacity-50 cursor-pointer"
+                  >
+                    {publishingExtension ? <RefreshCw className="w-3.5 h-3.5 animate-spin" /> : <Upload className="w-3.5 h-3.5" />}
+                    {publishingExtension ? 'Publicando...' : 'Publicar extensão'}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={handleDownloadExtension}
+                    disabled={!extensionInfo?.available}
+                    className="inline-flex items-center gap-2 px-4 py-2 bg-white border border-neutral-300 text-neutral-800 rounded-md text-xs font-semibold hover:bg-neutral-100 disabled:opacity-40 cursor-pointer"
+                  >
+                    <Download className="w-3.5 h-3.5" />
+                    Baixar extensão
+                  </button>
+                </div>
+              </div>
+
+              {extensionMessage && <div className="text-[11px] text-emerald-700 bg-emerald-50 border border-emerald-200 rounded p-3">{extensionMessage}</div>}
+              {extensionError && <div className="text-[11px] text-red-700 bg-red-50 border border-red-200 rounded p-3">{extensionError}</div>}
+              <p className="text-[10px] text-neutral-500 leading-relaxed">
+                Configure <code className="font-mono bg-neutral-100 px-1 py-0.5 rounded">ZHAYA_EXTENSION_BUCKET</code> na Vercel se quiser outro nome. Na primeira publicação o backend tenta criar esse bucket privado no Supabase Storage automaticamente; o download usa URL assinada temporária.
+              </p>
             </div>
 
             {/* Section 5: Monitor de atividade do Supabase */}
