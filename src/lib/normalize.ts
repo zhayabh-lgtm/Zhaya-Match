@@ -1,5 +1,5 @@
-import { PopupAppearance, TextSettings, ProductType, AppConfig, SizeRow, MeasurementHelp, MeasurementObservation, MeasurementKey } from '../types/zhaya';
-import { migrateLegacyTypography } from './fontRegistry';
+import { PopupAppearance, TextSettings, ProductType, AppConfig, SizeRow, MeasurementHelp, MeasurementObservation, MeasurementKey } from '../types/zhaya.js';
+import { migrateLegacyTypography } from './fontRegistry.js';
 
 export function normalizeMeasurementObservation(raw: any): MeasurementObservation {
   const condType = raw?.condition?.type === 'measurement_active' ? 'measurement_active' : 'always';

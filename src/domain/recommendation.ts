@@ -6,7 +6,7 @@ import {
   SizeRow,
   ProductCategory,
   ProductFitType,
-} from '../types/zhaya';
+} from '../types/zhaya.js';
 
 export const MEASUREMENT_LABELS: Record<MeasurementKey, string> = {
   bust: 'busto',

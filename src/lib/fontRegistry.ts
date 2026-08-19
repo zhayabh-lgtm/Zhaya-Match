@@ -1,4 +1,4 @@
-import { PopupAppearance } from '../types/zhaya';
+import { PopupAppearance } from '../types/zhaya.js';
 
 export interface FontPreset {
   id: string;

@@ -19,10 +19,10 @@ import {
   BestSellerGiftPreset,
   BestSellerAnalyticsSummary,
   PublicBestSellerList,
-} from '../types/zhaya';
-import { supabase, isSupabaseConfigured } from './supabase';
-import { normalizeMeasurementObservation, normalizeProductType } from './normalize';
-import { computeAnalyticsSummary } from './analyticsAggregator';
+} from '../types/zhaya.js';
+import { supabase, isSupabaseConfigured } from './supabase.js';
+import { normalizeMeasurementObservation, normalizeProductType } from './normalize.js';
+import { computeAnalyticsSummary } from './analyticsAggregator.js';
 
 const BEST_SELLER_VISITOR_STORAGE_KEY = 'zhaya_best_seller_visitor_v1';
 

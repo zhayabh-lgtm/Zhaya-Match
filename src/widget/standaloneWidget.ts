@@ -12,7 +12,7 @@ import {
   getEffectiveRange,
   calculateRecommendation,
   MEASUREMENT_LABELS,
-} from '../domain/recommendation';
+} from '../domain/recommendation.js';
 
 export function generateWidgetScript(baseUrl: string): string {
   return `(function() {
