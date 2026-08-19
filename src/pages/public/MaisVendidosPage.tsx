@@ -311,8 +311,7 @@ const GalleryVideo: React.FC<{
   posterUrl?: string;
   fallbackPosterUrl?: string;
   onPlaybackStarted?: () => void;
-  autoPlayRequestKey?: number;
-}> = ({ src, label, onError, posterUrl, fallbackPosterUrl, onPlaybackStarted, autoPlayRequestKey = 0 }) => {
+}> = ({ src, label, onError, posterUrl, fallbackPosterUrl, onPlaybackStarted }) => {
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const containerRef = useRef<HTMLDivElement | null>(null);
   const [activated, setActivated] = useState(false);
@@ -337,11 +336,6 @@ const GalleryVideo: React.FC<{
     playReportedRef.current = false;
   }, [src, posterUrl, fallbackPosterUrl]);
 
-  // Um toque em "VER NO PÉ" pode abrir o slide e iniciar o vídeo. A capa
-  // continua na frente até o primeiro frame estar pronto, evitando tela preta no iPhone.
-  useEffect(() => {
-    if (autoPlayRequestKey > 0) setActivated(true);
-  }, [autoPlayRequestKey]);
 
   // Ao sair completamente da tela, o vídeo do produto para e volta para a capa.
   useEffect(() => {
@@ -492,10 +486,10 @@ const GalleryVideo: React.FC<{
             type="button"
             onPointerDown={stopPointer}
             onClick={(event) => { event.stopPropagation(); startPlayback(); }}
-            aria-label="Reproduzir vídeo"
-            className="absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 z-30 flex h-20 w-20 items-center justify-center text-white transition-transform duration-150 active:scale-95"
+            aria-label="Ver vídeo"
+            className="absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 z-30 inline-flex min-h-12 min-w-[150px] items-center justify-center rounded-[3px] bg-white px-6 py-3 text-[11px] font-black uppercase tracking-[0.14em] text-black transition-transform duration-150 active:scale-[0.98]"
           >
-            <Play size={48} strokeWidth={1.8} fill="currentColor" />
+            VER VÍDEO
           </button>}
         </div>
       )}
@@ -587,12 +581,8 @@ const ProductMediaGallery: React.FC<{
   const [currentIndex, setCurrentIndex] = useState(0);
   const [failedMedia, setFailedMedia] = useState<Record<number, boolean>>({});
   const [direction, setDirection] = useState(0);
-  const [autoPlayVideoIndex, setAutoPlayVideoIndex] = useState<number | null>(null);
-  const [autoPlayRequestKey, setAutoPlayRequestKey] = useState(0);
   const totalItems = mediaItems.length;
-  const firstVideoIndex = useMemo(() => mediaItems.findIndex((item) => item.type === 'video'), [mediaItems]);
   const firstImageUrl = useMemo(() => mediaItems.find((item) => item.type === 'image')?.url || '', [mediaItems]);
-  const hasVideo = firstVideoIndex >= 0;
 
   // Pré-carrega imagens e capas de vídeo como imagens comuns. Assim, no iPhone,
   // a capa do vídeo entra na mesma fila das demais fotos e o arquivo de vídeo
@@ -653,13 +643,6 @@ const ProductMediaGallery: React.FC<{
     else handlePrev();
   };
 
-  const openFirstVideo = (event: React.MouseEvent<HTMLButtonElement>) => {
-    event.stopPropagation();
-    if (firstVideoIndex < 0) return;
-    setAutoPlayVideoIndex(firstVideoIndex);
-    setAutoPlayRequestKey((value) => value + 1);
-    goToIndex(firstVideoIndex, firstVideoIndex >= currentIndex ? 1 : -1);
-  };
 
   const currentMedia = mediaItems[currentIndex];
   const hasError = failedMedia[currentIndex];
@@ -667,7 +650,7 @@ const ProductMediaGallery: React.FC<{
   const canSwipe = totalItems > 1;
 
   return (
-    <div className="relative w-full aspect-[4/5] bg-transparent rounded-[10px] overflow-hidden mb-5 select-none touch-pan-y group">
+    <div className="relative w-full aspect-[4/5] bg-transparent rounded-[10px] overflow-hidden mb-3 sm:mb-5 select-none touch-pan-y group">
       <AnimatePresence initial={false} mode="popLayout" custom={direction}>
         <motion.div
           key={`${currentIndex}-${currentMedia?.id || currentMedia?.url || 'empty'}`}
@@ -691,7 +674,6 @@ const ProductMediaGallery: React.FC<{
                 posterUrl={currentMedia.posterUrl || undefined}
                 fallbackPosterUrl={firstImageUrl || undefined}
                 onPlaybackStarted={onVideoStarted}
-                autoPlayRequestKey={currentIndex === autoPlayVideoIndex ? autoPlayRequestKey : 0}
               />
             ) : (
               <img
@@ -752,19 +734,6 @@ const ProductMediaGallery: React.FC<{
         </div>
       )}
 
-      {/* Convite discreto para o principal diferencial da vitrine. Ele só aparece
-          enquanto a cliente está em uma foto; um toque abre o primeiro vídeo. */}
-      {hasVideo && currentMedia?.type !== 'video' && !hasError && (
-        <button
-          type="button"
-          onClick={openFirstVideo}
-          aria-label={`Ver ${productName} em vídeo`}
-          className="absolute left-1/2 -translate-x-1/2 bottom-10 z-40 inline-flex h-8 items-center gap-1.5 rounded-full border border-white/25 bg-black/55 px-3 text-[9px] font-black tracking-[0.12em] uppercase text-white backdrop-blur-sm transition-all duration-150 hover:bg-black/70 active:scale-[0.98]"
-        >
-          <Play size={11} fill="currentColor" strokeWidth={1.8} />
-          <span>Ver em vídeo</span>
-        </button>
-      )}
 
       {totalItems > 1 && (
         <>
@@ -960,7 +929,7 @@ const ProductItem: React.FC<{
       whileInView={{ opacity: 1, y: 0 }}
       viewport={{ once: true, amount: 0.08 }}
       transition={{ duration: 0.32, ease: 'easeOut' }}
-      className="w-full flex flex-col pb-12 last:pb-4"
+      className="w-full flex flex-col pb-7 sm:pb-12 last:pb-3 sm:last:pb-4"
     >
       <ProductMediaGallery
         mediaItems={galleryMedia}
@@ -988,13 +957,13 @@ const ProductItem: React.FC<{
       />
 
       <div className="flex flex-col items-center text-center px-2 sm:px-4">
-        <h2 className="max-w-md text-[19px] sm:text-[22px] font-bold text-white tracking-[-0.025em] leading-[1.16] break-words">
+        <h2 className="max-w-md text-[19px] sm:text-[22px] font-bold text-white tracking-[-0.025em] leading-[1.10] sm:leading-[1.16] break-words">
           {product.name}
         </h2>
 
         {((product.promotionalPrice !== null && product.promotionalPrice !== undefined) ||
           (product.originalPrice !== null && product.originalPrice !== undefined)) && (
-          <div className="mt-3 flex flex-col items-center gap-0.5">
+          <div className="mt-1.5 sm:mt-3 flex flex-col items-center gap-0.5">
             {product.promotionalPrice !== null && product.promotionalPrice !== undefined ? (
               <>
                 {product.originalPrice !== null &&
@@ -1017,13 +986,13 @@ const ProductItem: React.FC<{
         )}
 
         {hasInstallment && (
-          <p className="mt-2 text-[12px] text-neutral-300 font-semibold tracking-[-0.01em]">
+          <p className="mt-1 sm:mt-2 text-[12px] leading-tight text-neutral-300 font-semibold tracking-[-0.01em]">
             Até {product.installmentsCount}x de {formatPriceBRL(product.installmentValue)} sem juros
           </p>
         )}
 
         {(soldText || availableText) && (
-          <div className="mt-3 flex flex-wrap justify-center items-center gap-x-2 gap-y-1 text-[10px] sm:text-[11px] text-neutral-500 font-medium">
+          <div className="mt-1.5 sm:mt-3 flex flex-wrap justify-center items-center gap-x-2 gap-y-0.5 sm:gap-y-1 text-[10px] sm:text-[11px] leading-tight text-neutral-500 font-medium">
             {soldText && <span className="text-neutral-300 font-medium">{soldText}</span>}
             {soldText && availableText && <span className="text-neutral-700">·</span>}
             {availableText && <span>{availableText}</span>}
@@ -1031,7 +1000,7 @@ const ProductItem: React.FC<{
         )}
 
         {product.colors && product.colors.length > 0 && (
-          <div className="mt-4 flex flex-wrap justify-center items-center gap-x-2 gap-y-1 text-[10px] sm:text-[11px] uppercase tracking-[0.10em] text-neutral-400 font-semibold">
+          <div className="mt-2 sm:mt-4 flex flex-wrap justify-center items-center gap-x-2 gap-y-0.5 sm:gap-y-1 text-[10px] sm:text-[11px] leading-tight uppercase tracking-[0.10em] text-neutral-400 font-semibold">
             {product.colors.map((color, cIdx) => (
               <React.Fragment key={`${color}-${cIdx}`}>
                 <span>{color}</span>
@@ -1042,7 +1011,7 @@ const ProductItem: React.FC<{
         )}
 
         {product.productUrl && (
-          <div className="w-full pt-6">
+          <div className="w-full pt-3 sm:pt-6">
             <a
               id={`btn-ver-produto-${product.id}`}
               data-best-seller-native-cta={product.id}
@@ -1067,8 +1036,6 @@ export const MaisVendidosPage: React.FC = () => {
   const [loading, setLoading] = useState<boolean>(true);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [now, setNow] = useState<number>(Date.now());
-  const [activeProductId, setActiveProductId] = useState<string | null>(null);
-  const [visibleNativeCtaIds, setVisibleNativeCtaIds] = useState<string[]>([]);
 
   const lastDataRef = useRef<string>('');
   const isFetchingRef = useRef<boolean>(false);
@@ -1195,78 +1162,6 @@ export const MaisVendidosPage: React.FC = () => {
     if (!listData?.listDate) return '';
     return formatBestSellerDate(listData.listDate, listData.timezone);
   }, [listData]);
-
-  // CTA flutuante contextual no mobile: acompanha o produto mais presente na tela
-  // e some quando o botão normal daquele produto já está visível, evitando duplicação.
-  useEffect(() => {
-    if (loading || !listData?.products?.length || typeof window === 'undefined' || typeof document === 'undefined') {
-      setActiveProductId(null);
-      setVisibleNativeCtaIds([]);
-      return;
-    }
-
-    const ratios = new Map<string, number>();
-    const productNodes = Array.from(document.querySelectorAll<HTMLElement>('[data-best-seller-product-id]'));
-    const ctaNodes = Array.from(document.querySelectorAll<HTMLElement>('[data-best-seller-native-cta]'));
-    const visibleCtas = new Set<string>();
-
-    const chooseActive = () => {
-      let bestId = '';
-      let bestRatio = 0;
-      ratios.forEach((ratio, productId) => {
-        if (ratio > bestRatio) {
-          bestRatio = ratio;
-          bestId = productId;
-        }
-      });
-      setActiveProductId(bestId && bestRatio >= 0.12 ? bestId : null);
-    };
-
-    const productObserver = new IntersectionObserver((entries) => {
-      entries.forEach((entry) => {
-        const node = entry.target as HTMLElement;
-        const productId = node.dataset.bestSellerProductId || '';
-        if (productId) ratios.set(productId, entry.isIntersecting ? entry.intersectionRatio : 0);
-      });
-      chooseActive();
-    }, {
-      threshold: [0, 0.08, 0.12, 0.2, 0.35, 0.5, 0.7],
-      rootMargin: '-8% 0px -24% 0px',
-    });
-
-    const ctaObserver = new IntersectionObserver((entries) => {
-      entries.forEach((entry) => {
-        const node = entry.target as HTMLElement;
-        const productId = node.dataset.bestSellerNativeCta || '';
-        if (!productId) return;
-        if (entry.isIntersecting && entry.intersectionRatio >= 0.45) visibleCtas.add(productId);
-        else visibleCtas.delete(productId);
-      });
-      setVisibleNativeCtaIds(Array.from(visibleCtas));
-    }, { threshold: [0, 0.45, 0.8] });
-
-    productNodes.forEach((node) => productObserver.observe(node));
-    ctaNodes.forEach((node) => ctaObserver.observe(node));
-
-    return () => {
-      productObserver.disconnect();
-      ctaObserver.disconnect();
-    };
-  }, [loading, listData?.id, listData?.products?.length]);
-
-  const activeStickyProduct = useMemo(() => {
-    if (!activeProductId || !listData?.products) return null;
-    return listData.products.find((product) => product.id === activeProductId) || null;
-  }, [activeProductId, listData?.products]);
-
-  const stickyCtaText = (listData?.ctaText || '').trim() || 'GARANTIR MEU PAR';
-  const activeStickyPrice = activeStickyProduct
-    ? (activeStickyProduct.promotionalPrice ?? activeStickyProduct.originalPrice ?? null)
-    : null;
-  const showStickyCta = Boolean(
-    activeStickyProduct?.productUrl &&
-    !visibleNativeCtaIds.includes(activeStickyProduct.id)
-  );
 
   // Registra uma entrada por carregamento da lista. O visitorId fica persistente
   // no navegador para permitir uma estimativa simples de visitantes únicos.
@@ -1680,7 +1575,7 @@ export const MaisVendidosPage: React.FC = () => {
 
             {/* Vitrine de Produtos */}
             {listData.products && listData.products.length > 0 ? (
-              <div className="w-full flex flex-col space-y-6 sm:space-y-10">
+              <div className="w-full flex flex-col space-y-4 sm:space-y-10">
                 {listData.products.map((prod, idx) => (
                   <ProductItem
                     key={prod.id}
@@ -1705,32 +1600,7 @@ export const MaisVendidosPage: React.FC = () => {
         )}
       </main>
 
-      {showStickyCta && activeStickyProduct && (
-        <div
-          className="fixed inset-x-0 bottom-0 z-[90] sm:hidden border-t border-white/10 bg-black/88 backdrop-blur-xl"
-          style={{ paddingBottom: 'max(10px, env(safe-area-inset-bottom))' }}
-        >
-          <div className="mx-auto flex w-full max-w-[540px] items-center gap-3 px-4 pt-2.5">
-            {activeStickyPrice !== null && (
-              <div className="min-w-0 shrink-0">
-                <span className="block text-[8px] font-bold uppercase tracking-[0.16em] text-neutral-500">Agora</span>
-                <strong className="block whitespace-nowrap text-[17px] font-black tracking-[-0.035em] text-white">
-                  {formatPriceBRL(activeStickyPrice)}
-                </strong>
-              </div>
-            )}
-            <a
-              href={activeStickyProduct.productUrl || '#'}
-              target="_blank"
-              rel="noopener noreferrer"
-              onClick={() => Repository.trackBestSellerProductClick(activeStickyProduct.id, listData?.id)}
-              className="inline-flex min-h-11 flex-1 items-center justify-center rounded-[3px] bg-white px-4 text-center text-[10px] font-black uppercase tracking-[0.11em] text-black transition-transform duration-150 active:scale-[0.99]"
-            >
-              {stickyCtaText}
-            </a>
-          </div>
-        </div>
-      )}
+
     </div>
   );
 };
