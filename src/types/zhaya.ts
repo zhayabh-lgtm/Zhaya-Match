@@ -730,6 +730,25 @@ export interface BestSellerAnalyticsHourItem {
   visitors: number;
 }
 
+export interface BestSellerOverallHourItem {
+  hour: number;
+  visitors: number;
+  averageVisitors: number;
+}
+
+export interface BestSellerOverallHoursSummary {
+  configured: boolean;
+  listsCount: number;
+  listsWithVisitors: number;
+  totalVisitors: number;
+  peakHour: number | null;
+  peakVisitors: number;
+  strongestWindowStart: number | null;
+  strongestWindowEnd: number | null;
+  strongestWindowVisitors: number;
+  hourlyVisitors: BestSellerOverallHourItem[];
+}
+
 export interface BestSellerAnalyticsSummary {
   configured: boolean;
   engagementConfigured?: boolean;

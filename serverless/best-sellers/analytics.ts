@@ -113,6 +113,68 @@ function buildUniqueFallbackSessions(pageViews: any[]) {
   return Array.from(byVisitor.values());
 }
 
+function buildOverallHoursSummary(
+  lists: Array<{ id: string; timezone?: string | null }>,
+  sessions: Array<{ list_id?: string | null; visitor_id?: string | null; device_type?: string | null; first_seen_at?: string | null }>
+) {
+  const timezoneByList = new Map(lists.map((item) => [String(item.id), String(item.timezone || 'America/Sao_Paulo')]));
+  const hourlyTotals = Array.from({ length: 24 }, () => 0);
+  const listsWithVisitors = new Set<string>();
+  let totalVisitors = 0;
+
+  for (const session of sessions) {
+    if (String(session?.device_type || '') === 'desktop') continue;
+    const listId = String(session?.list_id || '');
+    if (!listId || !timezoneByList.has(listId)) continue;
+    const hour = getHourInTimezone(session?.first_seen_at, timezoneByList.get(listId) || 'America/Sao_Paulo');
+    if (hour === null) continue;
+    hourlyTotals[hour] += 1;
+    totalVisitors += 1;
+    listsWithVisitors.add(listId);
+  }
+
+  const divisor = Math.max(1, lists.length);
+  const hourlyVisitors = hourlyTotals.map((visitors, hour) => ({
+    hour,
+    visitors,
+    averageVisitors: Math.round((visitors / divisor) * 10) / 10,
+  }));
+
+  let peakHour: number | null = null;
+  let peakVisitors = 0;
+  hourlyTotals.forEach((value, hour) => {
+    if (value > peakVisitors) {
+      peakVisitors = value;
+      peakHour = hour;
+    }
+  });
+
+  let strongestWindowStart: number | null = null;
+  let strongestWindowVisitors = 0;
+  if (totalVisitors > 0) {
+    for (let start = 0; start < 24; start += 1) {
+      const value = hourlyTotals[start] + hourlyTotals[(start + 1) % 24] + hourlyTotals[(start + 2) % 24];
+      if (value > strongestWindowVisitors) {
+        strongestWindowVisitors = value;
+        strongestWindowStart = start;
+      }
+    }
+  }
+
+  return {
+    configured: true,
+    listsCount: lists.length,
+    listsWithVisitors: listsWithVisitors.size,
+    totalVisitors,
+    peakHour,
+    peakVisitors,
+    strongestWindowStart,
+    strongestWindowEnd: strongestWindowStart === null ? null : (strongestWindowStart + 2) % 24,
+    strongestWindowVisitors,
+    hourlyVisitors,
+  };
+}
+
 export default async function handler(req: any, res: any) {
   const requestOrigin = typeof req.headers?.origin === 'string' ? req.headers.origin : '*';
   res.setHeader('Access-Control-Allow-Origin', requestOrigin);
@@ -205,6 +267,75 @@ export default async function handler(req: any, res: any) {
     const auth = await verifyAdminAuth(req);
     if (!auth.authorized) return res.status(401).json({ success: false, error: 'UNAUTHORIZED', message: auth.error || 'Acesso restrito ao administrador.' });
     const requestUrl = new URL(req.url || '/', `http://${req.headers?.host || 'localhost'}`);
+    const scope = String(req.query?.scope || requestUrl.searchParams.get('scope') || '').trim();
+
+    if (scope === 'all-hours') {
+      try {
+        const { data: listsData, error: listsError } = await supabase
+          .from('best_seller_lists')
+          .select('id, timezone')
+          .order('created_at', { ascending: true })
+          .limit(5000);
+        if (listsError) {
+          if (isAnalyticsMissingError(listsError)) {
+            return res.status(200).json({ success: true, overallHours: buildOverallHoursSummary([], []) });
+          }
+          return res.status(500).json({ success: false, error: 'DATABASE_ERROR', message: listsError.message });
+        }
+        const lists = (listsData || []).map((row: any) => ({ id: String(row.id), timezone: row.timezone || 'America/Sao_Paulo' }));
+        if (!lists.length) return res.status(200).json({ success: true, overallHours: buildOverallHoursSummary([], []) });
+
+        const listIds = lists.map((item) => item.id);
+        const { data: sessionsData, error: sessionsError } = await supabase
+          .from('best_seller_visitor_sessions')
+          .select('list_id, visitor_id, device_type, first_seen_at')
+          .in('list_id', listIds)
+          .order('first_seen_at', { ascending: true })
+          .limit(50000);
+
+        if (!sessionsError) {
+          return res.status(200).json({ success: true, overallHours: buildOverallHoursSummary(lists, sessionsData || []) });
+        }
+        if (!isAnalyticsMissingError(sessionsError)) {
+          return res.status(500).json({ success: false, error: 'DATABASE_ERROR', message: sessionsError.message });
+        }
+
+        const { data: legacyData, error: legacyError } = await supabase
+          .from('best_seller_analytics_events')
+          .select('list_id, visitor_id, device_type, created_at')
+          .in('list_id', listIds)
+          .eq('event_type', 'page_view')
+          .order('created_at', { ascending: true })
+          .limit(50000);
+        if (legacyError) {
+          if (isAnalyticsMissingError(legacyError)) {
+            const empty = buildOverallHoursSummary(lists, []);
+            return res.status(200).json({ success: true, overallHours: { ...empty, configured: false } });
+          }
+          return res.status(500).json({ success: false, error: 'DATABASE_ERROR', message: legacyError.message });
+        }
+
+        const byListVisitor = new Map<string, any>();
+        for (const event of legacyData || []) {
+          if (String((event as any)?.device_type || '') === 'desktop') continue;
+          const listId = String((event as any)?.list_id || '');
+          const visitorId = String((event as any)?.visitor_id || '');
+          const key = `${listId}|${visitorId}`;
+          if (!listId || !visitorId || byListVisitor.has(key)) continue;
+          byListVisitor.set(key, {
+            list_id: listId,
+            visitor_id: visitorId,
+            device_type: (event as any)?.device_type || 'unknown',
+            first_seen_at: (event as any)?.created_at || null,
+          });
+        }
+        return res.status(200).json({ success: true, overallHours: buildOverallHoursSummary(lists, Array.from(byListVisitor.values())) });
+      } catch (err: any) {
+        console.error('[BestSeller Analytics] GET all-hours:', err);
+        return res.status(500).json({ success: false, error: 'INTERNAL_ERROR', message: err?.message || 'Erro ao carregar média geral de horários.' });
+      }
+    }
+
     const listId = String(req.query?.listId || requestUrl.searchParams.get('listId') || '').trim();
     if (!UUID_REGEX.test(listId)) return res.status(400).json({ success: false, message: 'Lista inválida.' });
 

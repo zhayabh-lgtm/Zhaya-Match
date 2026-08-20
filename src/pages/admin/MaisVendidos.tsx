@@ -21,6 +21,7 @@ import {
   Package,
   Layers,
   ChevronLeft,
+  ChevronDown,
   Image as ImageIcon,
   CheckCircle2,
   RefreshCw,
@@ -52,7 +53,7 @@ import { getReadableTextColor } from '../../lib/contrast';
 import { supabase, isSupabaseConfigured } from '../../lib/supabase';
 import { uploadFileToCloudinary } from '../../lib/cloudinaryMedia';
 import { CloudinaryMediaPicker } from '../../components/admin/CloudinaryMediaPicker';
-import type { BestSellerList, BestSellerProduct, BestSellerMediaItem, BestSellerLibraryProduct, BestSellerGiftPreset, BestSellerAnalyticsSummary, BestSellerAnalyticsHourItem, BestSellerLiveSession, BestSellerInternationalConfig, BestSellerInternationalCountryRule } from '../../types/zhaya';
+import type { BestSellerList, BestSellerProduct, BestSellerMediaItem, BestSellerLibraryProduct, BestSellerGiftPreset, BestSellerAnalyticsSummary, BestSellerAnalyticsHourItem, BestSellerOverallHoursSummary, BestSellerLiveSession, BestSellerInternationalConfig, BestSellerInternationalCountryRule } from '../../types/zhaya';
 
 const BEST_SELLERS_SQL = `-- ==============================================================================
 -- ZHAYA MATCH - SETUP DE MAIS VENDIDOS DO DIA (100% COMPLETO E IDEMPOTENTE)
@@ -693,6 +694,83 @@ const BestSellerHourlyChart: React.FC<{ items: BestSellerAnalyticsHourItem[] }> 
 };
 
 
+const BestSellerOverallHoursCard: React.FC<{ summary: BestSellerOverallHoursSummary | null; loading: boolean }> = ({ summary, loading }) => {
+  const hours = summary?.hourlyVisitors || Array.from({ length: 24 }, (_, hour) => ({ hour, visitors: 0, averageVisitors: 0 }));
+  const maxAverage = Math.max(1, ...hours.map((item) => Number(item.averageVisitors || 0)));
+  const peakHourLabel = summary?.peakHour === null || summary?.peakHour === undefined
+    ? '—'
+    : `${String(summary.peakHour).padStart(2, '0')}:00`;
+  const windowLabel = summary?.strongestWindowStart === null || summary?.strongestWindowStart === undefined
+    ? '—'
+    : `${String(summary.strongestWindowStart).padStart(2, '0')}h–${String(summary.strongestWindowEnd ?? summary.strongestWindowStart).padStart(2, '0')}h`;
+
+  return (
+    <div className="rounded-xl border border-neutral-200 bg-white p-4 sm:p-5 shadow-sm">
+      <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-3">
+        <div>
+          <div className="flex items-center gap-2">
+            <Clock className="w-4 h-4 text-neutral-700" />
+            <h3 className="text-xs font-bold uppercase tracking-wider text-neutral-700">Média geral de horários</h3>
+          </div>
+          <p className="text-[10px] text-neutral-400 mt-1">Consolida os horários de entrada de todas as vitrines cadastradas. Desktop continua fora das métricas.</p>
+        </div>
+        {loading && <Loader2 className="w-4 h-4 animate-spin text-neutral-400 shrink-0" />}
+      </div>
+
+      <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 mt-4">
+        <div className="rounded-lg border border-neutral-200 bg-neutral-50 px-3 py-2.5">
+          <div className="text-[9px] font-bold uppercase tracking-wider text-neutral-400">Horário mais acessado</div>
+          <div className="text-lg font-bold text-neutral-900 mt-0.5">{peakHourLabel}</div>
+          <div className="text-[9px] text-neutral-500">{summary?.peakVisitors || 0} entradas no total</div>
+        </div>
+        <div className="rounded-lg border border-neutral-200 bg-neutral-50 px-3 py-2.5">
+          <div className="text-[9px] font-bold uppercase tracking-wider text-neutral-400">Faixa mais forte</div>
+          <div className="text-lg font-bold text-neutral-900 mt-0.5">{windowLabel}</div>
+          <div className="text-[9px] text-neutral-500">janela contínua de 3 horas</div>
+        </div>
+        <div className="rounded-lg border border-neutral-200 bg-neutral-50 px-3 py-2.5">
+          <div className="text-[9px] font-bold uppercase tracking-wider text-neutral-400">Visitantes analisados</div>
+          <div className="text-lg font-bold text-neutral-900 mt-0.5">{summary?.totalVisitors || 0}</div>
+          <div className="text-[9px] text-neutral-500">entradas únicas</div>
+        </div>
+        <div className="rounded-lg border border-neutral-200 bg-neutral-50 px-3 py-2.5">
+          <div className="text-[9px] font-bold uppercase tracking-wider text-neutral-400">Vitrines com dados</div>
+          <div className="text-lg font-bold text-neutral-900 mt-0.5">{summary?.listsWithVisitors || 0}<span className="text-xs font-medium text-neutral-400">/{summary?.listsCount || 0}</span></div>
+          <div className="text-[9px] text-neutral-500">vitrines cadastradas</div>
+        </div>
+      </div>
+
+      <div className="mt-4">
+        <div className="flex items-center justify-between gap-3 mb-2">
+          <div className="text-[9px] font-bold uppercase tracking-wider text-neutral-400">Média de entradas por vitrine em cada horário</div>
+          <div className="text-[9px] text-neutral-400">00h → 23h</div>
+        </div>
+        <div className="h-24 flex items-end gap-[3px] sm:gap-1">
+          {hours.map((item) => {
+            const avg = Number(item.averageVisitors || 0);
+            const height = avg > 0 ? Math.max(7, Math.round((avg / maxAverage) * 78)) : 2;
+            return (
+              <div key={item.hour} className="group relative flex-1 h-full flex items-end">
+                <div
+                  className={`w-full rounded-t-[2px] ${avg > 0 ? 'bg-neutral-800 group-hover:bg-black' : 'bg-neutral-200'}`}
+                  style={{ height: `${height}%` }}
+                />
+                <div className="pointer-events-none absolute left-1/2 -translate-x-1/2 bottom-full mb-1 hidden group-hover:block z-20 rounded bg-neutral-900 px-1.5 py-1 text-[9px] text-white whitespace-nowrap">
+                  {String(item.hour).padStart(2, '0')}:00 · média {avg.toLocaleString('pt-BR', { maximumFractionDigits: 1 })} · total {item.visitors}
+                </div>
+              </div>
+            );
+          })}
+        </div>
+        <div className="mt-2 grid grid-cols-7 text-[9px] text-neutral-400 font-medium">
+          <span>00h</span><span className="text-center">04h</span><span className="text-center">08h</span><span className="text-center">12h</span><span className="text-center">16h</span><span className="text-center">20h</span><span className="text-right">23h</span>
+        </div>
+      </div>
+    </div>
+  );
+};
+
+
 function formatLiveDuration(totalSeconds: number): string {
   const seconds = Math.max(0, Math.floor(Number(totalSeconds || 0)));
   const h = Math.floor(seconds / 3600);
@@ -874,6 +952,8 @@ export const MaisVendidos: React.FC = () => {
   const [loadingProducts, setLoadingProducts] = useState<boolean>(false);
   const [listAnalytics, setListAnalytics] = useState<BestSellerAnalyticsSummary | null>(null);
   const [analyticsLoading, setAnalyticsLoading] = useState<boolean>(false);
+  const [overallHours, setOverallHours] = useState<BestSellerOverallHoursSummary | null>(null);
+  const [overallHoursLoading, setOverallHoursLoading] = useState<boolean>(false);
   const [liveSession, setLiveSession] = useState<BestSellerLiveSession | null>(null);
   const [liveConfigured, setLiveConfigured] = useState<boolean>(true);
   const [liveActionLoading, setLiveActionLoading] = useState<boolean>(false);
@@ -1219,6 +1299,32 @@ export const MaisVendidos: React.FC = () => {
       window.removeEventListener('focus', handleFocus);
     };
   }, []);
+
+  // Visão geral: consolida somente os horários de todas as vitrines cadastradas.
+  useEffect(() => {
+    if (selectedList || lists.length === 0) {
+      if (lists.length === 0) setOverallHours(null);
+      return;
+    }
+    let cancelled = false;
+    const refreshOverallHours = async () => {
+      if (typeof document !== 'undefined' && document.visibilityState !== 'visible') return;
+      setOverallHoursLoading((current) => current || !overallHours);
+      const summary = await Repository.getBestSellerOverallHours();
+      if (cancelled) return;
+      if (summary) setOverallHours(summary);
+      setOverallHoursLoading(false);
+    };
+    void refreshOverallHours();
+    const interval = window.setInterval(refreshOverallHours, 30000);
+    const handleFocus = () => { void refreshOverallHours(); };
+    window.addEventListener('focus', handleFocus);
+    return () => {
+      cancelled = true;
+      window.clearInterval(interval);
+      window.removeEventListener('focus', handleFocus);
+    };
+  }, [selectedList?.id, lists.length]);
 
   // Enquanto uma lista estiver aberta, atualiza produtos, cliques e analytics silenciosamente.
   useEffect(() => {
@@ -3119,6 +3225,10 @@ export const MaisVendidos: React.FC = () => {
             </span>
           </div>
 
+          {lists.length > 0 && (
+            <BestSellerOverallHoursCard summary={overallHours} loading={overallHoursLoading} />
+          )}
+
           {loading ? (
             <div className="bg-white border border-neutral-200 rounded-lg p-12 text-center text-xs text-neutral-500 animate-pulse">
               Carregando listas...
@@ -3927,17 +4037,22 @@ export const MaisVendidos: React.FC = () => {
               </button>
             </div>
 
-            <form onSubmit={handleSaveList} className="p-5 space-y-4 text-xs overflow-y-auto overscroll-contain flex-1 min-h-0">
+            <form onSubmit={handleSaveList} className="p-4 sm:p-5 space-y-3 text-xs overflow-y-auto overscroll-contain flex-1 min-h-0">
               {listError && (
                 <div className="p-3 rounded bg-red-50 text-red-800 border border-red-200 text-xs">
                   {listError}
                 </div>
               )}
 
-              <div className="pt-1 pb-1 border-b border-neutral-200">
-                <div className="flex items-center gap-1.5 text-[10px] font-bold uppercase tracking-wider text-neutral-500"><Layers className="w-3.5 h-3.5" /> 1. Identidade e link</div>
-                <p className="text-[10px] text-neutral-400 mt-0.5">Nome, endereço público e identidade visual da vitrine.</p>
-              </div>
+              <details className="group rounded-xl border border-neutral-200 bg-white overflow-hidden" open>
+                <summary className="list-none cursor-pointer select-none px-3.5 py-3 flex items-center justify-between gap-3 bg-neutral-50 hover:bg-neutral-100 transition-colors [&::-webkit-details-marker]:hidden">
+                  <div className="min-w-0">
+                    <div className="flex items-center gap-2 text-[11px] font-bold text-neutral-800"><Layers className="w-4 h-4" /><span>Identidade e link</span></div>
+                    <p className="text-[9px] text-neutral-500 mt-0.5 pl-6">Nome, endereço público e identidade visual da vitrine.</p>
+                  </div>
+                  <ChevronDown className="w-4 h-4 text-neutral-400 shrink-0 transition-transform group-open:rotate-180" />
+                </summary>
+                <div className="p-3.5 sm:p-4 space-y-4">
 
               <div className="space-y-1">
                 <label className="font-semibold text-neutral-700">Título da Vitrine *</label>
@@ -4193,10 +4308,19 @@ export const MaisVendidos: React.FC = () => {
                 />
               </div>
 
-              <div className="pt-2 pb-1 border-b border-neutral-200">
-                <div className="flex items-center gap-1.5 text-[10px] font-bold uppercase tracking-wider text-neutral-500"><SlidersHorizontal className="w-3.5 h-3.5" /> 2. Conversão e padrões</div>
-                <p className="text-[10px] text-neutral-400 mt-0.5">Defina padrões gerais. Cada produto ainda pode ter configuração própria.</p>
-              </div>
+
+                </div>
+              </details>
+
+              <details className="group rounded-xl border border-neutral-200 bg-white overflow-hidden">
+                <summary className="list-none cursor-pointer select-none px-3.5 py-3 flex items-center justify-between gap-3 bg-neutral-50 hover:bg-neutral-100 transition-colors [&::-webkit-details-marker]:hidden">
+                  <div className="min-w-0">
+                    <div className="flex items-center gap-2 text-[11px] font-bold text-neutral-800"><SlidersHorizontal className="w-4 h-4" /><span>Conversão e padrões</span></div>
+                    <p className="text-[9px] text-neutral-500 mt-0.5 pl-6">CTA, badges e presente padrão.</p>
+                  </div>
+                  <ChevronDown className="w-4 h-4 text-neutral-400 shrink-0 transition-transform group-open:rotate-180" />
+                </summary>
+                <div className="p-3.5 sm:p-4 space-y-4">
 
               <div className="space-y-1">
                 <label className="font-semibold text-neutral-700">Texto do botão dos produtos (Opcional)</label>
@@ -4372,10 +4496,19 @@ export const MaisVendidos: React.FC = () => {
                 )}
               </div>
 
-              <div className="pt-2 pb-1 border-b border-neutral-200">
-                <div className="flex items-center gap-1.5 text-[10px] font-bold uppercase tracking-wider text-neutral-500"><Eye className="w-3.5 h-3.5" /> 3. Exibição</div>
-                <p className="text-[10px] text-neutral-400 mt-0.5">O que aparece na composição pública da vitrine.</p>
-              </div>
+
+                </div>
+              </details>
+
+              <details className="group rounded-xl border border-neutral-200 bg-white overflow-hidden">
+                <summary className="list-none cursor-pointer select-none px-3.5 py-3 flex items-center justify-between gap-3 bg-neutral-50 hover:bg-neutral-100 transition-colors [&::-webkit-details-marker]:hidden">
+                  <div className="min-w-0">
+                    <div className="flex items-center gap-2 text-[11px] font-bold text-neutral-800"><Eye className="w-4 h-4" /><span>Exibição</span></div>
+                    <p className="text-[9px] text-neutral-500 mt-0.5 pl-6">Escolha o que aparece na composição pública.</p>
+                  </div>
+                  <ChevronDown className="w-4 h-4 text-neutral-400 shrink-0 transition-transform group-open:rotate-180" />
+                </summary>
+                <div className="p-3.5 sm:p-4 space-y-4">
 
               <div className="space-y-2 rounded-lg bg-neutral-50 border border-neutral-200 p-3">
                 <div>
@@ -4442,10 +4575,19 @@ export const MaisVendidos: React.FC = () => {
                 </div>
               </div>
 
-              <div className="pt-2 pb-1 border-b border-neutral-200">
-                <div className="flex items-center gap-1.5 text-[10px] font-bold uppercase tracking-wider text-neutral-500"><Video className="w-3.5 h-3.5" /> 4. Fundo da vitrine</div>
-                <p className="text-[10px] text-neutral-400 mt-0.5">Configurações do vídeo decorativo fixo ao fundo.</p>
-              </div>
+
+                </div>
+              </details>
+
+              <details className="group rounded-xl border border-neutral-200 bg-white overflow-hidden">
+                <summary className="list-none cursor-pointer select-none px-3.5 py-3 flex items-center justify-between gap-3 bg-neutral-50 hover:bg-neutral-100 transition-colors [&::-webkit-details-marker]:hidden">
+                  <div className="min-w-0">
+                    <div className="flex items-center gap-2 text-[11px] font-bold text-neutral-800"><Video className="w-4 h-4" /><span>Fundo da vitrine</span></div>
+                    <p className="text-[9px] text-neutral-500 mt-0.5 pl-6">Vídeo decorativo, opacidade e desfoque.</p>
+                  </div>
+                  <ChevronDown className="w-4 h-4 text-neutral-400 shrink-0 transition-transform group-open:rotate-180" />
+                </summary>
+                <div className="p-3.5 sm:p-4 space-y-4">
 
               <div className="space-y-3 p-3 rounded-lg bg-neutral-50 border border-neutral-200">
                 <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2 min-w-0">
@@ -4544,10 +4686,19 @@ export const MaisVendidos: React.FC = () => {
                 )}
               </div>
 
-              <div className="pt-2 pb-1 border-b border-neutral-200">
-                <div className="flex items-center gap-1.5 text-[10px] font-bold uppercase tracking-wider text-neutral-500"><Calendar className="w-3.5 h-3.5" /> 5. Publicação</div>
-                <p className="text-[10px] text-neutral-400 mt-0.5">Data de referência e definição do link padrão.</p>
-              </div>
+
+                </div>
+              </details>
+
+              <details className="group rounded-xl border border-neutral-200 bg-white overflow-hidden">
+                <summary className="list-none cursor-pointer select-none px-3.5 py-3 flex items-center justify-between gap-3 bg-neutral-50 hover:bg-neutral-100 transition-colors [&::-webkit-details-marker]:hidden">
+                  <div className="min-w-0">
+                    <div className="flex items-center gap-2 text-[11px] font-bold text-neutral-800"><Calendar className="w-4 h-4" /><span>Publicação</span></div>
+                    <p className="text-[9px] text-neutral-500 mt-0.5 pl-6">Data de referência e link padrão.</p>
+                  </div>
+                  <ChevronDown className="w-4 h-4 text-neutral-400 shrink-0 transition-transform group-open:rotate-180" />
+                </summary>
+                <div className="p-3.5 sm:p-4 space-y-4">
 
               <div className="space-y-1">
                 <label className="font-semibold text-neutral-700">Data da Vitrine *</label>
@@ -4578,10 +4729,19 @@ export const MaisVendidos: React.FC = () => {
                 </label>
               </div>
 
-              <div className="pt-2 pb-1 border-b border-neutral-200">
-                <div className="flex items-center gap-1.5 text-[10px] font-bold uppercase tracking-wider text-neutral-500"><Clock className="w-3.5 h-3.5" /> 6. Timer</div>
-                <p className="text-[10px] text-neutral-400 mt-0.5">Urgência geral da vitrine, quando a campanha precisar.</p>
-              </div>
+
+                </div>
+              </details>
+
+              <details className="group rounded-xl border border-neutral-200 bg-white overflow-hidden">
+                <summary className="list-none cursor-pointer select-none px-3.5 py-3 flex items-center justify-between gap-3 bg-neutral-50 hover:bg-neutral-100 transition-colors [&::-webkit-details-marker]:hidden">
+                  <div className="min-w-0">
+                    <div className="flex items-center gap-2 text-[11px] font-bold text-neutral-800"><Clock className="w-4 h-4" /><span>Timer</span></div>
+                    <p className="text-[9px] text-neutral-500 mt-0.5 pl-6">Urgência geral e looping por visitante.</p>
+                  </div>
+                  <ChevronDown className="w-4 h-4 text-neutral-400 shrink-0 transition-transform group-open:rotate-180" />
+                </summary>
+                <div className="p-3.5 sm:p-4 space-y-4">
 
               {/* Timer */}
               <div className="space-y-3">
@@ -4708,6 +4868,10 @@ export const MaisVendidos: React.FC = () => {
                   </label>
                 )}
               </div>
+
+
+                </div>
+              </details>
 
               <div className="pt-4 border-t border-neutral-200 flex items-center justify-end gap-2">
                 <button

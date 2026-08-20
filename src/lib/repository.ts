@@ -18,6 +18,7 @@ import {
   BestSellerLibraryProduct,
   BestSellerGiftPreset,
   BestSellerAnalyticsSummary,
+  BestSellerOverallHoursSummary,
   BestSellerLiveSession,
   PublicBestSellerList,
 } from '../types/zhaya.js';
@@ -2297,6 +2298,24 @@ export const Repository = {
       return null;
     } catch (e) {
       console.warn('[Repository] Erro ao carregar analytics da lista:', e);
+      return null;
+    }
+  },
+
+  async getBestSellerOverallHours(): Promise<BestSellerOverallHoursSummary | null> {
+    try {
+      const token = isSupabaseConfigured && supabase ? (await supabase.auth.getSession())?.data?.session?.access_token : undefined;
+      const headers: Record<string, string> = {};
+      if (token) headers['Authorization'] = `Bearer ${token}`;
+      const res = await fetch(`/api/best-sellers?mode=analytics&scope=all-hours&_=${Date.now()}`, {
+        headers,
+        cache: 'no-store',
+      });
+      const json = await res.json().catch(() => null);
+      if (res.ok && json?.success && json?.overallHours) return json.overallHours as BestSellerOverallHoursSummary;
+      return null;
+    } catch (e) {
+      console.warn('[Repository] Erro ao carregar média geral de horários:', e);
       return null;
     }
   },

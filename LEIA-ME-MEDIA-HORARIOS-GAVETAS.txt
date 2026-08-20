@@ -1,0 +1,17 @@
+ZHAYA MATCH — MÉDIA GERAL DE HORÁRIOS + GAVETAS DE CONFIGURAÇÃO
+
+1. A tela de histórico agora mostra uma Média geral de horários antes das vitrines.
+   - Usa os acessos de todas as vitrines cadastradas.
+   - Mostra horário mais acessado, faixa mais forte de 3 horas, total de visitantes e vitrines com dados.
+   - O gráfico representa a média de entradas por vitrine em cada hora.
+   - Desktop continua fora das métricas, seguindo a regra atual do Analytics.
+
+2. Nova Vitrine / Editar Dados da Vitrine foi reorganizado em gavetas:
+   - Identidade e link
+   - Conversão e padrões
+   - Exibição
+   - Fundo da vitrine
+   - Publicação
+   - Timer
+
+3. Não precisa de SQL novo. A Média geral usa as tabelas de Analytics já existentes.
