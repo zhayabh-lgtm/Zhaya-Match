@@ -14,6 +14,7 @@ import { Visualizacao } from './pages/admin/Visualizacao';
 import { AnalyticsPage } from './pages/admin/Analytics';
 import { MaisVendidos } from './pages/admin/MaisVendidos';
 import { Configuracoes } from './pages/admin/Configuracoes';
+import { ZhayaMatchHub } from './pages/admin/ZhayaMatchHub';
 import { Preview } from './pages/Preview';
 import { MaisVendidosPage } from './pages/public/MaisVendidosPage';
 
@@ -57,6 +58,18 @@ export default function App() {
             />
 
             {/* Protected Admin Routes */}
+            <Route
+              path="/admin/zhaya-match"
+              element={
+                <VisitorLockGuard>
+                  <ProtectedRoute>
+                    <AdminLayout>
+                      <ZhayaMatchHub />
+                    </AdminLayout>
+                  </ProtectedRoute>
+                </VisitorLockGuard>
+              }
+            />
             <Route
               path="/admin/tipos-medidas"
               element={
@@ -148,7 +161,7 @@ export default function App() {
               path="/admin"
               element={
                 <VisitorLockGuard>
-                  <Navigate to="/admin/tipos-medidas" replace />
+                  <Navigate to="/admin/zhaya-match" replace />
                 </VisitorLockGuard>
               }
             />
@@ -156,7 +169,7 @@ export default function App() {
               path="/"
               element={
                 <VisitorLockGuard>
-                  <Navigate to="/admin/tipos-medidas" replace />
+                  <Navigate to="/admin/zhaya-match" replace />
                 </VisitorLockGuard>
               }
             />
@@ -164,7 +177,7 @@ export default function App() {
               path="*"
               element={
                 <VisitorLockGuard>
-                  <Navigate to="/admin/tipos-medidas" replace />
+                  <Navigate to="/admin/zhaya-match" replace />
                 </VisitorLockGuard>
               }
             />

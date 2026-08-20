@@ -231,6 +231,8 @@ export default async function handler(req: any, res: any) {
           timerEnd: listData.timer_end || null,
           timerLooping: Boolean(listData.timer_looping),
           timerDurationMinutes: listData.timer_duration_minutes ?? null,
+          liveEnabled: Boolean(listData.live_enabled),
+          internationalConfig: listData.international_config && typeof listData.international_config === 'object' ? listData.international_config : null,
           timezone: listData.timezone || 'America/Sao_Paulo',
           createdAt: listData.created_at,
           updatedAt: listData.updated_at,
@@ -315,6 +317,8 @@ export default async function handler(req: any, res: any) {
           timerEnd: row.timer_end || null,
           timerLooping: Boolean(row.timer_looping),
           timerDurationMinutes: row.timer_duration_minutes ?? null,
+          liveEnabled: Boolean(row.live_enabled),
+          internationalConfig: row.international_config && typeof row.international_config === 'object' ? row.international_config : null,
           timezone: row.timezone || 'America/Sao_Paulo',
           createdAt: row.created_at,
           updatedAt: row.updated_at,
@@ -405,6 +409,8 @@ export default async function handler(req: any, res: any) {
             timer_end: null,
             timer_looping: false,
             timer_duration_minutes: null,
+            live_enabled: Boolean(srcList.live_enabled),
+            international_config: srcList.international_config || null,
             timezone: srcList.timezone || 'America/Sao_Paulo',
             created_by: auth.user?.email || null,
           })
@@ -542,6 +548,10 @@ export default async function handler(req: any, res: any) {
         : null;
       const timerEnd = timerEnabled && !timerLooping && body.timerEnd ? body.timerEnd : null;
       const timezone = body.timezone || 'America/Sao_Paulo';
+      const liveEnabled = Boolean(body.liveEnabled);
+      const internationalConfig = body.internationalConfig && typeof body.internationalConfig === 'object'
+        ? body.internationalConfig
+        : null;
 
       if (!title) {
         return res.status(400).json({ success: false, message: 'O título da lista é obrigatório.' });
@@ -613,6 +623,8 @@ export default async function handler(req: any, res: any) {
           timer_end: timerEnd,
           timer_looping: timerLooping,
           timer_duration_minutes: timerDurationMinutes,
+          live_enabled: liveEnabled,
+          international_config: internationalConfig,
           timezone,
           created_by: auth.user?.email || null,
         })
@@ -662,6 +674,8 @@ export default async function handler(req: any, res: any) {
         timerEnd: data.timer_end || null,
         timerLooping: Boolean(data.timer_looping),
         timerDurationMinutes: data.timer_duration_minutes ?? null,
+        liveEnabled: Boolean(data.live_enabled),
+        internationalConfig: data.international_config && typeof data.international_config === 'object' ? data.international_config : null,
         timezone: data.timezone,
         createdAt: data.created_at,
         updatedAt: data.updated_at,
@@ -751,6 +765,12 @@ export default async function handler(req: any, res: any) {
       if (body.giftImageSize !== undefined) updates.gift_image_size = normalizeGiftImageSize(body.giftImageSize);
       if (body.listDate !== undefined) updates.list_date = body.listDate;
       if (body.timezone !== undefined) updates.timezone = body.timezone;
+      if (body.liveEnabled !== undefined) updates.live_enabled = Boolean(body.liveEnabled);
+      if (body.internationalConfig !== undefined) {
+        updates.international_config = body.internationalConfig && typeof body.internationalConfig === 'object'
+          ? body.internationalConfig
+          : null;
+      }
       if (
         body.timerEnabled !== undefined ||
         body.timerLooping !== undefined ||
@@ -904,6 +924,8 @@ export default async function handler(req: any, res: any) {
         timerEnd: data.timer_end || null,
         timerLooping: Boolean(data.timer_looping),
         timerDurationMinutes: data.timer_duration_minutes ?? null,
+        liveEnabled: Boolean(data.live_enabled),
+        internationalConfig: data.international_config && typeof data.international_config === 'object' ? data.international_config : null,
         timezone: data.timezone,
         createdAt: data.created_at,
         updatedAt: data.updated_at,

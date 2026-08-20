@@ -45,6 +45,7 @@ const VIDEO_MARKER = '__ZHAYA_VIDEO_9X16__';
 const VIDEO_AUTOPLAY_ON = '__ZHAYA_AUTOPLAY_1__';
 const VIDEO_LOOP_ON = '__ZHAYA_LOOP_1__';
 const VIDEO_CONTROLS_ON = '__ZHAYA_CONTROLS_1__';
+const TIMER_SEPARATE_ON = '__ZHAYA_TIMER_SEPARATE_1__';
 
 function videoLegacyMarkers(autoplay: any, loop: any, controls: any): string[] {
   const markers = [VIDEO_MARKER];
@@ -54,13 +55,24 @@ function videoLegacyMarkers(autoplay: any, loop: any, controls: any): string[] {
   return markers;
 }
 
-const VIDEO_INTERNAL_MARKERS = new Set([VIDEO_MARKER, VIDEO_AUTOPLAY_ON, VIDEO_LOOP_ON, VIDEO_CONTROLS_ON]);
+const VIDEO_INTERNAL_MARKERS = new Set([VIDEO_MARKER, VIDEO_AUTOPLAY_ON, VIDEO_LOOP_ON, VIDEO_CONTROLS_ON, TIMER_SEPARATE_ON]);
 
 function visibleProductColors(input: any): string[] {
   const source = Array.isArray(input) ? input : [];
   return source
     .map((value: any) => String(value))
     .filter((value: string) => value && !VIDEO_INTERNAL_MARKERS.has(value));
+}
+
+function withTimerSeparateMarker(input: any, separate: any): string[] {
+  const colors = visibleProductColors(input);
+  if (Boolean(separate)) colors.push(TIMER_SEPARATE_ON);
+  return Array.from(new Set(colors));
+}
+
+function readTimerSeparate(row: any): boolean {
+  const colors = Array.isArray(row?.colors) ? row.colors.map((v: any) => String(v)) : [];
+  return colors.includes(TIMER_SEPARATE_ON) || Boolean(row?.timer_separate);
 }
 
 function colorsWithLegacyVideoState(input: any, itemType: 'product' | 'video', autoplay: any, loop: any, controls: any): string[] {
@@ -411,6 +423,7 @@ export default async function handler(req: any, res: any) {
         timerLooping: Boolean(p.timer_looping),
         timerDurationMinutes: p.timer_duration_minutes ? Number(p.timer_duration_minutes) : null,
         timerColor: p.timer_color || '#FFFFFF',
+        timerSeparate: readTimerSeparate(p),
         clicks: clickEventsError ? (typeof p.clicks === 'number' ? p.clicks : 0) : (clickMap.get(String(p.id)) || 0),
         createdAt: p.created_at,
         updatedAt: p.updated_at,
@@ -498,6 +511,7 @@ export default async function handler(req: any, res: any) {
         timerLooping,
         timerDurationMinutes,
         timerColor,
+        timerSeparate,
       } = body;
 
       const cleanItemType: 'product' | 'video' = String(itemType || body.item_type) === 'video' ? 'video' : 'product';
@@ -642,7 +656,7 @@ export default async function handler(req: any, res: any) {
         available_quantity: parsedAvailable,
         sizes: cleanSizes,
         out_of_stock_sizes: cleanOutOfStockSizes,
-        colors: cleanItemType === 'video' ? videoLegacyMarkers(videoAutoplay, videoLoop, videoControls) : cleanColors,
+        colors: cleanItemType === 'video' ? videoLegacyMarkers(videoAutoplay, videoLoop, videoControls) : withTimerSeparateMarker(cleanColors, timerSeparate),
         installments_count: parsedInstallmentsCount,
         installment_value: parsedInstallmentValue,
         badge_enabled: isBadgeActive,
@@ -760,6 +774,7 @@ export default async function handler(req: any, res: any) {
         timerLooping: Boolean(data.timer_looping),
         timerDurationMinutes: data.timer_duration_minutes ? Number(data.timer_duration_minutes) : null,
         timerColor: data.timer_color || '#FFFFFF',
+        timerSeparate: readTimerSeparate(data),
         clicks: 0,
         createdAt: data.created_at,
         updatedAt: data.updated_at,
@@ -981,9 +996,13 @@ export default async function handler(req: any, res: any) {
       }
 
       if (body.colors !== undefined) {
-        updates.colors = Array.isArray(body.colors)
-          ? body.colors.map((c: any) => sanitizeText(String(c))).filter(Boolean)
-          : [];
+        updates.colors = withTimerSeparateMarker(
+          Array.isArray(body.colors) ? body.colors.map((c: any) => sanitizeText(String(c))).filter(Boolean) : [],
+          body.timerSeparate,
+        );
+      } else if (body.timerSeparate !== undefined) {
+        const { data: currentColorRow } = await supabase.from('best_seller_products').select('colors').eq('id', id).maybeSingle();
+        updates.colors = withTimerSeparateMarker(currentColorRow?.colors || [], body.timerSeparate);
       }
 
       if (body.badgeEnabled !== undefined) {
@@ -1106,6 +1125,7 @@ export default async function handler(req: any, res: any) {
         timerLooping: Boolean(data.timer_looping),
         timerDurationMinutes: data.timer_duration_minutes ? Number(data.timer_duration_minutes) : null,
         timerColor: data.timer_color || '#FFFFFF',
+        timerSeparate: readTimerSeparate(data),
         clicks: typeof data.clicks === 'number' ? data.clicks : 0,
         createdAt: data.created_at,
         updatedAt: data.updated_at,

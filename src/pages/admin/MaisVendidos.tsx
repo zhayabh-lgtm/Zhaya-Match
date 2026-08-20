@@ -40,13 +40,18 @@ import {
   Gift,
   SlidersHorizontal,
   Save,
+  Globe2,
+  MessageCircle,
+  Pause,
+  Square,
+  FileDown,
 } from 'lucide-react';
 import { Repository } from '../../lib/repository';
 import { getReadableTextColor } from '../../lib/contrast';
 import { supabase, isSupabaseConfigured } from '../../lib/supabase';
 import { uploadFileToCloudinary } from '../../lib/cloudinaryMedia';
 import { CloudinaryMediaPicker } from '../../components/admin/CloudinaryMediaPicker';
-import type { BestSellerList, BestSellerProduct, BestSellerMediaItem, BestSellerLibraryProduct, BestSellerGiftPreset, BestSellerAnalyticsSummary, BestSellerAnalyticsHourItem } from '../../types/zhaya';
+import type { BestSellerList, BestSellerProduct, BestSellerMediaItem, BestSellerLibraryProduct, BestSellerGiftPreset, BestSellerAnalyticsSummary, BestSellerAnalyticsHourItem, BestSellerLiveSession, BestSellerInternationalConfig, BestSellerInternationalCountryRule } from '../../types/zhaya';
 
 const BEST_SELLERS_SQL = `-- ==============================================================================
 -- ZHAYA MATCH - SETUP DE MAIS VENDIDOS DO DIA (100% COMPLETO E IDEMPOTENTE)
@@ -686,6 +691,41 @@ const BestSellerHourlyChart: React.FC<{ items: BestSellerAnalyticsHourItem[] }> 
   );
 };
 
+
+function formatLiveDuration(totalSeconds: number): string {
+  const seconds = Math.max(0, Math.floor(Number(totalSeconds || 0)));
+  const h = Math.floor(seconds / 3600);
+  const m = Math.floor((seconds % 3600) / 60);
+  const s = seconds % 60;
+  return [h, m, s].map((value) => String(value).padStart(2, '0')).join(':');
+}
+
+function getLiveElapsedSeconds(session: BestSellerLiveSession | null, nowMs = Date.now()): number {
+  if (!session) return 0;
+  let total = Math.max(0, Number(session.accumulatedSeconds || 0));
+  if (session.status === 'running' && session.lastResumedAt) {
+    const resumedAt = new Date(session.lastResumedAt).getTime();
+    if (Number.isFinite(resumedAt)) total += Math.max(0, Math.floor((nowMs - resumedAt) / 1000));
+  }
+  return total;
+}
+
+function formatDateTimePtBR(value?: string | null): string {
+  if (!value) return '—';
+  try {
+    return new Intl.DateTimeFormat('pt-BR', {
+      timeZone: 'America/Sao_Paulo',
+      day: '2-digit',
+      month: '2-digit',
+      hour: '2-digit',
+      minute: '2-digit',
+      hour12: false,
+    }).format(new Date(value));
+  } catch {
+    return value;
+  }
+}
+
 function formatDatePtBR(dateStr: string) {
   if (!dateStr) return '';
   const parts = dateStr.split('-');
@@ -713,6 +753,20 @@ export const MaisVendidos: React.FC = () => {
   const [loadingProducts, setLoadingProducts] = useState<boolean>(false);
   const [listAnalytics, setListAnalytics] = useState<BestSellerAnalyticsSummary | null>(null);
   const [analyticsLoading, setAnalyticsLoading] = useState<boolean>(false);
+  const [liveSession, setLiveSession] = useState<BestSellerLiveSession | null>(null);
+  const [liveConfigured, setLiveConfigured] = useState<boolean>(true);
+  const [liveActionLoading, setLiveActionLoading] = useState<boolean>(false);
+  const [liveClock, setLiveClock] = useState<number>(Date.now());
+  const [reportModalOpen, setReportModalOpen] = useState<boolean>(false);
+  const [reportIncludeHours, setReportIncludeHours] = useState<boolean>(true);
+  const [reportIncludeLocations, setReportIncludeLocations] = useState<boolean>(true);
+  const [reportIncludeProducts, setReportIncludeProducts] = useState<boolean>(true);
+  const [reportCopied, setReportCopied] = useState<boolean>(false);
+  const [internationalModalOpen, setInternationalModalOpen] = useState<boolean>(false);
+  const [internationalEnabled, setInternationalEnabled] = useState<boolean>(false);
+  const [internationalRules, setInternationalRules] = useState<BestSellerInternationalCountryRule[]>([]);
+  const [internationalSaving, setInternationalSaving] = useState<boolean>(false);
+  const [internationalError, setInternationalError] = useState<string | null>(null);
 
   // Biblioteca reutilizável: guarda dados, imagens e vídeos para novas vitrines.
   const [isLibraryModalOpen, setIsLibraryModalOpen] = useState<boolean>(false);
@@ -770,6 +824,7 @@ export const MaisVendidos: React.FC = () => {
   const [listFormTimerDate, setListFormTimerDate] = useState('');
   const [listFormTimerTime, setListFormTimerTime] = useState('23:59');
   const [listFormApplyTimerToAll, setListFormApplyTimerToAll] = useState<boolean>(false);
+  const [listFormLiveEnabled, setListFormLiveEnabled] = useState<boolean>(false);
   const [savingList, setSavingList] = useState<boolean>(false);
   const [listError, setListError] = useState<string | null>(null);
 
@@ -828,6 +883,7 @@ export const MaisVendidos: React.FC = () => {
   const [prodFormTimerDate, setProdFormTimerDate] = useState('');
   const [prodFormTimerTime, setProdFormTimerTime] = useState('23:59');
   const [prodFormTimerColor, setProdFormTimerColor] = useState('#FFFFFF');
+  const [prodFormTimerSeparate, setProdFormTimerSeparate] = useState<boolean>(false);
   const [draggedSizeIndex, setDraggedSizeIndex] = useState<number | null>(null);
   const [savingProduct, setSavingProduct] = useState<boolean>(false);
   const [productError, setProductError] = useState<string | null>(null);
@@ -1040,6 +1096,8 @@ export const MaisVendidos: React.FC = () => {
     const listId = selectedList?.id;
     if (!listId) {
       setListAnalytics(null);
+      setLiveSession(null);
+      setLiveConfigured(true);
       setAnalyticsLoading(false);
       return;
     }
@@ -1049,10 +1107,11 @@ export const MaisVendidos: React.FC = () => {
     const refreshSelectedMetrics = async () => {
       if (typeof document !== 'undefined' && document.visibilityState !== 'visible') return;
       if (firstRun) setAnalyticsLoading(true);
-      const [listResult, latestProducts, analytics] = await Promise.all([
+      const [listResult, latestProducts, analytics, liveInfo] = await Promise.all([
         Repository.getBestSellerList(listId),
         Repository.getBestSellerProducts(listId),
         Repository.getBestSellerAnalytics(listId),
+        Repository.getBestSellerLiveSession(listId),
       ]);
       if (cancelled) return;
       if (listResult?.list) {
@@ -1061,6 +1120,8 @@ export const MaisVendidos: React.FC = () => {
       }
       setProducts(latestProducts);
       if (analytics) setListAnalytics(analytics);
+      setLiveConfigured(liveInfo.configured !== false);
+      setLiveSession(liveInfo.session || null);
       if (firstRun) {
         firstRun = false;
         setAnalyticsLoading(false);
@@ -1077,6 +1138,11 @@ export const MaisVendidos: React.FC = () => {
       window.removeEventListener('focus', handleFocus);
     };
   }, [selectedList?.id]);
+
+  useEffect(() => {
+    const interval = window.setInterval(() => setLiveClock(Date.now()), 1000);
+    return () => window.clearInterval(interval);
+  }, []);
 
   // Copy SQL
   const handleCopySql = () => {
@@ -1124,6 +1190,7 @@ export const MaisVendidos: React.FC = () => {
     setListFormTimerDate(today);
     setListFormTimerTime('23:59');
     setListFormApplyTimerToAll(false);
+    setListFormLiveEnabled(false);
     setListError(null);
     setGiftPresetMessage(null);
     setLogoUploadError(null);
@@ -1169,6 +1236,7 @@ export const MaisVendidos: React.FC = () => {
     setListFormTimerDurationHours(String(Math.floor(storedDuration / 60)));
     setListFormTimerDurationMinutes(String(storedDuration % 60));
     setListFormApplyTimerToAll(false);
+    setListFormLiveEnabled(Boolean(list.liveEnabled));
     setLogoUploadError(null);
     setLogoInputMode(list.logoUrl ? 'url' : 'upload');
     if (list.timerEnd) {
@@ -1727,6 +1795,7 @@ export const MaisVendidos: React.FC = () => {
           timerLooping: listFormTimerEnabled && listFormTimerLooping,
           timerDurationMinutes: listFormTimerEnabled && listFormTimerLooping ? timerDurationMinutesValue : null,
           applyTimerToAll: editingList ? listFormApplyTimerToAll : false,
+          liveEnabled: listFormLiveEnabled,
         });
 
         if (!res.success) {
@@ -1768,6 +1837,7 @@ export const MaisVendidos: React.FC = () => {
           timerEnd: timerEndIso,
           timerLooping: listFormTimerEnabled && listFormTimerLooping,
           timerDurationMinutes: listFormTimerEnabled && listFormTimerLooping ? timerDurationMinutesValue : null,
+          liveEnabled: listFormLiveEnabled,
           timezone: 'America/Sao_Paulo',
         });
 
@@ -1913,6 +1983,7 @@ export const MaisVendidos: React.FC = () => {
     setProdFormTimerDate(selectedList.listDate || new Date().toISOString().slice(0, 10));
     setProdFormTimerTime('23:59');
     setProdFormTimerColor('#FFFFFF');
+    setProdFormTimerSeparate(false);
     setShowJsonImporter(false);
     setProductJsonInput('');
     setProductJsonMessage(null);
@@ -1974,6 +2045,7 @@ export const MaisVendidos: React.FC = () => {
     setProdFormTimerDurationHours(String(Math.floor(productTimerDuration / 60)));
     setProdFormTimerDurationMinutes(String(productTimerDuration % 60));
     setProdFormTimerColor(prod.timerColor || '#FFFFFF');
+    setProdFormTimerSeparate(Boolean(prod.timerSeparate));
     if (prod.timerEnd) {
       try {
         const d = new Date(prod.timerEnd);
@@ -2288,7 +2360,15 @@ export const MaisVendidos: React.FC = () => {
 
     let productTimerEndIso: string | null = null;
     let productTimerDurationValue: number | null = null;
-    if (prodFormTimerEnabled) {
+    const productTimerUsesList = Boolean(prodFormTimerEnabled && selectedList.timerEnabled && !prodFormTimerSeparate);
+    const effectiveProductTimerSeparate = Boolean(prodFormTimerEnabled && (!selectedList.timerEnabled || prodFormTimerSeparate));
+    let effectiveProductTimerLooping = prodFormTimerLooping;
+
+    if (productTimerUsesList) {
+      effectiveProductTimerLooping = Boolean(selectedList.timerLooping);
+      productTimerEndIso = selectedList.timerLooping ? null : (selectedList.timerEnd || null);
+      productTimerDurationValue = selectedList.timerLooping ? (selectedList.timerDurationMinutes || null) : null;
+    } else if (prodFormTimerEnabled) {
       if (prodFormTimerLooping) {
         const hours = Number(prodFormTimerDurationHours || 0);
         const minutes = Number(prodFormTimerDurationMinutes || 0);
@@ -2355,10 +2435,11 @@ export const MaisVendidos: React.FC = () => {
         giftTextColor: prodFormGiftMode === 'custom' ? (prodFormGiftTextColor || '#FFFFFF') : '#FFFFFF',
         giftImageSize: prodFormGiftMode === 'custom' ? Math.max(36, Math.min(80, Number(prodFormGiftImageSize) || 48)) : 48,
         timerEnabled: prodFormTimerEnabled,
-        timerEnd: prodFormTimerEnabled && !prodFormTimerLooping ? productTimerEndIso : null,
-        timerLooping: prodFormTimerEnabled && prodFormTimerLooping,
-        timerDurationMinutes: prodFormTimerEnabled && prodFormTimerLooping ? productTimerDurationValue : null,
+        timerEnd: prodFormTimerEnabled && !effectiveProductTimerLooping ? productTimerEndIso : null,
+        timerLooping: prodFormTimerEnabled && effectiveProductTimerLooping,
+        timerDurationMinutes: prodFormTimerEnabled && effectiveProductTimerLooping ? productTimerDurationValue : null,
         timerColor: prodFormTimerColor || '#FFFFFF',
+        timerSeparate: effectiveProductTimerSeparate,
       };
 
       if (editingProduct) {
@@ -2444,6 +2525,191 @@ export const MaisVendidos: React.FC = () => {
   const reusableLogoUrls = Array.from(new Set(
     lists.map((list) => (list.logoUrl || '').trim()).filter(Boolean),
   ));
+
+  const liveElapsedSeconds = getLiveElapsedSeconds(liveSession, liveClock);
+  const productItemsForMetrics = products.filter((item) => item.itemType !== 'video');
+
+  const handleLiveAction = async (action: 'start' | 'pause' | 'resume' | 'stop') => {
+    if (!selectedList || liveActionLoading) return;
+    setLiveActionLoading(true);
+    try {
+      const result = await Repository.controlBestSellerLive(selectedList.id, action);
+      if (!result.success) {
+        window.alert(result.error || 'Não foi possível atualizar a live.');
+        return;
+      }
+      setLiveConfigured(result.configured !== false);
+      setLiveSession(result.session || null);
+    } finally {
+      setLiveActionLoading(false);
+    }
+  };
+
+  const buildWhatsAppReport = (): string => {
+    if (!selectedList) return '';
+    const analytics = listAnalytics;
+    const visitors = analytics?.uniqueVisitors || 0;
+    const clicks = analytics?.totalClicks ?? selectedList.totalClicks ?? 0;
+    const conversion = visitors > 0 ? Math.round((clicks / visitors) * 1000) / 10 : 0;
+    const lines: string[] = [
+      `Relatório - ${formatDatePtBR(selectedList.listDate)} - ${selectedList.title}`,
+      '',
+      `Visitantes: ${visitors}`,
+      `Cliques: ${clicks} · Conversão: ${String(conversion).replace('.', ',')}%`,
+    ];
+
+    if (analytics && (analytics.averageEngagementSeconds > 0 || analytics.medianEngagementSeconds)) {
+      lines.push(`Tempo: ${formatEngagementDuration(analytics.averageEngagementSeconds || 0)} média · ${formatEngagementDuration(analytics.medianEngagementSeconds || 0)} mediana`);
+    }
+
+    if (liveSession) {
+      const endLabel = liveSession.endedAt ? formatDateTimePtBR(liveSession.endedAt) : (liveSession.status === 'paused' ? 'Pausada' : 'Em andamento');
+      lines.push('');
+      lines.push(`Live: ${formatDateTimePtBR(liveSession.startedAt)} → ${endLabel}`);
+      lines.push(`Duração: ${formatLiveDuration(liveElapsedSeconds)}`);
+    }
+
+    // Rolagem até o fim / todos os produtos só é informativa quando há mais de um produto.
+    if (analytics && productItemsForMetrics.length > 1) {
+      lines.push('');
+      lines.push(`Chegaram ao último produto: ${analytics.reachedLastProductRate ?? 0}%`);
+      lines.push(`Viram todos os produtos: ${analytics.viewedAllProductsRate ?? 0}%`);
+    }
+
+    if (reportIncludeLocations && analytics?.locations?.length) {
+      const usefulLocations = analytics.locations
+        .filter((item) => item.city || item.region || item.countryCode)
+        .slice(0, 12);
+      if (usefulLocations.length) {
+        lines.push('');
+        lines.push('Cidades:');
+        lines.push(usefulLocations.map((item) => {
+          const label = [item.city, item.region, item.countryCode].filter(Boolean).join(', ');
+          const clickLabel = (item.clicks || 0) > 0 ? `/${item.clicks} cliques` : '';
+          return `${label} ${item.count}${clickLabel}`;
+        }).join(' | '));
+      }
+    }
+
+    if (reportIncludeHours && analytics?.hourlyVisitors?.length) {
+      const hours = analytics.hourlyVisitors.filter((item) => item.visitors > 0);
+      if (hours.length) {
+        lines.push('');
+        lines.push('Horários:');
+        lines.push(hours.map((item) => `${String(item.hour).padStart(2, '0')}:00 ${item.visitors}`).join(' | '));
+      }
+    }
+
+    if (reportIncludeProducts && analytics?.products?.length) {
+      const meaningfulProducts = analytics.products.filter((item) => {
+        const product = products.find((p) => p.id === item.productId);
+        return product?.itemType !== 'video' && (
+          productItemsForMetrics.length > 1 ||
+          item.clicks > 0 ||
+          item.plays > 0 ||
+          ((product?.mediaItems?.length || product?.imageUrls?.length || 0) > 1 && (item.galleryCompletedVisitors || 0) > 0)
+        );
+      });
+      if (meaningfulProducts.length) {
+        lines.push('');
+        lines.push('Produtos:');
+        meaningfulProducts.slice(0, 8).forEach((item) => {
+          const product = products.find((p) => p.id === item.productId);
+          const parts = [`${item.clicks} cliques`];
+          if (item.plays > 0) parts.push(`${item.plays} plays`);
+          const mediaCount = product?.mediaItems?.length || product?.imageUrls?.length || 0;
+          if (mediaCount > 1 && (item.galleryCompletedVisitors || 0) > 0) {
+            parts.push(`${item.galleryCompletedRate ?? 0}% viram todos os slides`);
+          }
+          lines.push(`${item.name}: ${parts.join(' · ')}`);
+        });
+      }
+    }
+
+    return lines.join('\n').replace(/\n{3,}/g, '\n\n').trim();
+  };
+
+  const handleCopyReport = async () => {
+    const report = buildWhatsAppReport();
+    if (!report) return;
+    await navigator.clipboard?.writeText(report);
+    setReportCopied(true);
+    window.setTimeout(() => setReportCopied(false), 1800);
+  };
+
+  const handleOpenWhatsAppReport = () => {
+    const report = buildWhatsAppReport();
+    if (!report) return;
+    window.open(`https://wa.me/?text=${encodeURIComponent(report)}`, '_blank', 'noopener,noreferrer');
+  };
+
+  const handleOpenInternational = () => {
+    if (!selectedList) return;
+    const config = selectedList.internationalConfig;
+    setInternationalEnabled(Boolean(config?.enabled));
+    setInternationalRules(Array.isArray(config?.rules) ? config!.rules : []);
+    setInternationalError(null);
+    setInternationalModalOpen(true);
+  };
+
+  const addInternationalRule = () => {
+    setInternationalRules((current) => [
+      ...current,
+      {
+        countryCode: '',
+        enabled: true,
+        locale: 'en-US',
+        currencyCode: 'USD',
+        currencyRate: 1,
+        approximateConversion: true,
+        approximateLabel: 'Approximate conversion',
+        title: selectedList?.title || '',
+        subtitle: selectedList?.subtitle || '',
+        ctaText: selectedList?.ctaText || 'BUY NOW',
+        buttonDestination: 'product',
+        whatsappNumber: '',
+        whatsappMessage: '',
+        customUrl: '',
+        productTranslations: {},
+      },
+    ]);
+  };
+
+  const updateInternationalRule = (index: number, patch: Partial<BestSellerInternationalCountryRule>) => {
+    setInternationalRules((current) => current.map((rule, i) => i === index ? { ...rule, ...patch } : rule));
+  };
+
+  const saveInternationalConfig = async () => {
+    if (!selectedList) return;
+    const normalizedRules = internationalRules.map((rule) => ({
+      ...rule,
+      countryCode: String(rule.countryCode || '').trim().toUpperCase().slice(0, 2),
+      locale: String(rule.locale || 'en-US').trim(),
+      currencyCode: String(rule.currencyCode || 'USD').trim().toUpperCase(),
+      currencyRate: Number(rule.currencyRate),
+    }));
+    const invalid = normalizedRules.find((rule) => !/^[A-Z]{2}$/.test(rule.countryCode) || !Number.isFinite(rule.currencyRate) || rule.currencyRate <= 0);
+    if (invalid) {
+      setInternationalError('Cada regra precisa de um país ISO com 2 letras e uma taxa maior que zero.');
+      return;
+    }
+    setInternationalSaving(true);
+    setInternationalError(null);
+    try {
+      const config: BestSellerInternationalConfig = { enabled: internationalEnabled, rules: normalizedRules };
+      const result = await Repository.updateBestSellerList(selectedList.id, { internationalConfig: config });
+      if (!result.success) {
+        setInternationalError(result.error || 'Não foi possível salvar a configuração internacional.');
+        return;
+      }
+      const nextList = result.list || { ...selectedList, internationalConfig: config };
+      setSelectedList(nextList);
+      setLists((current) => current.map((item) => item.id === selectedList.id ? { ...item, ...nextList } : item));
+      setInternationalModalOpen(false);
+    } finally {
+      setInternationalSaving(false);
+    }
+  };
 
   return (
     <div className="space-y-6 max-w-6xl mx-auto pb-16">
@@ -2799,7 +3065,24 @@ export const MaisVendidos: React.FC = () => {
                 )}
               </div>
 
-              <div className="flex items-center gap-2">
+              <div className="flex flex-wrap items-center justify-end gap-2">
+                <button
+                  type="button"
+                  onClick={handleOpenInternational}
+                  className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold text-neutral-700 bg-white border border-neutral-300 rounded hover:bg-neutral-50 transition-colors cursor-pointer"
+                  title="Tradução, moeda e destino dos botões por país"
+                >
+                  <Globe2 className="w-3.5 h-3.5" />
+                  Internacional
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setReportModalOpen(true)}
+                  className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold text-neutral-700 bg-white border border-neutral-300 rounded hover:bg-neutral-50 transition-colors cursor-pointer"
+                >
+                  <MessageCircle className="w-3.5 h-3.5" />
+                  Relatório WhatsApp
+                </button>
                 <button
                   type="button"
                   onClick={(e) => handleToggleListActive(selectedList, e)}
@@ -2822,6 +3105,102 @@ export const MaisVendidos: React.FC = () => {
               </div>
             </div>
 
+            {selectedList.liveEnabled && (
+              <div className={`rounded-xl border p-4 ${
+                liveSession?.status === 'running'
+                  ? 'border-emerald-200 bg-emerald-50/60'
+                  : liveSession?.status === 'paused'
+                    ? 'border-amber-200 bg-amber-50/60'
+                    : 'border-neutral-200 bg-neutral-50'
+              }`}>
+                <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+                  <div className="min-w-0">
+                    <div className="flex flex-wrap items-center gap-2">
+                      <span className={`w-2.5 h-2.5 rounded-full ${
+                        liveSession?.status === 'running' ? 'bg-emerald-500 animate-pulse' :
+                        liveSession?.status === 'paused' ? 'bg-amber-500' : 'bg-neutral-400'
+                      }`} />
+                      <span className="text-xs font-bold text-neutral-900">
+                        {liveSession?.status === 'running' ? 'Live em andamento' :
+                         liveSession?.status === 'paused' ? 'Live pausada' :
+                         liveSession?.status === 'stopped' ? 'Última live encerrada' : 'Live pronta para iniciar'}
+                      </span>
+                      {liveSession?.startedAt && (
+                        <span className="text-[10px] text-neutral-500">
+                          Início: {formatDateTimePtBR(liveSession.startedAt)}
+                        </span>
+                      )}
+                    </div>
+                    <div className="mt-2 font-mono text-2xl font-bold tracking-tight text-neutral-900 tabular-nums">
+                      {formatLiveDuration(liveElapsedSeconds)}
+                    </div>
+                    {liveConfigured === false && (
+                      <p className="text-[10px] text-amber-700 mt-1">
+                        Execute o SQL das melhorias de hoje para habilitar as sessões de live no Supabase.
+                      </p>
+                    )}
+                  </div>
+                  <div className="flex flex-wrap gap-2">
+                    {(!liveSession || liveSession.status === 'stopped') && (
+                      <button
+                        type="button"
+                        onClick={() => handleLiveAction('start')}
+                        disabled={liveActionLoading || liveConfigured === false}
+                        className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded bg-neutral-900 text-white text-xs font-bold hover:bg-neutral-800 disabled:opacity-50 cursor-pointer"
+                      >
+                        {liveActionLoading ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Play className="w-3.5 h-3.5" />}
+                        Iniciar Live
+                      </button>
+                    )}
+                    {liveSession?.status === 'running' && (
+                      <>
+                        <button
+                          type="button"
+                          onClick={() => handleLiveAction('pause')}
+                          disabled={liveActionLoading}
+                          className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded bg-amber-100 border border-amber-200 text-amber-900 text-xs font-bold hover:bg-amber-200 disabled:opacity-50 cursor-pointer"
+                        >
+                          <Pause className="w-3.5 h-3.5" />
+                          Pausar live
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => handleLiveAction('stop')}
+                          disabled={liveActionLoading}
+                          className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded bg-red-600 text-white text-xs font-bold hover:bg-red-700 disabled:opacity-50 cursor-pointer"
+                        >
+                          <Square className="w-3.5 h-3.5" />
+                          Parar live
+                        </button>
+                      </>
+                    )}
+                    {liveSession?.status === 'paused' && (
+                      <>
+                        <button
+                          type="button"
+                          onClick={() => handleLiveAction('resume')}
+                          disabled={liveActionLoading}
+                          className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded bg-neutral-900 text-white text-xs font-bold hover:bg-neutral-800 disabled:opacity-50 cursor-pointer"
+                        >
+                          <Play className="w-3.5 h-3.5" />
+                          Continuar Live
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => handleLiveAction('stop')}
+                          disabled={liveActionLoading}
+                          className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded bg-red-600 text-white text-xs font-bold hover:bg-red-700 disabled:opacity-50 cursor-pointer"
+                        >
+                          <Square className="w-3.5 h-3.5" />
+                          Parar live
+                        </button>
+                      </>
+                    )}
+                  </div>
+                </div>
+              </div>
+            )}
+
             {/* Analytics simples da lista */}
             <div className="space-y-3">
               <div className="flex items-center justify-between gap-3">
@@ -2832,7 +3211,17 @@ export const MaisVendidos: React.FC = () => {
                   </h3>
                   <p className="text-[10px] text-neutral-400">Atualiza automaticamente enquanto esta tela estiver aberta.</p>
                 </div>
-                {analyticsLoading && <Loader2 className="w-4 h-4 text-neutral-400 animate-spin" />}
+                <div className="flex items-center gap-2">
+                  {analyticsLoading && <Loader2 className="w-4 h-4 text-neutral-400 animate-spin" />}
+                  <button
+                    type="button"
+                    onClick={() => setReportModalOpen(true)}
+                    className="inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded border border-neutral-200 bg-white text-[10px] font-bold text-neutral-700 hover:bg-neutral-50 cursor-pointer"
+                  >
+                    <MessageCircle className="w-3.5 h-3.5" />
+                    Gerar relatório
+                  </button>
+                </div>
               </div>
 
               <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-2">
@@ -2865,7 +3254,7 @@ export const MaisVendidos: React.FC = () => {
               {listAnalytics && (
                 <div className="rounded-lg border border-neutral-200 bg-white px-3 py-2.5 text-[10px] text-neutral-500 flex flex-wrap gap-x-4 gap-y-1">
                   <span><strong className="text-neutral-700">Tempo ativo total:</strong> {formatEngagementDuration(listAnalytics.totalEngagementSeconds || 0)} <span className="text-neutral-400">(soma dos visitantes)</span></span>
-                  <span><strong className="text-neutral-700">Viram todos os produtos:</strong> {listAnalytics.viewedAllProductsRate ?? 0}%</span>
+                  {productItemsForMetrics.length > 1 && <span><strong className="text-neutral-700">Viram todos os produtos:</strong> {listAnalytics.viewedAllProductsRate ?? 0}%</span>}
                   <span><strong className="text-neutral-700">Exploraram galerias:</strong> {listAnalytics.galleryExplorersRate ?? 0}%</span>
                   <span><strong className="text-neutral-700">Play → clique:</strong> {listAnalytics.videoToClickRate ?? 0}%</span>
                   <span className="text-neutral-400">Desktop é ignorado em todas as métricas.</span>
@@ -2907,7 +3296,15 @@ export const MaisVendidos: React.FC = () => {
                         return (
                           <div key={`${label}-${idx}`} className="flex items-center justify-between gap-2 text-[11px]">
                             <span className="text-neutral-600 truncate" title={label}>{label}</span>
-                            <strong className="text-neutral-900 shrink-0">{item.count}</strong>
+                            <div className="flex items-center gap-1.5 shrink-0">
+                              {(item.clicks || 0) > 0 && (
+                                <span className="inline-flex items-center gap-1 rounded-full bg-neutral-900 text-white px-2 py-0.5 text-[9px] font-bold">
+                                  <MousePointerClick className="w-2.5 h-2.5" />
+                                  {item.clicks}
+                                </span>
+                              )}
+                              <strong className="text-neutral-900" title="Visitantes">{item.count}</strong>
+                            </div>
                           </div>
                         );
                       }) : <span className="text-[11px] text-neutral-400">Sem dados ainda.</span>}
@@ -3919,6 +4316,24 @@ export const MaisVendidos: React.FC = () => {
                 <p className="text-[10px] text-neutral-400 mt-0.5">Urgência geral da vitrine, quando a campanha precisar.</p>
               </div>
 
+              {/* Live */}
+              <div className="space-y-2 rounded-lg border border-neutral-200 bg-neutral-50 p-3">
+                <label className="flex items-start gap-2.5 cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={listFormLiveEnabled}
+                    onChange={(e) => setListFormLiveEnabled(e.target.checked)}
+                    className="mt-0.5 rounded border-neutral-300 text-neutral-900 focus:ring-neutral-900"
+                  />
+                  <span>
+                    <span className="block text-[11px] font-bold text-neutral-800">Vincular a uma live</span>
+                    <span className="block mt-0.5 text-[9px] leading-relaxed text-neutral-500">
+                      Libera Iniciar, Pausar e Parar Live nesta Vitrine. O relatório guarda início, fim e tempo efetivo, descontando as pausas.
+                    </span>
+                  </span>
+                </label>
+              </div>
+
               {/* Timer */}
               <div className="space-y-3">
                 <label className="flex items-start gap-2.5 cursor-pointer">
@@ -4874,6 +5289,35 @@ export const MaisVendidos: React.FC = () => {
 
                 {prodFormTimerEnabled && (
                   <div className="space-y-3 p-3 bg-neutral-50 rounded-lg">
+                    {selectedList?.timerEnabled && (
+                      <label className="flex items-start gap-2.5 rounded-md border border-neutral-200 bg-white px-3 py-2.5 cursor-pointer">
+                        <input
+                          type="checkbox"
+                          checked={prodFormTimerSeparate}
+                          onChange={(e) => setProdFormTimerSeparate(e.target.checked)}
+                          className="mt-0.5 rounded border-neutral-300 text-neutral-900 focus:ring-neutral-900"
+                        />
+                        <span>
+                          <span className="block text-[11px] font-bold text-neutral-800">Separar timer</span>
+                          <span className="block text-[9px] leading-relaxed text-neutral-500 mt-0.5">
+                            Desligado: este timer usa exatamente o mesmo ciclo do timer geral deste visitante. Ligue apenas se este produto precisar de outro tempo.
+                          </span>
+                        </span>
+                      </label>
+                    )}
+
+                    {selectedList?.timerEnabled && !prodFormTimerSeparate ? (
+                      <div className="rounded-md border border-emerald-200 bg-emerald-50 px-3 py-2.5">
+                        <div className="flex items-center gap-1.5 text-[10px] font-bold text-emerald-800">
+                          <Clock className="w-3.5 h-3.5" />
+                          Sincronizado com o timer da Vitrine
+                        </div>
+                        <p className="mt-1 text-[9px] leading-relaxed text-emerald-700">
+                          O topo e este produto mostram o mesmo tempo para a mesma pessoa, inclusive no modo looping.
+                        </p>
+                      </div>
+                    ) : (
+                    <>
                     <div className="inline-flex bg-neutral-200/70 p-0.5 rounded">
                       <button
                         type="button"
@@ -4923,6 +5367,9 @@ export const MaisVendidos: React.FC = () => {
                           <input type="time" value={prodFormTimerTime} onChange={(e) => setProdFormTimerTime(e.target.value)} className="w-full px-3 py-2 border border-neutral-300 rounded text-xs" />
                         </label>
                       </div>
+                    )}
+
+                    </>
                     )}
 
                     <div className="flex items-center justify-between gap-3">
@@ -5259,6 +5706,290 @@ export const MaisVendidos: React.FC = () => {
                 <button type="submit" disabled={savingVideoBlock || !videoBlockMedia} className="w-full sm:w-auto px-4 py-2 rounded text-xs font-semibold text-white bg-neutral-900 hover:bg-neutral-800 disabled:opacity-50 cursor-pointer">{savingVideoBlock ? 'Salvando...' : editingVideoBlock ? 'Salvar vídeo' : 'Adicionar à vitrine'}</button>
               </div>
             </form>
+          </div>
+        </div>
+      )}
+
+
+      {/* ========================================================================= */}
+      {/* MODAL: Relatório resumido para WhatsApp                                   */}
+      {/* ========================================================================= */}
+      {reportModalOpen && selectedList && (
+        <div className="fixed inset-0 z-[80] flex items-center justify-center p-2 sm:p-4 bg-black/50 backdrop-blur-xs overflow-x-hidden">
+          <div className="bg-white rounded-xl border border-neutral-200 shadow-xl w-[calc(100vw-1rem)] sm:w-full max-w-2xl max-h-[92vh] flex flex-col overflow-hidden min-w-0">
+            <div className="px-4 sm:px-5 py-4 border-b border-neutral-200 flex items-start justify-between gap-3 shrink-0">
+              <div className="min-w-0">
+                <h3 className="text-sm font-bold text-neutral-900 flex items-center gap-2">
+                  <MessageCircle className="w-4 h-4" />
+                  Relatório para WhatsApp
+                </h3>
+                <p className="text-[10px] text-neutral-500 mt-0.5">
+                  Resumo enxuto. Métricas sem relevância para esta vitrine são omitidas automaticamente.
+                </p>
+              </div>
+              <button type="button" onClick={() => setReportModalOpen(false)} className="p-1 text-neutral-400 hover:text-neutral-700 cursor-pointer shrink-0">
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            <div className="p-4 sm:p-5 overflow-y-auto overflow-x-hidden flex-1 min-h-0 space-y-4">
+              <div className="rounded-lg border border-neutral-200 bg-neutral-50 p-3">
+                <div className="text-[10px] uppercase tracking-wider font-bold text-neutral-500 mb-2 flex items-center gap-1.5">
+                  <SlidersHorizontal className="w-3.5 h-3.5" />
+                  Informações opcionais
+                </div>
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
+                  <label className="flex items-center gap-2 rounded border border-neutral-200 bg-white px-3 py-2 cursor-pointer">
+                    <input type="checkbox" checked={reportIncludeLocations} onChange={(e) => setReportIncludeLocations(e.target.checked)} />
+                    <span className="text-[11px] font-semibold text-neutral-700">Cidades e cliques</span>
+                  </label>
+                  <label className="flex items-center gap-2 rounded border border-neutral-200 bg-white px-3 py-2 cursor-pointer">
+                    <input type="checkbox" checked={reportIncludeHours} onChange={(e) => setReportIncludeHours(e.target.checked)} />
+                    <span className="text-[11px] font-semibold text-neutral-700">Horários</span>
+                  </label>
+                  <label className="flex items-center gap-2 rounded border border-neutral-200 bg-white px-3 py-2 cursor-pointer">
+                    <input type="checkbox" checked={reportIncludeProducts} onChange={(e) => setReportIncludeProducts(e.target.checked)} />
+                    <span className="text-[11px] font-semibold text-neutral-700">Produtos</span>
+                  </label>
+                </div>
+                {productItemsForMetrics.length <= 1 && (
+                  <p className="mt-2 text-[10px] text-neutral-500">
+                    Esta vitrine tem apenas um produto: “último produto” e “todos os produtos” não entram no relatório.
+                  </p>
+                )}
+              </div>
+
+              <div className="space-y-1.5">
+                <label className="text-[10px] uppercase tracking-wider font-bold text-neutral-500">Prévia</label>
+                <textarea
+                  readOnly
+                  value={buildWhatsAppReport()}
+                  rows={14}
+                  className="w-full min-w-0 resize-y rounded-lg border border-neutral-200 bg-neutral-950 text-neutral-100 px-3 py-3 text-[11px] leading-relaxed font-mono whitespace-pre-wrap break-words focus:outline-none"
+                />
+              </div>
+            </div>
+
+            <div className="px-4 sm:px-5 py-4 border-t border-neutral-200 flex flex-col-reverse sm:flex-row sm:items-center sm:justify-end gap-2 shrink-0">
+              <button type="button" onClick={() => setReportModalOpen(false)} className="w-full sm:w-auto px-3.5 py-2 rounded text-xs font-semibold border border-neutral-300 text-neutral-700 bg-white hover:bg-neutral-50 cursor-pointer">
+                Fechar
+              </button>
+              <button type="button" onClick={handleCopyReport} className="w-full sm:w-auto inline-flex justify-center items-center gap-1.5 px-3.5 py-2 rounded text-xs font-semibold border border-neutral-300 text-neutral-800 bg-white hover:bg-neutral-50 cursor-pointer">
+                {reportCopied ? <Check className="w-3.5 h-3.5" /> : <Copy className="w-3.5 h-3.5" />}
+                {reportCopied ? 'Copiado' : 'Copiar'}
+              </button>
+              <button type="button" onClick={handleOpenWhatsAppReport} className="w-full sm:w-auto inline-flex justify-center items-center gap-1.5 px-4 py-2 rounded text-xs font-semibold bg-emerald-600 text-white hover:bg-emerald-700 cursor-pointer">
+                <MessageCircle className="w-3.5 h-3.5" />
+                Abrir no WhatsApp
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ========================================================================= */}
+      {/* MODAL: Internacional — idioma, moeda e destino por país                   */}
+      {/* ========================================================================= */}
+      {internationalModalOpen && selectedList && (
+        <div className="fixed inset-0 z-[80] flex items-center justify-center p-2 sm:p-4 bg-black/50 backdrop-blur-xs overflow-x-hidden">
+          <div className="bg-white rounded-xl border border-neutral-200 shadow-xl w-[calc(100vw-1rem)] sm:w-full max-w-4xl max-h-[94vh] flex flex-col overflow-hidden min-w-0">
+            <div className="px-4 sm:px-5 py-4 border-b border-neutral-200 flex items-start justify-between gap-3 shrink-0">
+              <div className="min-w-0">
+                <h3 className="text-sm font-bold text-neutral-900 flex items-center gap-2">
+                  <Globe2 className="w-4 h-4" />
+                  Internacional
+                </h3>
+                <p className="text-[10px] text-neutral-500 mt-0.5">
+                  Área separada para tradução, conversão manual de moeda e destino dos botões conforme o país detectado.
+                </p>
+              </div>
+              <button type="button" onClick={() => setInternationalModalOpen(false)} className="p-1 text-neutral-400 hover:text-neutral-700 cursor-pointer shrink-0">
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            <div className="p-4 sm:p-5 overflow-y-auto overflow-x-hidden flex-1 min-h-0 space-y-4">
+              {internationalError && (
+                <div className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-xs text-red-800">{internationalError}</div>
+              )}
+
+              <label className="flex items-start gap-3 rounded-lg border border-neutral-200 bg-neutral-50 p-3 cursor-pointer">
+                <input type="checkbox" checked={internationalEnabled} onChange={(e) => setInternationalEnabled(e.target.checked)} className="mt-0.5" />
+                <span>
+                  <span className="block text-xs font-bold text-neutral-900">Ativar experiência internacional</span>
+                  <span className="block text-[10px] text-neutral-500 mt-0.5">
+                    O país é detectado automaticamente. Países sem regra continuam vendo a configuração brasileira original.
+                  </span>
+                </span>
+              </label>
+
+              <div className="rounded-lg border border-blue-100 bg-blue-50/60 px-3 py-2 text-[10px] text-blue-800">
+                A conversão é manual e previsível: informe quanto <strong>R$ 1,00</strong> vale na moeda escolhida. Ex.: USD 0,18. Nenhuma cotação externa é alterada sozinha.
+              </div>
+
+              <div className="space-y-3">
+                {internationalRules.map((rule, ruleIndex) => (
+                  <div key={`${rule.countryCode || 'new'}-${ruleIndex}`} className="rounded-xl border border-neutral-200 bg-white overflow-hidden">
+                    <div className="p-3 sm:p-4 border-b border-neutral-100 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
+                      <div className="flex items-center gap-2 min-w-0">
+                        <span className="w-8 h-8 rounded-full bg-neutral-900 text-white flex items-center justify-center text-[10px] font-black shrink-0">
+                          {(rule.countryCode || '??').toUpperCase()}
+                        </span>
+                        <div className="min-w-0">
+                          <p className="text-xs font-bold text-neutral-900">Regra por país</p>
+                          <p className="text-[9px] text-neutral-500">Use o código ISO de 2 letras: US, AR, PT, MX...</p>
+                        </div>
+                      </div>
+                      <div className="flex items-center gap-2">
+                        <label className="inline-flex items-center gap-1.5 text-[10px] font-semibold text-neutral-600">
+                          <input type="checkbox" checked={rule.enabled !== false} onChange={(e) => updateInternationalRule(ruleIndex, { enabled: e.target.checked })} />
+                          Ativa
+                        </label>
+                        <button type="button" onClick={() => setInternationalRules((current) => current.filter((_, i) => i !== ruleIndex))} className="p-1.5 rounded text-neutral-400 hover:text-red-600 hover:bg-red-50 cursor-pointer" title="Remover país">
+                          <Trash2 className="w-3.5 h-3.5" />
+                        </button>
+                      </div>
+                    </div>
+
+                    <div className="p-3 sm:p-4 space-y-4">
+                      <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+                        <div className="space-y-1">
+                          <label className="text-[10px] font-bold text-neutral-600">País</label>
+                          <input value={rule.countryCode} onChange={(e) => updateInternationalRule(ruleIndex, { countryCode: e.target.value.toUpperCase().replace(/[^A-Z]/g, '').slice(0, 2) })} placeholder="US" maxLength={2} className="w-full min-w-0 px-3 py-2 rounded border border-neutral-300 text-xs uppercase" />
+                        </div>
+                        <div className="space-y-1">
+                          <label className="text-[10px] font-bold text-neutral-600">Idioma/locale</label>
+                          <input value={rule.locale} onChange={(e) => updateInternationalRule(ruleIndex, { locale: e.target.value })} placeholder="en-US" className="w-full min-w-0 px-3 py-2 rounded border border-neutral-300 text-xs" />
+                        </div>
+                        <div className="space-y-1">
+                          <label className="text-[10px] font-bold text-neutral-600">Moeda</label>
+                          <input value={rule.currencyCode} onChange={(e) => updateInternationalRule(ruleIndex, { currencyCode: e.target.value.toUpperCase().slice(0, 3) })} placeholder="USD" maxLength={3} className="w-full min-w-0 px-3 py-2 rounded border border-neutral-300 text-xs uppercase" />
+                        </div>
+                        <div className="space-y-1">
+                          <label className="text-[10px] font-bold text-neutral-600">R$ 1 =</label>
+                          <input type="number" min="0.000001" step="0.000001" value={rule.currencyRate} onChange={(e) => updateInternationalRule(ruleIndex, { currencyRate: Number(e.target.value) })} className="w-full min-w-0 px-3 py-2 rounded border border-neutral-300 text-xs" />
+                        </div>
+                      </div>
+
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                        <label className="flex items-center gap-2 rounded border border-neutral-200 px-3 py-2 cursor-pointer">
+                          <input type="checkbox" checked={Boolean(rule.approximateConversion)} onChange={(e) => updateInternationalRule(ruleIndex, { approximateConversion: e.target.checked })} />
+                          <span className="text-[10px] font-semibold text-neutral-700">Informar que a conversão é aproximada</span>
+                        </label>
+                        <input
+                          value={rule.approximateLabel || ''}
+                          onChange={(e) => updateInternationalRule(ruleIndex, { approximateLabel: e.target.value })}
+                          disabled={!rule.approximateConversion}
+                          placeholder="Approximate conversion"
+                          className="w-full min-w-0 px-3 py-2 rounded border border-neutral-300 text-xs disabled:bg-neutral-100 disabled:text-neutral-400"
+                        />
+                      </div>
+
+                      <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
+                        <div className="space-y-1">
+                          <label className="text-[10px] font-bold text-neutral-600">Título traduzido</label>
+                          <input value={rule.title || ''} onChange={(e) => updateInternationalRule(ruleIndex, { title: e.target.value })} className="w-full min-w-0 px-3 py-2 rounded border border-neutral-300 text-xs" placeholder={selectedList.title} />
+                        </div>
+                        <div className="space-y-1">
+                          <label className="text-[10px] font-bold text-neutral-600">Subtítulo traduzido</label>
+                          <input value={rule.subtitle || ''} onChange={(e) => updateInternationalRule(ruleIndex, { subtitle: e.target.value })} className="w-full min-w-0 px-3 py-2 rounded border border-neutral-300 text-xs" placeholder={selectedList.subtitle || ''} />
+                        </div>
+                        <div className="space-y-1">
+                          <label className="text-[10px] font-bold text-neutral-600">CTA traduzido</label>
+                          <input value={rule.ctaText || ''} onChange={(e) => updateInternationalRule(ruleIndex, { ctaText: e.target.value })} className="w-full min-w-0 px-3 py-2 rounded border border-neutral-300 text-xs" placeholder={selectedList.ctaText || 'COMPRAR'} />
+                        </div>
+                      </div>
+
+                      <div className="rounded-lg border border-neutral-200 bg-neutral-50 p-3 space-y-2">
+                        <label className="text-[10px] font-bold text-neutral-600">Destino dos botões neste país</label>
+                        <select
+                          value={rule.buttonDestination || 'product'}
+                          onChange={(e) => updateInternationalRule(ruleIndex, { buttonDestination: e.target.value as 'product' | 'whatsapp' | 'custom' })}
+                          className="w-full min-w-0 px-3 py-2 rounded border border-neutral-300 bg-white text-xs"
+                        >
+                          <option value="product">Página original do produto</option>
+                          <option value="whatsapp">WhatsApp</option>
+                          <option value="custom">URL personalizada</option>
+                        </select>
+
+                        {(rule.buttonDestination || 'product') === 'whatsapp' && (
+                          <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                            <input value={rule.whatsappNumber || ''} onChange={(e) => updateInternationalRule(ruleIndex, { whatsappNumber: e.target.value })} placeholder="Telefone com país. Ex.: 5531999999999" className="w-full min-w-0 px-3 py-2 rounded border border-neutral-300 bg-white text-xs" />
+                            <input value={rule.whatsappMessage || ''} onChange={(e) => updateInternationalRule(ruleIndex, { whatsappMessage: e.target.value })} placeholder="Mensagem opcional" className="w-full min-w-0 px-3 py-2 rounded border border-neutral-300 bg-white text-xs" />
+                          </div>
+                        )}
+                        {rule.buttonDestination === 'custom' && (
+                          <input type="url" value={rule.customUrl || ''} onChange={(e) => updateInternationalRule(ruleIndex, { customUrl: e.target.value })} placeholder="https://..." className="w-full min-w-0 px-3 py-2 rounded border border-neutral-300 bg-white text-xs" />
+                        )}
+                      </div>
+
+                      {productItemsForMetrics.length > 0 && (
+                        <details className="rounded-lg border border-neutral-200 overflow-hidden">
+                          <summary className="px-3 py-2.5 bg-neutral-50 text-[10px] font-bold text-neutral-700 cursor-pointer select-none">
+                            Tradução dos produtos ({productItemsForMetrics.length})
+                          </summary>
+                          <div className="p-3 space-y-3">
+                            {productItemsForMetrics.map((product) => {
+                              const translated = rule.productTranslations?.[product.id] || {};
+                              return (
+                                <div key={product.id} className="grid grid-cols-1 sm:grid-cols-2 gap-2 rounded border border-neutral-100 p-2.5">
+                                  <div className="sm:col-span-2 text-[10px] font-bold text-neutral-800 truncate" title={product.name}>{product.name}</div>
+                                  <input
+                                    value={translated.name || ''}
+                                    onChange={(e) => updateInternationalRule(ruleIndex, {
+                                      productTranslations: {
+                                        ...(rule.productTranslations || {}),
+                                        [product.id]: { ...translated, name: e.target.value },
+                                      },
+                                    })}
+                                    placeholder="Nome traduzido"
+                                    className="w-full min-w-0 px-3 py-2 rounded border border-neutral-300 text-xs"
+                                  />
+                                  <input
+                                    value={translated.description || ''}
+                                    onChange={(e) => updateInternationalRule(ruleIndex, {
+                                      productTranslations: {
+                                        ...(rule.productTranslations || {}),
+                                        [product.id]: { ...translated, description: e.target.value },
+                                      },
+                                    })}
+                                    placeholder="Descrição breve traduzida"
+                                    className="w-full min-w-0 px-3 py-2 rounded border border-neutral-300 text-xs"
+                                  />
+                                </div>
+                              );
+                            })}
+                          </div>
+                        </details>
+                      )}
+                    </div>
+                  </div>
+                ))}
+
+                {internationalRules.length === 0 && (
+                  <div className="rounded-lg border border-dashed border-neutral-300 bg-neutral-50 p-8 text-center">
+                    <Globe2 className="w-7 h-7 text-neutral-300 mx-auto mb-2" />
+                    <p className="text-xs font-semibold text-neutral-700">Nenhum país configurado</p>
+                    <p className="text-[10px] text-neutral-500 mt-1">Adicione apenas os países que precisam de tradução ou moeda diferente.</p>
+                  </div>
+                )}
+              </div>
+
+              <button type="button" onClick={addInternationalRule} className="inline-flex items-center gap-1.5 px-3 py-2 rounded border border-neutral-300 bg-white text-xs font-semibold text-neutral-700 hover:bg-neutral-50 cursor-pointer">
+                <Plus className="w-3.5 h-3.5" />
+                Adicionar país
+              </button>
+            </div>
+
+            <div className="px-4 sm:px-5 py-4 border-t border-neutral-200 flex flex-col-reverse sm:flex-row sm:items-center sm:justify-end gap-2 shrink-0">
+              <button type="button" onClick={() => setInternationalModalOpen(false)} className="w-full sm:w-auto px-3.5 py-2 rounded text-xs font-semibold border border-neutral-300 text-neutral-700 bg-white hover:bg-neutral-50 cursor-pointer">
+                Cancelar
+              </button>
+              <button type="button" onClick={saveInternationalConfig} disabled={internationalSaving} className="w-full sm:w-auto inline-flex justify-center items-center gap-1.5 px-4 py-2 rounded text-xs font-semibold bg-neutral-900 text-white hover:bg-neutral-800 disabled:opacity-50 cursor-pointer">
+                {internationalSaving ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Save className="w-3.5 h-3.5" />}
+                Salvar internacional
+              </button>
+            </div>
           </div>
         </div>
       )}

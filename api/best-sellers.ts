@@ -6,6 +6,7 @@ import adminMediaHandler from '../serverless/best-sellers/admin-media.js';
 import adminLibraryHandler from '../serverless/best-sellers/admin-library.js';
 import analyticsHandler from '../serverless/best-sellers/analytics.js';
 import extensionHandler from '../serverless/best-sellers/extension.js';
+import liveSessionHandler from '../serverless/best-sellers/live-session.js';
 
 /**
  * Consolida as rotas de Mais Vendidos em uma única Vercel Function.
@@ -32,6 +33,8 @@ export default async function handler(req: any, res: any) {
       return analyticsHandler(req, res);
     case 'extension':
       return extensionHandler(req, res);
+    case 'live-session':
+      return liveSessionHandler(req, res);
     default:
       res.setHeader('Cache-Control', 'no-store');
       return res.status(404).json({

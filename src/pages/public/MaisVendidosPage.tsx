@@ -187,16 +187,29 @@ export function formatAvailableQuantityText(qty: number | null | undefined): str
 /**
  * Formata valores monetários em Real Brasileiro (R$)
  */
-export function formatPriceBRL(price: number | null | undefined): string | null {
+export function formatPriceBRL(
+  price: number | null | undefined,
+  currency = 'BRL',
+  locale = 'pt-BR',
+): string | null {
   if (price === null || price === undefined || typeof price !== 'number' || isNaN(price)) {
     return null;
   }
-  return new Intl.NumberFormat('pt-BR', {
-    style: 'currency',
-    currency: 'BRL',
-    minimumFractionDigits: 2,
-    maximumFractionDigits: 2,
-  }).format(price);
+  try {
+    return new Intl.NumberFormat(locale || 'pt-BR', {
+      style: 'currency',
+      currency: currency || 'BRL',
+      minimumFractionDigits: 2,
+      maximumFractionDigits: 2,
+    }).format(price);
+  } catch {
+    return new Intl.NumberFormat('pt-BR', {
+      style: 'currency',
+      currency: 'BRL',
+      minimumFractionDigits: 2,
+      maximumFractionDigits: 2,
+    }).format(price);
+  }
 }
 
 /**
@@ -876,7 +889,15 @@ const ProductItem: React.FC<{
   showRanking: boolean;
   now: number;
   listId: string;
-}> = ({ product, index, displayRank, isFirst, ctaText, rankColor, sizeColor, showRanking, now, listId }) => {
+  listTimerEnabled?: boolean;
+  listTimerLooping?: boolean;
+  listTimerDurationMinutes?: number | null;
+  listTimerEnd?: string | null;
+  currencyCode?: string;
+  currencyLocale?: string;
+  approximateConversion?: boolean;
+  approximateLabel?: string | null;
+}> = ({ product, index, displayRank, isFirst, ctaText, rankColor, sizeColor, showRanking, now, listId, listTimerEnabled, listTimerLooping, listTimerDurationMinutes, listTimerEnd, currencyCode = 'BRL', currencyLocale = 'pt-BR', approximateConversion = false, approximateLabel }) => {
   const formattedPos = String(displayRank || 1).padStart(2, '0');
   const soldText = product.showSoldQuantity ? formatSoldQuantityText(product.soldQuantity) : null;
   const availableText = formatAvailableQuantityText(product.availableQuantity);
@@ -900,13 +921,34 @@ const ProductItem: React.FC<{
 
   const productTimeRemaining = useMemo(() => {
     if (!product.timerEnabled) return null;
-    if (product.timerLooping && product.timerDurationMinutes && product.timerDurationMinutes > 0) {
-      const evergreenEndMs = getEvergreenTimerEndMs(`product:${product.id}`, product.timerDurationMinutes, now);
+
+    const usesSharedListTimer = Boolean(!product.timerSeparate && listTimerEnabled);
+    const effectiveLooping = usesSharedListTimer ? Boolean(listTimerLooping) : Boolean(product.timerLooping);
+    const effectiveDuration = usesSharedListTimer ? listTimerDurationMinutes : product.timerDurationMinutes;
+    const effectiveEnd = usesSharedListTimer ? listTimerEnd : product.timerEnd;
+
+    if (effectiveLooping && effectiveDuration && effectiveDuration > 0) {
+      // Quando sincronizado, usa exatamente a mesma chave do timer do topo.
+      const timerStorageKey = usesSharedListTimer ? listId : `product:${product.id}`;
+      const evergreenEndMs = getEvergreenTimerEndMs(timerStorageKey, effectiveDuration, now);
       return calculateTimeRemaining(new Date(evergreenEndMs).toISOString());
     }
-    if (!product.timerEnd) return null;
-    return calculateTimeRemaining(product.timerEnd);
-  }, [product.id, product.timerEnabled, product.timerLooping, product.timerDurationMinutes, product.timerEnd, now]);
+    if (!effectiveEnd) return null;
+    return calculateTimeRemaining(effectiveEnd);
+  }, [
+    product.id,
+    product.timerEnabled,
+    product.timerSeparate,
+    product.timerLooping,
+    product.timerDurationMinutes,
+    product.timerEnd,
+    listTimerEnabled,
+    listTimerLooping,
+    listTimerDurationMinutes,
+    listTimerEnd,
+    listId,
+    now,
+  ]);
 
   const productTimerBg = product.timerColor || '#FFFFFF';
   const productTimerText = useMemo(() => getReadableTextColor(productTimerBg), [productTimerBg]);
@@ -1052,16 +1094,16 @@ const ProductItem: React.FC<{
                   product.originalPrice !== undefined &&
                   product.originalPrice > product.promotionalPrice && (
                     <span className="text-[12px] text-neutral-500 line-through font-medium">
-                      {formatPriceBRL(product.originalPrice)}
+                      {formatPriceBRL(product.originalPrice, currencyCode, currencyLocale)}
                     </span>
                   )}
                 <span className="text-[26px] sm:text-[30px] font-black text-white tracking-[-0.045em] leading-none">
-                  {formatPriceBRL(product.promotionalPrice)}
+                  {formatPriceBRL(product.promotionalPrice, currencyCode, currencyLocale)}
                 </span>
               </>
             ) : (
               <span className="text-[26px] sm:text-[30px] font-black text-white tracking-[-0.045em] leading-none">
-                {formatPriceBRL(product.originalPrice)}
+                {formatPriceBRL(product.originalPrice, currencyCode, currencyLocale)}
               </span>
             )}
           </div>
@@ -1069,7 +1111,13 @@ const ProductItem: React.FC<{
 
         {hasInstallment && (
           <p className="mt-1 sm:mt-2 text-[12px] leading-tight text-neutral-300 font-semibold tracking-[-0.01em]">
-            Até {product.installmentsCount}x de {formatPriceBRL(product.installmentValue)} sem juros
+            Até {product.installmentsCount}x de {formatPriceBRL(product.installmentValue, currencyCode, currencyLocale)} sem juros
+          </p>
+        )}
+
+        {approximateConversion && approximateLabel && (
+          <p className="mt-1 text-[9px] sm:text-[10px] text-neutral-600 font-medium">
+            {approximateLabel}
           </p>
         )}
 
@@ -1804,6 +1852,14 @@ export const MaisVendidosPage: React.FC = () => {
                       showRanking={listData.showRanking !== false}
                       now={now}
                       listId={listData.id}
+                      listTimerEnabled={listData.timerEnabled}
+                      listTimerLooping={listData.timerLooping}
+                      listTimerDurationMinutes={listData.timerDurationMinutes}
+                      listTimerEnd={listData.timerEnd}
+                      currencyCode={listData.currencyCode || 'BRL'}
+                      currencyLocale={listData.currencyLocale || 'pt-BR'}
+                      approximateConversion={Boolean(listData.approximateConversion)}
+                      approximateLabel={listData.approximateLabel || null}
                     />
                   );
                 })}

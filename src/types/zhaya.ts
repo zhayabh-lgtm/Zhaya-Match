@@ -468,6 +468,51 @@ export interface PublicBestSellerMediaItem {
   posterUrl?: string | null;
 }
 
+
+export type BestSellerButtonDestination = 'product' | 'whatsapp' | 'custom';
+
+export interface BestSellerInternationalProductTranslation {
+  name?: string | null;
+  description?: string | null;
+}
+
+export interface BestSellerInternationalCountryRule {
+  countryCode: string;
+  enabled: boolean;
+  locale: string;
+  currencyCode: string;
+  /** Multiplicador manual aplicado ao preço em BRL. Ex.: USD 0.18. */
+  currencyRate: number;
+  approximateConversion?: boolean;
+  approximateLabel?: string | null;
+  title?: string | null;
+  subtitle?: string | null;
+  ctaText?: string | null;
+  buttonDestination?: BestSellerButtonDestination;
+  whatsappNumber?: string | null;
+  whatsappMessage?: string | null;
+  customUrl?: string | null;
+  productTranslations?: Record<string, BestSellerInternationalProductTranslation>;
+}
+
+export interface BestSellerInternationalConfig {
+  enabled: boolean;
+  rules: BestSellerInternationalCountryRule[];
+}
+
+export interface BestSellerLiveSession {
+  id: string;
+  listId: string;
+  status: 'running' | 'paused' | 'stopped';
+  startedAt: string;
+  lastResumedAt?: string | null;
+  pausedAt?: string | null;
+  endedAt?: string | null;
+  accumulatedSeconds: number;
+  createdAt?: string;
+  updatedAt?: string;
+}
+
 export interface BestSellerList {
   id: string;
   slug?: string;
@@ -499,6 +544,10 @@ export interface BestSellerList {
   giftImageSize?: number;
   /** Admin-only action flag; not persisted on the list row. */
   applyTimerToAll?: boolean;
+  /** Habilita os controles de sessão de live para esta vitrine. */
+  liveEnabled?: boolean;
+  /** Configuração internacional manual por país. */
+  internationalConfig?: BestSellerInternationalConfig | null;
   listDate: string; // YYYY-MM-DD
   active: boolean;
   timerEnabled: boolean;
@@ -558,6 +607,8 @@ export interface BestSellerProduct {
   timerLooping?: boolean;
   timerDurationMinutes?: number | null;
   timerColor?: string;
+  /** Quando false, o timer do produto usa o mesmo ciclo do timer geral da vitrine. */
+  timerSeparate?: boolean;
   clicks?: number;
   createdAt?: string;
   updatedAt?: string;
@@ -638,6 +689,7 @@ export interface PublicBestSellerProduct {
   timerLooping?: boolean;
   timerDurationMinutes?: number | null;
   timerColor?: string;
+  timerSeparate?: boolean;
 }
 
 
@@ -651,6 +703,8 @@ export interface BestSellerAnalyticsLocationItem {
   region?: string | null;
   city?: string | null;
   count: number;
+  /** Cliques originados nesta localização. */
+  clicks?: number;
 }
 
 export interface BestSellerAnalyticsProductItem {
@@ -726,6 +780,12 @@ export interface PublicBestSellerList {
   timerLooping?: boolean;
   timerDurationMinutes?: number | null;
   timezone: string;
+  /** País detectado pelo edge/IP da Vercel. */
+  detectedCountryCode?: string | null;
+  currencyCode?: string;
+  currencyLocale?: string;
+  approximateConversion?: boolean;
+  approximateLabel?: string | null;
   products: PublicBestSellerProduct[];
 }
 

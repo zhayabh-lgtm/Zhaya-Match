@@ -76,7 +76,8 @@ const VIDEO_MARKER = '__ZHAYA_VIDEO_9X16__';
 const VIDEO_AUTOPLAY_ON = '__ZHAYA_AUTOPLAY_1__';
 const VIDEO_LOOP_ON = '__ZHAYA_LOOP_1__';
 const VIDEO_CONTROLS_ON = '__ZHAYA_CONTROLS_1__';
-const VIDEO_INTERNAL_MARKERS = new Set([VIDEO_MARKER, VIDEO_AUTOPLAY_ON, VIDEO_LOOP_ON, VIDEO_CONTROLS_ON]);
+const TIMER_SEPARATE_ON = '__ZHAYA_TIMER_SEPARATE_1__';
+const VIDEO_INTERNAL_MARKERS = new Set([VIDEO_MARKER, VIDEO_AUTOPLAY_ON, VIDEO_LOOP_ON, VIDEO_CONTROLS_ON, TIMER_SEPARATE_ON]);
 
 function visibleProductColors(input: any): string[] {
   const source = Array.isArray(input) ? input : [];
@@ -205,7 +206,7 @@ export default async function handler(req: any, res: any) {
       console.warn('[Public BestSellers API] Erro ao consultar produtos:', prodsError.message);
     }
 
-    const formattedProducts: PublicBestSellerProduct[] = (productsData || []).map((p) => {
+    let formattedProducts: PublicBestSellerProduct[] = (productsData || []).map((p) => {
       const rawImageUrls = Array.isArray(p.image_urls) ? p.image_urls.filter(Boolean) : [];
       const imageUrls = rawImageUrls.length > 0 ? rawImageUrls : (p.image_url ? [p.image_url] : []);
 
@@ -278,16 +279,88 @@ export default async function handler(req: any, res: any) {
         timerLooping: Boolean(p.timer_enabled && p.timer_looping),
         timerDurationMinutes: p.timer_enabled && p.timer_looping && p.timer_duration_minutes ? Number(p.timer_duration_minutes) : null,
         timerColor: p.timer_color || '#FFFFFF',
+        timerSeparate: Array.isArray(p.colors) && p.colors.map((v: any) => String(v)).includes(TIMER_SEPARATE_ON),
       };
     });
+
+
+    // Internacionalização manual por país. O país vem dos headers da Vercel;
+    // nenhuma taxa de câmbio externa é consultada em tempo real.
+    const detectedCountryCode = String(req.headers?.['x-vercel-ip-country'] || '').trim().toUpperCase() || null;
+    const internationalConfig = activeList.international_config && typeof activeList.international_config === 'object'
+      ? activeList.international_config
+      : null;
+    const rules = internationalConfig && Array.isArray(internationalConfig.rules) ? internationalConfig.rules : [];
+    const countryRule = internationalConfig?.enabled && detectedCountryCode
+      ? rules.find((rule: any) => Boolean(rule?.enabled) && String(rule?.countryCode || '').trim().toUpperCase() === detectedCountryCode)
+      : null;
+
+    let publicTitle = activeList.title;
+    let publicSubtitle = activeList.subtitle || null;
+    let publicCtaText = activeList.cta_text || null;
+    let currencyCode = 'BRL';
+    let currencyLocale = 'pt-BR';
+    let approximateConversion = false;
+    let approximateLabel: string | null = null;
+
+    if (countryRule) {
+      const rate = Number(countryRule.currencyRate);
+      const safeRate = Number.isFinite(rate) && rate > 0 ? rate : 1;
+      currencyCode = String(countryRule.currencyCode || 'BRL').trim().toUpperCase().slice(0, 8) || 'BRL';
+      currencyLocale = String(countryRule.locale || 'pt-BR').trim().slice(0, 32) || 'pt-BR';
+      approximateConversion = Boolean(countryRule.approximateConversion);
+      approximateLabel = approximateConversion
+        ? String(countryRule.approximateLabel || 'Conversão aproximada').trim().slice(0, 80)
+        : null;
+      publicTitle = String(countryRule.title || publicTitle).trim() || publicTitle;
+      publicSubtitle = countryRule.subtitle !== undefined && countryRule.subtitle !== null
+        ? (String(countryRule.subtitle).trim() || null)
+        : publicSubtitle;
+      publicCtaText = countryRule.ctaText !== undefined && countryRule.ctaText !== null
+        ? (String(countryRule.ctaText).trim() || null)
+        : publicCtaText;
+
+      const translations = countryRule.productTranslations && typeof countryRule.productTranslations === 'object'
+        ? countryRule.productTranslations
+        : {};
+      const destination = ['product', 'whatsapp', 'custom'].includes(String(countryRule.buttonDestination))
+        ? String(countryRule.buttonDestination)
+        : 'product';
+      const whatsappNumber = String(countryRule.whatsappNumber || '').replace(/\D+/g, '');
+      const whatsappMessage = String(countryRule.whatsappMessage || '').trim().slice(0, 400);
+      const customUrl = isSafeUrl(countryRule.customUrl) ? String(countryRule.customUrl).trim() : null;
+
+      formattedProducts = formattedProducts.map((product) => {
+        const translation = translations[product.id] || {};
+        const converted = (value: number | null | undefined) => value === null || value === undefined ? value : Math.round(value * safeRate * 100) / 100;
+        let productUrl = product.productUrl;
+        if (destination === 'whatsapp' && whatsappNumber) {
+          const msg = whatsappMessage || `${product.name} - ${product.productUrl || ''}`.trim();
+          productUrl = `https://wa.me/${whatsappNumber}?text=${encodeURIComponent(msg)}`;
+        } else if (destination === 'custom' && customUrl) {
+          productUrl = customUrl;
+        }
+        return {
+          ...product,
+          name: String(translation.name || product.name).trim() || product.name,
+          description: translation.description !== undefined && translation.description !== null
+            ? (String(translation.description).trim() || null)
+            : product.description,
+          productUrl,
+          originalPrice: converted(product.originalPrice) as number | null | undefined,
+          promotionalPrice: converted(product.promotionalPrice) as number | null | undefined,
+          installmentValue: converted(product.installmentValue) as number | null | undefined,
+        };
+      });
+    }
 
     const responseList: PublicBestSellerList = {
       id: activeList.id,
       slug: activeList.slug || undefined,
-      title: activeList.title,
+      title: publicTitle,
       logoUrl: activeList.logo_url || null,
-      subtitle: activeList.subtitle || null,
-      ctaText: activeList.cta_text || null,
+      subtitle: publicSubtitle,
+      ctaText: publicCtaText,
       showDate: activeList.show_date !== false,
       showRanking: activeList.show_ranking !== false,
       rankColor: activeList.rank_color || '#FFFFFF',
@@ -313,6 +386,11 @@ export default async function handler(req: any, res: any) {
           ? Number(activeList.timer_duration_minutes)
           : null,
       timezone: activeList.timezone || 'America/Sao_Paulo',
+      detectedCountryCode,
+      currencyCode,
+      currencyLocale,
+      approximateConversion,
+      approximateLabel,
       products: formattedProducts,
     };
 

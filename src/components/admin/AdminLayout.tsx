@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { Link, useLocation, useNavigate } from 'react-router-dom';
-import { Layers, Palette, FileText, Eye, Settings, LogOut, BarChart3, TrendingUp } from 'lucide-react';
+import { Settings, LogOut, TrendingUp, Sparkles } from 'lucide-react';
 import { useAuth } from '../../context/AuthContext';
 import { Repository } from '../../lib/repository';
 import { PublishStatusBar } from './PublishStatusBar';
@@ -40,11 +40,7 @@ export const AdminLayout: React.FC<AdminLayoutProps> = ({ children }) => {
   };
 
   const navItems = [
-    { label: 'Tipos e medidas', path: '/admin/tipos-medidas', icon: Layers },
-    { label: 'Aparência', path: '/admin/aparencia', icon: Palette },
-    { label: 'Textos e imagens', path: '/admin/textos-imagens', icon: FileText },
-    { label: 'Visualização', path: '/admin/visualizacao', icon: Eye },
-    { label: 'Analytics', path: '/admin/analytics', icon: BarChart3 },
+    { label: 'Zhaya Match', path: '/admin/zhaya-match', icon: Sparkles },
     { label: 'Vitrine personalizada', path: '/admin/mais-vendidos', icon: TrendingUp },
     { label: 'Configurações', path: '/admin/configuracoes', icon: Settings },
   ];
@@ -78,7 +74,10 @@ export const AdminLayout: React.FC<AdminLayoutProps> = ({ children }) => {
         <nav className="p-4 space-y-1 flex-1">
           {navItems.map((item) => {
             const Icon = item.icon;
-            const isActive = location.pathname === item.path;
+            const zhayaMatchPaths = ['/admin/zhaya-match', '/admin/tipos-medidas', '/admin/aparencia', '/admin/textos-imagens', '/admin/visualizacao', '/admin/analytics'];
+            const isActive = item.path === '/admin/zhaya-match'
+              ? zhayaMatchPaths.includes(location.pathname)
+              : location.pathname === item.path;
             return (
               <Link
                 key={item.path}

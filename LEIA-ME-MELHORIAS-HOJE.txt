@@ -1,0 +1,13 @@
+ZHAYA MATCH — MELHORIAS 20/08/2026
+
+ANTES DO DEPLOY:
+1. Abra o Supabase > SQL Editor.
+2. Execute: supabase/2026-08-20_live_international.sql
+3. Depois faça o deploy normal desta pasta/ZIP na Vercel.
+
+O SQL adiciona apenas:
+- live_enabled e international_config em best_seller_lists;
+- tabela best_seller_live_sessions;
+- reforço das colunas cidade/região/país no analytics, se essas tabelas já existirem.
+
+Não é necessária coluna nova para "Separar timer": essa preferência usa o mecanismo de compatibilidade atual dos produtos.

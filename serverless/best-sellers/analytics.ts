@@ -210,15 +210,17 @@ export default async function handler(req: any, res: any) {
 
     try {
       const [{ data: productsData }, { data: listRow }] = await Promise.all([
-        supabase.from('best_seller_products').select('id, name, position').eq('list_id', listId).order('position', { ascending: true }),
+        supabase.from('best_seller_products').select('id, name, position, colors').eq('list_id', listId).order('position', { ascending: true }),
         supabase.from('best_seller_lists').select('timezone').eq('id', listId).maybeSingle(),
       ]);
-      const products = (productsData || []).map((p: any) => ({ id: p.id, name: p.name || 'Produto', position: Number(p.position || 0) }));
+      const products = (productsData || [])
+        .filter((p: any) => !Array.isArray(p?.colors) || !p.colors.map((value: any) => String(value)).includes('__ZHAYA_VIDEO_9X16__'))
+        .map((p: any) => ({ id: p.id, name: p.name || 'Produto', position: Number(p.position || 0) }));
       const timezone = String((listRow as any)?.timezone || 'America/Sao_Paulo');
 
       const { data: eventsData, error: eventsError } = await supabase
         .from('best_seller_analytics_events')
-        .select('event_type, visitor_id, product_id, device_type, created_at')
+        .select('event_type, visitor_id, product_id, device_type, country_code, region, city, created_at')
         .eq('list_id', listId)
         .in('event_type', ['product_play', 'product_click'])
         .order('created_at', { ascending: true })
@@ -270,14 +272,20 @@ export default async function handler(req: any, res: any) {
       }
       const devices = Array.from(deviceMap.entries()).map(([deviceType, count]) => ({ deviceType, count })).sort((a, b) => b.count - a.count);
 
-      const locationMap = new Map<string, { countryCode: string | null; region: string | null; city: string | null; count: number }>();
+      const locationMap = new Map<string, { countryCode: string | null; region: string | null; city: string | null; count: number; clicks: number }>();
       for (const session of sessions) {
         const countryCode = session?.country_code || null; const region = session?.region || null; const city = session?.city || null;
         const key = `${countryCode || ''}|${region || ''}|${city || ''}`;
-        const current = locationMap.get(key) || { countryCode, region, city, count: 0 };
+        const current = locationMap.get(key) || { countryCode, region, city, count: 0, clicks: 0 };
         current.count += 1; locationMap.set(key, current);
       }
-      const locations = Array.from(locationMap.values()).sort((a, b) => b.count - a.count);
+      for (const event of clicks) {
+        const countryCode = event?.country_code || null; const region = event?.region || null; const city = event?.city || null;
+        const key = `${countryCode || ''}|${region || ''}|${city || ''}`;
+        const current = locationMap.get(key) || { countryCode, region, city, count: 0, clicks: 0 };
+        current.clicks += 1; locationMap.set(key, current);
+      }
+      const locations = Array.from(locationMap.values()).sort((a, b) => (b.clicks - a.clicks) || (b.count - a.count));
 
       const hourlyVisitors = emptyHours();
       for (const session of sessions) {

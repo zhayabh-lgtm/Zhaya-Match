@@ -18,6 +18,7 @@ import {
   BestSellerLibraryProduct,
   BestSellerGiftPreset,
   BestSellerAnalyticsSummary,
+  BestSellerLiveSession,
   PublicBestSellerList,
 } from '../types/zhaya.js';
 import { supabase, isSupabaseConfigured } from './supabase.js';
@@ -2217,6 +2218,45 @@ export const Repository = {
         : { success: false, available: Boolean(json.available), bucket: json.bucket, error: json.message || json.error || 'Não foi possível publicar a extensão.' };
     } catch (e: any) {
       return { success: false, error: e?.message || 'Erro ao publicar a extensão.' };
+    }
+  },
+
+
+  async getBestSellerLiveSession(listId: string): Promise<{ configured: boolean; session: BestSellerLiveSession | null; sessions: BestSellerLiveSession[]; error?: string }> {
+    if (!listId) return { configured: false, session: null, sessions: [] };
+    try {
+      const token = isSupabaseConfigured && supabase ? (await supabase.auth.getSession())?.data?.session?.access_token : undefined;
+      const headers: Record<string, string> = {};
+      if (token) headers['Authorization'] = `Bearer ${token}`;
+      const res = await fetch(`/api/best-sellers?mode=live-session&listId=${encodeURIComponent(listId)}&_=${Date.now()}`, { headers, cache: 'no-store' });
+      const json = await res.json().catch(() => ({}));
+      return {
+        configured: json.configured !== false,
+        session: json.session || null,
+        sessions: Array.isArray(json.sessions) ? json.sessions : [],
+        error: res.ok ? undefined : (json.message || json.error || 'Erro ao carregar a live.'),
+      };
+    } catch (e: any) {
+      return { configured: false, session: null, sessions: [], error: e?.message || 'Erro ao carregar a live.' };
+    }
+  },
+
+  async controlBestSellerLive(listId: string, action: 'start' | 'pause' | 'resume' | 'stop'): Promise<{ success: boolean; configured?: boolean; session?: BestSellerLiveSession | null; error?: string }> {
+    try {
+      const token = isSupabaseConfigured && supabase ? (await supabase.auth.getSession())?.data?.session?.access_token : undefined;
+      const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+      if (token) headers['Authorization'] = `Bearer ${token}`;
+      const res = await fetch('/api/best-sellers?mode=live-session', {
+        method: 'POST',
+        headers,
+        body: JSON.stringify({ listId, action }),
+      });
+      const json = await res.json().catch(() => ({}));
+      return res.ok && json.success
+        ? { success: true, configured: json.configured !== false, session: json.session || null }
+        : { success: false, configured: json.configured !== false, error: json.message || json.error || 'Não foi possível atualizar a live.' };
+    } catch (e: any) {
+      return { success: false, error: e?.message || 'Erro ao controlar a live.' };
     }
   },
 
