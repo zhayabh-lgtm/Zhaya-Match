@@ -749,43 +749,103 @@ type InternationalCountryPreset = {
   ctaText: string;
 };
 
+// Mercados internacionais pré-configurados para a Zhaya.
+// País e idioma são conceitos separados: vários países podem usar o mesmo idioma,
+// evitando opções repetidas como "Inglês (EUA)", "Inglês (Canadá)" etc.
+// A ordem abaixo é alfabética pelo nome exibido no painel.
 const INTERNATIONAL_COUNTRY_PRESETS: InternationalCountryPreset[] = [
-  { code: 'BR', name: 'Brasil', locale: 'pt-BR', localeLabel: 'Português (Brasil)', currency: 'BRL', approximateLabel: 'Conversão aproximada', ctaText: 'COMPRAR' },
-  { code: 'US', name: 'Estados Unidos', locale: 'en-US', localeLabel: 'English (United States)', currency: 'USD', approximateLabel: 'Approximate conversion', ctaText: 'BUY NOW' },
-  { code: 'CA', name: 'Canadá', locale: 'en-CA', localeLabel: 'English (Canada)', currency: 'CAD', approximateLabel: 'Approximate conversion', ctaText: 'BUY NOW' },
-  { code: 'GB', name: 'Reino Unido', locale: 'en-GB', localeLabel: 'English (United Kingdom)', currency: 'GBP', approximateLabel: 'Approximate conversion', ctaText: 'BUY NOW' },
-  { code: 'AU', name: 'Austrália', locale: 'en-AU', localeLabel: 'English (Australia)', currency: 'AUD', approximateLabel: 'Approximate conversion', ctaText: 'BUY NOW' },
-  { code: 'NZ', name: 'Nova Zelândia', locale: 'en-NZ', localeLabel: 'English (New Zealand)', currency: 'NZD', approximateLabel: 'Approximate conversion', ctaText: 'BUY NOW' },
-  { code: 'PT', name: 'Portugal', locale: 'pt-PT', localeLabel: 'Português (Portugal)', currency: 'EUR', approximateLabel: 'Conversão aproximada', ctaText: 'COMPRAR' },
-  { code: 'ES', name: 'Espanha', locale: 'es-ES', localeLabel: 'Español (España)', currency: 'EUR', approximateLabel: 'Conversión aproximada', ctaText: 'COMPRAR' },
-  { code: 'MX', name: 'México', locale: 'es-MX', localeLabel: 'Español (México)', currency: 'MXN', approximateLabel: 'Conversión aproximada', ctaText: 'COMPRAR' },
-  { code: 'AR', name: 'Argentina', locale: 'es-AR', localeLabel: 'Español (Argentina)', currency: 'ARS', approximateLabel: 'Conversión aproximada', ctaText: 'COMPRAR' },
-  { code: 'CL', name: 'Chile', locale: 'es-CL', localeLabel: 'Español (Chile)', currency: 'CLP', approximateLabel: 'Conversión aproximada', ctaText: 'COMPRAR' },
-  { code: 'CO', name: 'Colômbia', locale: 'es-CO', localeLabel: 'Español (Colombia)', currency: 'COP', approximateLabel: 'Conversión aproximada', ctaText: 'COMPRAR' },
-  { code: 'PE', name: 'Peru', locale: 'es-PE', localeLabel: 'Español (Perú)', currency: 'PEN', approximateLabel: 'Conversión aproximada', ctaText: 'COMPRAR' },
-  { code: 'UY', name: 'Uruguai', locale: 'es-UY', localeLabel: 'Español (Uruguay)', currency: 'UYU', approximateLabel: 'Conversión aproximada', ctaText: 'COMPRAR' },
-  { code: 'PY', name: 'Paraguai', locale: 'es-PY', localeLabel: 'Español (Paraguay)', currency: 'PYG', approximateLabel: 'Conversión aproximada', ctaText: 'COMPRAR' },
-  { code: 'FR', name: 'França', locale: 'fr-FR', localeLabel: 'Français (France)', currency: 'EUR', approximateLabel: 'Conversion approximative', ctaText: 'ACHETER' },
-  { code: 'DE', name: 'Alemanha', locale: 'de-DE', localeLabel: 'Deutsch (Deutschland)', currency: 'EUR', approximateLabel: 'Ungefähre Umrechnung', ctaText: 'JETZT KAUFEN' },
-  { code: 'IT', name: 'Itália', locale: 'it-IT', localeLabel: 'Italiano (Italia)', currency: 'EUR', approximateLabel: 'Conversione approssimativa', ctaText: 'ACQUISTA' },
-  { code: 'NL', name: 'Países Baixos', locale: 'nl-NL', localeLabel: 'Nederlands', currency: 'EUR', approximateLabel: 'Geschatte conversie', ctaText: 'KOPEN' },
-  { code: 'CH', name: 'Suíça', locale: 'de-CH', localeLabel: 'Deutsch (Schweiz)', currency: 'CHF', approximateLabel: 'Ungefähre Umrechnung', ctaText: 'JETZT KAUFEN' },
-  { code: 'JP', name: 'Japão', locale: 'ja-JP', localeLabel: '日本語', currency: 'JPY', approximateLabel: '概算換算', ctaText: '購入する' },
-  { code: 'KR', name: 'Coreia do Sul', locale: 'ko-KR', localeLabel: '한국어', currency: 'KRW', approximateLabel: '대략적인 환산', ctaText: '구매하기' },
-  { code: 'CN', name: 'China', locale: 'zh-CN', localeLabel: '中文（中国）', currency: 'CNY', approximateLabel: '近似换算', ctaText: '立即购买' },
-  { code: 'AE', name: 'Emirados Árabes Unidos', locale: 'ar-AE', localeLabel: 'العربية', currency: 'AED', approximateLabel: 'تحويل تقريبي', ctaText: 'اشترِ الآن' },
-  { code: 'IN', name: 'Índia', locale: 'en-IN', localeLabel: 'English (India)', currency: 'INR', approximateLabel: 'Approximate conversion', ctaText: 'BUY NOW' },
-  { code: 'ZA', name: 'África do Sul', locale: 'en-ZA', localeLabel: 'English (South Africa)', currency: 'ZAR', approximateLabel: 'Approximate conversion', ctaText: 'BUY NOW' },
+  { code: 'ZA', name: 'África do Sul', locale: 'en', localeLabel: 'Inglês', currency: 'ZAR', approximateLabel: 'Approximate conversion', ctaText: 'BUY NOW' },
+  { code: 'DE', name: 'Alemanha', locale: 'de', localeLabel: 'Alemão', currency: 'EUR', approximateLabel: 'Ungefähre Umrechnung', ctaText: 'JETZT KAUFEN' },
+  { code: 'SA', name: 'Arábia Saudita', locale: 'ar', localeLabel: 'Árabe', currency: 'SAR', approximateLabel: 'تحويل تقريبي', ctaText: 'اشترِ الآن' },
+  { code: 'AR', name: 'Argentina', locale: 'es', localeLabel: 'Espanhol', currency: 'ARS', approximateLabel: 'Conversión aproximada', ctaText: 'COMPRAR' },
+  { code: 'AU', name: 'Austrália', locale: 'en', localeLabel: 'Inglês', currency: 'AUD', approximateLabel: 'Approximate conversion', ctaText: 'BUY NOW' },
+  { code: 'AT', name: 'Áustria', locale: 'de', localeLabel: 'Alemão', currency: 'EUR', approximateLabel: 'Ungefähre Umrechnung', ctaText: 'JETZT KAUFEN' },
+  { code: 'BH', name: 'Bahrein', locale: 'ar', localeLabel: 'Árabe', currency: 'BHD', approximateLabel: 'تحويل تقريبي', ctaText: 'اشترِ الآن' },
+  { code: 'BE', name: 'Bélgica', locale: 'fr', localeLabel: 'Francês', currency: 'EUR', approximateLabel: 'Conversion approximative', ctaText: 'ACHETER' },
+  { code: 'BR', name: 'Brasil', locale: 'pt', localeLabel: 'Português', currency: 'BRL', approximateLabel: 'Conversão aproximada', ctaText: 'COMPRAR' },
+  { code: 'CA', name: 'Canadá', locale: 'en', localeLabel: 'Inglês', currency: 'CAD', approximateLabel: 'Approximate conversion', ctaText: 'BUY NOW' },
+  { code: 'CL', name: 'Chile', locale: 'es', localeLabel: 'Espanhol', currency: 'CLP', approximateLabel: 'Conversión aproximada', ctaText: 'COMPRAR' },
+  { code: 'CN', name: 'China', locale: 'zh-Hans', localeLabel: 'Chinês Simplificado', currency: 'CNY', approximateLabel: '近似换算', ctaText: '立即购买' },
+  { code: 'CO', name: 'Colômbia', locale: 'es', localeLabel: 'Espanhol', currency: 'COP', approximateLabel: 'Conversión aproximada', ctaText: 'COMPRAR' },
+  { code: 'KR', name: 'Coreia do Sul', locale: 'ko', localeLabel: 'Coreano', currency: 'KRW', approximateLabel: '대략적인 환산', ctaText: '구매하기' },
+  { code: 'DK', name: 'Dinamarca', locale: 'da', localeLabel: 'Dinamarquês', currency: 'DKK', approximateLabel: 'Omtrentlig omregning', ctaText: 'KØB NU' },
+  { code: 'AE', name: 'Emirados Árabes Unidos', locale: 'ar', localeLabel: 'Árabe', currency: 'AED', approximateLabel: 'تحويل تقريبي', ctaText: 'اشترِ الآن' },
+  { code: 'ES', name: 'Espanha', locale: 'es', localeLabel: 'Espanhol', currency: 'EUR', approximateLabel: 'Conversión aproximada', ctaText: 'COMPRAR' },
+  { code: 'US', name: 'Estados Unidos', locale: 'en', localeLabel: 'Inglês', currency: 'USD', approximateLabel: 'Approximate conversion', ctaText: 'BUY NOW' },
+  { code: 'FI', name: 'Finlândia', locale: 'fi', localeLabel: 'Finlandês', currency: 'EUR', approximateLabel: 'Arvioitu muunnos', ctaText: 'OSTA NYT' },
+  { code: 'FR', name: 'França', locale: 'fr', localeLabel: 'Francês', currency: 'EUR', approximateLabel: 'Conversion approximative', ctaText: 'ACHETER' },
+  { code: 'HK', name: 'Hong Kong', locale: 'zh-Hant', localeLabel: 'Chinês Tradicional', currency: 'HKD', approximateLabel: '約略換算', ctaText: '立即購買' },
+  { code: 'IN', name: 'Índia', locale: 'hi', localeLabel: 'Hindi', currency: 'INR', approximateLabel: 'अनुमानित रूपांतरण', ctaText: 'अभी खरीदें' },
+  { code: 'ID', name: 'Indonésia', locale: 'id', localeLabel: 'Indonésio', currency: 'IDR', approximateLabel: 'Konversi perkiraan', ctaText: 'BELI SEKARANG' },
+  { code: 'IE', name: 'Irlanda', locale: 'en', localeLabel: 'Inglês', currency: 'EUR', approximateLabel: 'Approximate conversion', ctaText: 'BUY NOW' },
+  { code: 'IT', name: 'Itália', locale: 'it', localeLabel: 'Italiano', currency: 'EUR', approximateLabel: 'Conversione approssimativa', ctaText: 'ACQUISTA' },
+  { code: 'JP', name: 'Japão', locale: 'ja', localeLabel: 'Japonês', currency: 'JPY', approximateLabel: '概算換算', ctaText: '購入する' },
+  { code: 'KW', name: 'Kuwait', locale: 'ar', localeLabel: 'Árabe', currency: 'KWD', approximateLabel: 'تحويل تقريبي', ctaText: 'اشترِ الآن' },
+  { code: 'LU', name: 'Luxemburgo', locale: 'fr', localeLabel: 'Francês', currency: 'EUR', approximateLabel: 'Conversion approximative', ctaText: 'ACHETER' },
+  { code: 'MY', name: 'Malásia', locale: 'ms', localeLabel: 'Malaio', currency: 'MYR', approximateLabel: 'Penukaran anggaran', ctaText: 'BELI SEKARANG' },
+  { code: 'MX', name: 'México', locale: 'es', localeLabel: 'Espanhol', currency: 'MXN', approximateLabel: 'Conversión aproximada', ctaText: 'COMPRAR' },
+  { code: 'NO', name: 'Noruega', locale: 'no', localeLabel: 'Norueguês', currency: 'NOK', approximateLabel: 'Omtrentlig konvertering', ctaText: 'KJØP NÅ' },
+  { code: 'NZ', name: 'Nova Zelândia', locale: 'en', localeLabel: 'Inglês', currency: 'NZD', approximateLabel: 'Approximate conversion', ctaText: 'BUY NOW' },
+  { code: 'OM', name: 'Omã', locale: 'ar', localeLabel: 'Árabe', currency: 'OMR', approximateLabel: 'تحويل تقريبي', ctaText: 'اشترِ الآن' },
+  { code: 'NL', name: 'Países Baixos', locale: 'nl', localeLabel: 'Holandês', currency: 'EUR', approximateLabel: 'Geschatte conversie', ctaText: 'KOPEN' },
+  { code: 'PL', name: 'Polônia', locale: 'pl', localeLabel: 'Polonês', currency: 'PLN', approximateLabel: 'Przybliżone przeliczenie', ctaText: 'KUP TERAZ' },
+  { code: 'PT', name: 'Portugal', locale: 'pt', localeLabel: 'Português', currency: 'EUR', approximateLabel: 'Conversão aproximada', ctaText: 'COMPRAR' },
+  { code: 'QA', name: 'Qatar', locale: 'ar', localeLabel: 'Árabe', currency: 'QAR', approximateLabel: 'تحويل تقريبي', ctaText: 'اشترِ الآن' },
+  { code: 'GB', name: 'Reino Unido', locale: 'en', localeLabel: 'Inglês', currency: 'GBP', approximateLabel: 'Approximate conversion', ctaText: 'BUY NOW' },
+  { code: 'SG', name: 'Singapura', locale: 'en', localeLabel: 'Inglês', currency: 'SGD', approximateLabel: 'Approximate conversion', ctaText: 'BUY NOW' },
+  { code: 'SE', name: 'Suécia', locale: 'sv', localeLabel: 'Sueco', currency: 'SEK', approximateLabel: 'Ungefärlig omräkning', ctaText: 'KÖP NU' },
+  { code: 'CH', name: 'Suíça', locale: 'de', localeLabel: 'Alemão', currency: 'CHF', approximateLabel: 'Ungefähre Umrechnung', ctaText: 'JETZT KAUFEN' },
+  { code: 'TH', name: 'Tailândia', locale: 'th', localeLabel: 'Tailandês', currency: 'THB', approximateLabel: 'การแปลงโดยประมาณ', ctaText: 'ซื้อเลย' },
+  { code: 'TW', name: 'Taiwan', locale: 'zh-Hant', localeLabel: 'Chinês Tradicional', currency: 'TWD', approximateLabel: '約略換算', ctaText: '立即購買' },
+  { code: 'TR', name: 'Turquia', locale: 'tr', localeLabel: 'Turco', currency: 'TRY', approximateLabel: 'Yaklaşık dönüşüm', ctaText: 'ŞİMDİ SATIN AL' },
+  { code: 'UY', name: 'Uruguai', locale: 'es', localeLabel: 'Espanhol', currency: 'UYU', approximateLabel: 'Conversión aproximada', ctaText: 'COMPRAR' },
+  { code: 'VN', name: 'Vietnã', locale: 'vi', localeLabel: 'Vietnamita', currency: 'VND', approximateLabel: 'Quy đổi ước tính', ctaText: 'MUA NGAY' },
 ];
 
 const INTERNATIONAL_CURRENCY_OPTIONS = [
-  'BRL', 'USD', 'EUR', 'GBP', 'CAD', 'AUD', 'NZD', 'MXN', 'ARS', 'CLP', 'COP', 'PEN', 'UYU', 'PYG',
-  'CHF', 'JPY', 'KRW', 'CNY', 'AED', 'INR', 'ZAR', 'SEK', 'NOK', 'DKK', 'PLN', 'CZK', 'HUF', 'TRY',
+  'AED', 'ARS', 'AUD', 'BHD', 'BRL', 'CAD', 'CHF', 'CLP', 'CNY', 'COP', 'DKK', 'EUR', 'GBP', 'HKD',
+  'IDR', 'INR', 'JPY', 'KRW', 'KWD', 'MXN', 'MYR', 'NOK', 'NZD', 'OMR', 'PLN', 'QAR', 'SAR', 'SEK',
+  'SGD', 'THB', 'TRY', 'TWD', 'USD', 'UYU', 'VND', 'ZAR',
 ];
 
-const INTERNATIONAL_LOCALE_OPTIONS = Array.from(
-  new Map(INTERNATIONAL_COUNTRY_PRESETS.map((item) => [item.locale, item.localeLabel])).entries(),
-).map(([value, label]) => ({ value, label }));
+const INTERNATIONAL_LOCALE_OPTIONS = [
+  { value: 'de', label: 'Alemão' },
+  { value: 'ar', label: 'Árabe' },
+  { value: 'zh-Hans', label: 'Chinês Simplificado' },
+  { value: 'zh-Hant', label: 'Chinês Tradicional' },
+  { value: 'ko', label: 'Coreano' },
+  { value: 'da', label: 'Dinamarquês' },
+  { value: 'es', label: 'Espanhol' },
+  { value: 'fi', label: 'Finlandês' },
+  { value: 'fr', label: 'Francês' },
+  { value: 'hi', label: 'Hindi' },
+  { value: 'nl', label: 'Holandês' },
+  { value: 'id', label: 'Indonésio' },
+  { value: 'en', label: 'Inglês' },
+  { value: 'it', label: 'Italiano' },
+  { value: 'ja', label: 'Japonês' },
+  { value: 'ms', label: 'Malaio' },
+  { value: 'no', label: 'Norueguês' },
+  { value: 'pl', label: 'Polonês' },
+  { value: 'pt', label: 'Português' },
+  { value: 'sv', label: 'Sueco' },
+  { value: 'th', label: 'Tailandês' },
+  { value: 'tr', label: 'Turco' },
+  { value: 'vi', label: 'Vietnamita' },
+];
+
+function normalizeInternationalLocale(locale?: string | null): string {
+  const raw = String(locale || '').trim();
+  if (!raw) return 'en';
+  const normalized = raw.replace('_', '-');
+  const lower = normalized.toLowerCase();
+  if (lower.startsWith('zh')) {
+    return /hant|tw|hk|mo/.test(lower) ? 'zh-Hant' : 'zh-Hans';
+  }
+  const base = lower.split('-')[0];
+  const supported = new Set(INTERNATIONAL_LOCALE_OPTIONS.map((item) => item.value.toLowerCase()));
+  return supported.has(base) ? INTERNATIONAL_LOCALE_OPTIONS.find((item) => item.value.toLowerCase() === base)!.value : normalized;
+}
 
 function getInternationalCountryPreset(code?: string | null) {
   return INTERNATIONAL_COUNTRY_PRESETS.find((item) => item.code === String(code || '').toUpperCase());
@@ -2683,16 +2743,23 @@ export const MaisVendidos: React.FC = () => {
     if (!selectedList) return;
     const config = selectedList.internationalConfig;
     const rules = Array.isArray(config?.rules) ? config!.rules : [];
+    const normalizedRules = rules.map((rule) => {
+      const preset = getInternationalCountryPreset(rule.countryCode);
+      return {
+        ...rule,
+        locale: normalizeInternationalLocale(rule.locale || preset?.locale),
+      };
+    });
     setInternationalEnabled(Boolean(config?.enabled));
-    setInternationalRules(rules);
-    const used = new Set(rules.map((rule) => String(rule.countryCode || '').toUpperCase()));
+    setInternationalRules(normalizedRules);
+    const used = new Set(normalizedRules.map((rule) => String(rule.countryCode || '').toUpperCase()));
     setInternationalCountryToAdd(INTERNATIONAL_COUNTRY_PRESETS.find((country) => !used.has(country.code))?.code || 'US');
     setInternationalError(null);
     setInternationalModalOpen(true);
   };
 
   const buildInternationalRuleFromPreset = (countryCode: string): BestSellerInternationalCountryRule => {
-    const preset = getInternationalCountryPreset(countryCode) || INTERNATIONAL_COUNTRY_PRESETS[1];
+    const preset = getInternationalCountryPreset(countryCode) || getInternationalCountryPreset('US') || INTERNATIONAL_COUNTRY_PRESETS[0];
     return {
       countryCode: preset.code,
       enabled: true,
@@ -2761,7 +2828,7 @@ export const MaisVendidos: React.FC = () => {
     const normalizedRules = internationalRules.map((rule) => ({
       ...rule,
       countryCode: String(rule.countryCode || '').trim().toUpperCase().slice(0, 2),
-      locale: String(rule.locale || 'en-US').trim(),
+      locale: normalizeInternationalLocale(rule.locale || 'en'),
       currencyCode: String(rule.currencyCode || 'USD').trim().toUpperCase(),
       currencyRate: Number(rule.currencyRate),
     }));
