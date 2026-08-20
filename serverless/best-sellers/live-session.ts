@@ -82,7 +82,7 @@ export default async function handler(req: any, res: any) {
 
   const { data: listRow, error: listError } = await supabase
     .from('best_seller_lists')
-    .select('id, live_enabled')
+    .select('id')
     .eq('id', listId)
     .maybeSingle();
   if (listError) {
@@ -90,7 +90,6 @@ export default async function handler(req: any, res: any) {
     return res.status(500).json({ success: false, message: listError.message });
   }
   if (!listRow) return res.status(404).json({ success: false, message: 'Vitrine não encontrada.' });
-  if (!listRow.live_enabled) return res.status(400).json({ success: false, message: 'Ative “Vincular a uma live” nos dados da Vitrine primeiro.' });
 
   const { data: latest, error: latestError } = await supabase
     .from('best_seller_live_sessions')

@@ -312,13 +312,9 @@ export default async function handler(req: any, res: any) {
       approximateLabel = approximateConversion
         ? String(countryRule.approximateLabel || 'Conversão aproximada').trim().slice(0, 80)
         : null;
-      publicTitle = String(countryRule.title || publicTitle).trim() || publicTitle;
-      publicSubtitle = countryRule.subtitle !== undefined && countryRule.subtitle !== null
-        ? (String(countryRule.subtitle).trim() || null)
-        : publicSubtitle;
-      publicCtaText = countryRule.ctaText !== undefined && countryRule.ctaText !== null
-        ? (String(countryRule.ctaText).trim() || null)
-        : publicCtaText;
+      publicTitle = String(countryRule.title || '').trim() || publicTitle;
+      publicSubtitle = String(countryRule.subtitle || '').trim() || publicSubtitle;
+      publicCtaText = String(countryRule.ctaText || '').trim() || publicCtaText;
 
       const translations = countryRule.productTranslations && typeof countryRule.productTranslations === 'object'
         ? countryRule.productTranslations

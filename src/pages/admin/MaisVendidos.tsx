@@ -739,6 +739,58 @@ function formatDatePtBR(dateStr: string) {
   }
 }
 
+type InternationalCountryPreset = {
+  code: string;
+  name: string;
+  locale: string;
+  localeLabel: string;
+  currency: string;
+  approximateLabel: string;
+  ctaText: string;
+};
+
+const INTERNATIONAL_COUNTRY_PRESETS: InternationalCountryPreset[] = [
+  { code: 'BR', name: 'Brasil', locale: 'pt-BR', localeLabel: 'Português (Brasil)', currency: 'BRL', approximateLabel: 'Conversão aproximada', ctaText: 'COMPRAR' },
+  { code: 'US', name: 'Estados Unidos', locale: 'en-US', localeLabel: 'English (United States)', currency: 'USD', approximateLabel: 'Approximate conversion', ctaText: 'BUY NOW' },
+  { code: 'CA', name: 'Canadá', locale: 'en-CA', localeLabel: 'English (Canada)', currency: 'CAD', approximateLabel: 'Approximate conversion', ctaText: 'BUY NOW' },
+  { code: 'GB', name: 'Reino Unido', locale: 'en-GB', localeLabel: 'English (United Kingdom)', currency: 'GBP', approximateLabel: 'Approximate conversion', ctaText: 'BUY NOW' },
+  { code: 'AU', name: 'Austrália', locale: 'en-AU', localeLabel: 'English (Australia)', currency: 'AUD', approximateLabel: 'Approximate conversion', ctaText: 'BUY NOW' },
+  { code: 'NZ', name: 'Nova Zelândia', locale: 'en-NZ', localeLabel: 'English (New Zealand)', currency: 'NZD', approximateLabel: 'Approximate conversion', ctaText: 'BUY NOW' },
+  { code: 'PT', name: 'Portugal', locale: 'pt-PT', localeLabel: 'Português (Portugal)', currency: 'EUR', approximateLabel: 'Conversão aproximada', ctaText: 'COMPRAR' },
+  { code: 'ES', name: 'Espanha', locale: 'es-ES', localeLabel: 'Español (España)', currency: 'EUR', approximateLabel: 'Conversión aproximada', ctaText: 'COMPRAR' },
+  { code: 'MX', name: 'México', locale: 'es-MX', localeLabel: 'Español (México)', currency: 'MXN', approximateLabel: 'Conversión aproximada', ctaText: 'COMPRAR' },
+  { code: 'AR', name: 'Argentina', locale: 'es-AR', localeLabel: 'Español (Argentina)', currency: 'ARS', approximateLabel: 'Conversión aproximada', ctaText: 'COMPRAR' },
+  { code: 'CL', name: 'Chile', locale: 'es-CL', localeLabel: 'Español (Chile)', currency: 'CLP', approximateLabel: 'Conversión aproximada', ctaText: 'COMPRAR' },
+  { code: 'CO', name: 'Colômbia', locale: 'es-CO', localeLabel: 'Español (Colombia)', currency: 'COP', approximateLabel: 'Conversión aproximada', ctaText: 'COMPRAR' },
+  { code: 'PE', name: 'Peru', locale: 'es-PE', localeLabel: 'Español (Perú)', currency: 'PEN', approximateLabel: 'Conversión aproximada', ctaText: 'COMPRAR' },
+  { code: 'UY', name: 'Uruguai', locale: 'es-UY', localeLabel: 'Español (Uruguay)', currency: 'UYU', approximateLabel: 'Conversión aproximada', ctaText: 'COMPRAR' },
+  { code: 'PY', name: 'Paraguai', locale: 'es-PY', localeLabel: 'Español (Paraguay)', currency: 'PYG', approximateLabel: 'Conversión aproximada', ctaText: 'COMPRAR' },
+  { code: 'FR', name: 'França', locale: 'fr-FR', localeLabel: 'Français (France)', currency: 'EUR', approximateLabel: 'Conversion approximative', ctaText: 'ACHETER' },
+  { code: 'DE', name: 'Alemanha', locale: 'de-DE', localeLabel: 'Deutsch (Deutschland)', currency: 'EUR', approximateLabel: 'Ungefähre Umrechnung', ctaText: 'JETZT KAUFEN' },
+  { code: 'IT', name: 'Itália', locale: 'it-IT', localeLabel: 'Italiano (Italia)', currency: 'EUR', approximateLabel: 'Conversione approssimativa', ctaText: 'ACQUISTA' },
+  { code: 'NL', name: 'Países Baixos', locale: 'nl-NL', localeLabel: 'Nederlands', currency: 'EUR', approximateLabel: 'Geschatte conversie', ctaText: 'KOPEN' },
+  { code: 'CH', name: 'Suíça', locale: 'de-CH', localeLabel: 'Deutsch (Schweiz)', currency: 'CHF', approximateLabel: 'Ungefähre Umrechnung', ctaText: 'JETZT KAUFEN' },
+  { code: 'JP', name: 'Japão', locale: 'ja-JP', localeLabel: '日本語', currency: 'JPY', approximateLabel: '概算換算', ctaText: '購入する' },
+  { code: 'KR', name: 'Coreia do Sul', locale: 'ko-KR', localeLabel: '한국어', currency: 'KRW', approximateLabel: '대략적인 환산', ctaText: '구매하기' },
+  { code: 'CN', name: 'China', locale: 'zh-CN', localeLabel: '中文（中国）', currency: 'CNY', approximateLabel: '近似换算', ctaText: '立即购买' },
+  { code: 'AE', name: 'Emirados Árabes Unidos', locale: 'ar-AE', localeLabel: 'العربية', currency: 'AED', approximateLabel: 'تحويل تقريبي', ctaText: 'اشترِ الآن' },
+  { code: 'IN', name: 'Índia', locale: 'en-IN', localeLabel: 'English (India)', currency: 'INR', approximateLabel: 'Approximate conversion', ctaText: 'BUY NOW' },
+  { code: 'ZA', name: 'África do Sul', locale: 'en-ZA', localeLabel: 'English (South Africa)', currency: 'ZAR', approximateLabel: 'Approximate conversion', ctaText: 'BUY NOW' },
+];
+
+const INTERNATIONAL_CURRENCY_OPTIONS = [
+  'BRL', 'USD', 'EUR', 'GBP', 'CAD', 'AUD', 'NZD', 'MXN', 'ARS', 'CLP', 'COP', 'PEN', 'UYU', 'PYG',
+  'CHF', 'JPY', 'KRW', 'CNY', 'AED', 'INR', 'ZAR', 'SEK', 'NOK', 'DKK', 'PLN', 'CZK', 'HUF', 'TRY',
+];
+
+const INTERNATIONAL_LOCALE_OPTIONS = Array.from(
+  new Map(INTERNATIONAL_COUNTRY_PRESETS.map((item) => [item.locale, item.localeLabel])).entries(),
+).map(([value, label]) => ({ value, label }));
+
+function getInternationalCountryPreset(code?: string | null) {
+  return INTERNATIONAL_COUNTRY_PRESETS.find((item) => item.code === String(code || '').toUpperCase());
+}
+
 export const MaisVendidos: React.FC = () => {
   // State: Lists & Supabase Status
   const [lists, setLists] = useState<BestSellerList[]>([]);
@@ -767,6 +819,7 @@ export const MaisVendidos: React.FC = () => {
   const [internationalRules, setInternationalRules] = useState<BestSellerInternationalCountryRule[]>([]);
   const [internationalSaving, setInternationalSaving] = useState<boolean>(false);
   const [internationalError, setInternationalError] = useState<string | null>(null);
+  const [internationalCountryToAdd, setInternationalCountryToAdd] = useState<string>('US');
 
   // Biblioteca reutilizável: guarda dados, imagens e vídeos para novas vitrines.
   const [isLibraryModalOpen, setIsLibraryModalOpen] = useState<boolean>(false);
@@ -824,7 +877,6 @@ export const MaisVendidos: React.FC = () => {
   const [listFormTimerDate, setListFormTimerDate] = useState('');
   const [listFormTimerTime, setListFormTimerTime] = useState('23:59');
   const [listFormApplyTimerToAll, setListFormApplyTimerToAll] = useState<boolean>(false);
-  const [listFormLiveEnabled, setListFormLiveEnabled] = useState<boolean>(false);
   const [savingList, setSavingList] = useState<boolean>(false);
   const [listError, setListError] = useState<string | null>(null);
 
@@ -1190,7 +1242,6 @@ export const MaisVendidos: React.FC = () => {
     setListFormTimerDate(today);
     setListFormTimerTime('23:59');
     setListFormApplyTimerToAll(false);
-    setListFormLiveEnabled(false);
     setListError(null);
     setGiftPresetMessage(null);
     setLogoUploadError(null);
@@ -1236,7 +1287,6 @@ export const MaisVendidos: React.FC = () => {
     setListFormTimerDurationHours(String(Math.floor(storedDuration / 60)));
     setListFormTimerDurationMinutes(String(storedDuration % 60));
     setListFormApplyTimerToAll(false);
-    setListFormLiveEnabled(Boolean(list.liveEnabled));
     setLogoUploadError(null);
     setLogoInputMode(list.logoUrl ? 'url' : 'upload');
     if (list.timerEnd) {
@@ -1795,7 +1845,7 @@ export const MaisVendidos: React.FC = () => {
           timerLooping: listFormTimerEnabled && listFormTimerLooping,
           timerDurationMinutes: listFormTimerEnabled && listFormTimerLooping ? timerDurationMinutesValue : null,
           applyTimerToAll: editingList ? listFormApplyTimerToAll : false,
-          liveEnabled: listFormLiveEnabled,
+          liveEnabled: true,
         });
 
         if (!res.success) {
@@ -1837,7 +1887,7 @@ export const MaisVendidos: React.FC = () => {
           timerEnd: timerEndIso,
           timerLooping: listFormTimerEnabled && listFormTimerLooping,
           timerDurationMinutes: listFormTimerEnabled && listFormTimerLooping ? timerDurationMinutesValue : null,
-          liveEnabled: listFormLiveEnabled,
+          liveEnabled: true,
           timezone: 'America/Sao_Paulo',
         });
 
@@ -1856,20 +1906,6 @@ export const MaisVendidos: React.FC = () => {
       setListError(err?.message || 'Erro inesperado ao salvar lista.');
     } finally {
       setSavingList(false);
-    }
-  };
-
-  // Toggle List Active Status directly
-  const handleToggleListActive = async (list: BestSellerList, e: React.MouseEvent) => {
-    e.stopPropagation();
-    try {
-      const newActive = !list.active;
-      const res = await Repository.updateBestSellerList(list.id, { active: newActive });
-      if (res.success) {
-        await loadLists(selectedList?.id);
-      }
-    } catch (err) {
-      console.error('Erro ao alternar status da lista:', err);
     }
   };
 
@@ -2646,37 +2682,78 @@ export const MaisVendidos: React.FC = () => {
   const handleOpenInternational = () => {
     if (!selectedList) return;
     const config = selectedList.internationalConfig;
+    const rules = Array.isArray(config?.rules) ? config!.rules : [];
     setInternationalEnabled(Boolean(config?.enabled));
-    setInternationalRules(Array.isArray(config?.rules) ? config!.rules : []);
+    setInternationalRules(rules);
+    const used = new Set(rules.map((rule) => String(rule.countryCode || '').toUpperCase()));
+    setInternationalCountryToAdd(INTERNATIONAL_COUNTRY_PRESETS.find((country) => !used.has(country.code))?.code || 'US');
     setInternationalError(null);
     setInternationalModalOpen(true);
   };
 
+  const buildInternationalRuleFromPreset = (countryCode: string): BestSellerInternationalCountryRule => {
+    const preset = getInternationalCountryPreset(countryCode) || INTERNATIONAL_COUNTRY_PRESETS[1];
+    return {
+      countryCode: preset.code,
+      enabled: true,
+      locale: preset.locale,
+      currencyCode: preset.currency,
+      currencyRate: 1,
+      approximateConversion: preset.currency !== 'BRL',
+      approximateLabel: preset.approximateLabel,
+      title: '',
+      subtitle: '',
+      ctaText: preset.ctaText,
+      buttonDestination: 'product',
+      whatsappNumber: '',
+      whatsappMessage: '',
+      customUrl: '',
+      productTranslations: {},
+    };
+  };
+
   const addInternationalRule = () => {
-    setInternationalRules((current) => [
-      ...current,
-      {
-        countryCode: '',
-        enabled: true,
-        locale: 'en-US',
-        currencyCode: 'USD',
-        currencyRate: 1,
-        approximateConversion: true,
-        approximateLabel: 'Approximate conversion',
-        title: selectedList?.title || '',
-        subtitle: selectedList?.subtitle || '',
-        ctaText: selectedList?.ctaText || 'BUY NOW',
-        buttonDestination: 'product',
-        whatsappNumber: '',
-        whatsappMessage: '',
-        customUrl: '',
-        productTranslations: {},
-      },
-    ]);
+    const code = String(internationalCountryToAdd || '').toUpperCase();
+    const preset = getInternationalCountryPreset(code);
+    if (!preset) {
+      setInternationalError('Escolha um país da lista.');
+      return;
+    }
+    if (internationalRules.some((rule) => String(rule.countryCode || '').toUpperCase() === code)) {
+      setInternationalError(`${preset.name} já está configurado nesta Vitrine.`);
+      return;
+    }
+    setInternationalRules((current) => [...current, buildInternationalRuleFromPreset(code)]);
+    setInternationalError(null);
   };
 
   const updateInternationalRule = (index: number, patch: Partial<BestSellerInternationalCountryRule>) => {
     setInternationalRules((current) => current.map((rule, i) => i === index ? { ...rule, ...patch } : rule));
+  };
+
+  const changeInternationalRuleCountry = (index: number, countryCode: string) => {
+    const code = String(countryCode || '').toUpperCase();
+    const preset = getInternationalCountryPreset(code);
+    if (!preset) return;
+    if (internationalRules.some((rule, i) => i !== index && String(rule.countryCode || '').toUpperCase() === code)) {
+      setInternationalError(`${preset.name} já está configurado nesta Vitrine.`);
+      return;
+    }
+    setInternationalRules((current) => current.map((rule, i) => {
+      if (i !== index) return rule;
+      const previousPreset = getInternationalCountryPreset(rule.countryCode);
+      const shouldReplaceCta = !rule.ctaText || rule.ctaText === previousPreset?.ctaText || rule.ctaText === selectedList?.ctaText;
+      return {
+        ...rule,
+        countryCode: preset.code,
+        locale: preset.locale,
+        currencyCode: preset.currency,
+        approximateConversion: preset.currency !== 'BRL',
+        approximateLabel: preset.approximateLabel,
+        ctaText: shouldReplaceCta ? preset.ctaText : rule.ctaText,
+      };
+    }));
+    setInternationalError(null);
   };
 
   const saveInternationalConfig = async () => {
@@ -2934,18 +3011,6 @@ export const MaisVendidos: React.FC = () => {
                     </div>
 
                     <div className="flex items-center gap-2 shrink-0 border-t sm:border-t-0 pt-3 sm:pt-0 border-neutral-100" onClick={(e) => e.stopPropagation()}>
-                      <button
-                        type="button"
-                        onClick={(e) => handleToggleListActive(list, e)}
-                        className={`px-2.5 py-1.5 text-xs font-semibold rounded border transition-colors cursor-pointer ${
-                          list.active
-                            ? 'bg-neutral-100 text-neutral-700 border-neutral-300 hover:bg-neutral-200'
-                            : 'bg-emerald-50 text-emerald-800 border-emerald-200 hover:bg-emerald-100'
-                        }`}
-                      >
-                        {list.active ? 'Remover do padrão' : 'Usar como padrão'}
-                      </button>
-
                       {list.slug && (
                         <a
                           href={`/mais-vendidos/${list.slug}`}
@@ -3085,17 +3150,6 @@ export const MaisVendidos: React.FC = () => {
                 </button>
                 <button
                   type="button"
-                  onClick={(e) => handleToggleListActive(selectedList, e)}
-                  className={`px-3 py-1.5 text-xs font-semibold rounded border transition-colors cursor-pointer ${
-                    selectedList.active
-                      ? 'bg-neutral-100 text-neutral-700 border-neutral-300 hover:bg-neutral-200'
-                      : 'bg-emerald-50 text-emerald-800 border-emerald-200 hover:bg-emerald-100'
-                  }`}
-                >
-                  {selectedList.active ? 'Remover do link padrão' : 'Usar em /mais-vendidos'}
-                </button>
-                <button
-                  type="button"
                   onClick={() => handleOpenEditList(selectedList)}
                   className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold text-neutral-700 bg-white border border-neutral-300 rounded hover:bg-neutral-50 transition-colors cursor-pointer"
                 >
@@ -3105,7 +3159,7 @@ export const MaisVendidos: React.FC = () => {
               </div>
             </div>
 
-            {selectedList.liveEnabled && (
+            {
               <div className={`rounded-xl border p-4 ${
                 liveSession?.status === 'running'
                   ? 'border-emerald-200 bg-emerald-50/60'
@@ -3121,9 +3175,7 @@ export const MaisVendidos: React.FC = () => {
                         liveSession?.status === 'paused' ? 'bg-amber-500' : 'bg-neutral-400'
                       }`} />
                       <span className="text-xs font-bold text-neutral-900">
-                        {liveSession?.status === 'running' ? 'Live em andamento' :
-                         liveSession?.status === 'paused' ? 'Live pausada' :
-                         liveSession?.status === 'stopped' ? 'Última live encerrada' : 'Live pronta para iniciar'}
+                        TIMER DE LIVE
                       </span>
                       {liveSession?.startedAt && (
                         <span className="text-[10px] text-neutral-500">
@@ -3131,7 +3183,8 @@ export const MaisVendidos: React.FC = () => {
                         </span>
                       )}
                     </div>
-                    <div className="mt-2 font-mono text-2xl font-bold tracking-tight text-neutral-900 tabular-nums">
+                    <div className="mt-1 text-[10px] font-semibold text-neutral-500">{liveSession?.status === 'running' ? 'Ao vivo' : liveSession?.status === 'paused' ? 'Pausado' : 'Pronto'}</div>
+                    <div className="mt-1 font-mono text-2xl font-bold tracking-tight text-neutral-900 tabular-nums">
                       {formatLiveDuration(liveElapsedSeconds)}
                     </div>
                     {liveConfigured === false && (
@@ -3149,7 +3202,7 @@ export const MaisVendidos: React.FC = () => {
                         className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded bg-neutral-900 text-white text-xs font-bold hover:bg-neutral-800 disabled:opacity-50 cursor-pointer"
                       >
                         {liveActionLoading ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Play className="w-3.5 h-3.5" />}
-                        Iniciar Live
+                        Play
                       </button>
                     )}
                     {liveSession?.status === 'running' && (
@@ -3161,7 +3214,7 @@ export const MaisVendidos: React.FC = () => {
                           className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded bg-amber-100 border border-amber-200 text-amber-900 text-xs font-bold hover:bg-amber-200 disabled:opacity-50 cursor-pointer"
                         >
                           <Pause className="w-3.5 h-3.5" />
-                          Pausar live
+                          Pausar
                         </button>
                         <button
                           type="button"
@@ -3170,7 +3223,7 @@ export const MaisVendidos: React.FC = () => {
                           className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded bg-red-600 text-white text-xs font-bold hover:bg-red-700 disabled:opacity-50 cursor-pointer"
                         >
                           <Square className="w-3.5 h-3.5" />
-                          Parar live
+                          Parar
                         </button>
                       </>
                     )}
@@ -3183,7 +3236,7 @@ export const MaisVendidos: React.FC = () => {
                           className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded bg-neutral-900 text-white text-xs font-bold hover:bg-neutral-800 disabled:opacity-50 cursor-pointer"
                         >
                           <Play className="w-3.5 h-3.5" />
-                          Continuar Live
+                          Play
                         </button>
                         <button
                           type="button"
@@ -3192,14 +3245,14 @@ export const MaisVendidos: React.FC = () => {
                           className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded bg-red-600 text-white text-xs font-bold hover:bg-red-700 disabled:opacity-50 cursor-pointer"
                         >
                           <Square className="w-3.5 h-3.5" />
-                          Parar live
+                          Parar
                         </button>
                       </>
                     )}
                   </div>
                 </div>
               </div>
-            )}
+            }
 
             {/* Analytics simples da lista */}
             <div className="space-y-3">
@@ -3213,14 +3266,6 @@ export const MaisVendidos: React.FC = () => {
                 </div>
                 <div className="flex items-center gap-2">
                   {analyticsLoading && <Loader2 className="w-4 h-4 text-neutral-400 animate-spin" />}
-                  <button
-                    type="button"
-                    onClick={() => setReportModalOpen(true)}
-                    className="inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded border border-neutral-200 bg-white text-[10px] font-bold text-neutral-700 hover:bg-neutral-50 cursor-pointer"
-                  >
-                    <MessageCircle className="w-3.5 h-3.5" />
-                    Gerar relatório
-                  </button>
                 </div>
               </div>
 
@@ -4314,24 +4359,6 @@ export const MaisVendidos: React.FC = () => {
               <div className="pt-2 pb-1 border-b border-neutral-200">
                 <div className="flex items-center gap-1.5 text-[10px] font-bold uppercase tracking-wider text-neutral-500"><Clock className="w-3.5 h-3.5" /> 6. Timer</div>
                 <p className="text-[10px] text-neutral-400 mt-0.5">Urgência geral da vitrine, quando a campanha precisar.</p>
-              </div>
-
-              {/* Live */}
-              <div className="space-y-2 rounded-lg border border-neutral-200 bg-neutral-50 p-3">
-                <label className="flex items-start gap-2.5 cursor-pointer">
-                  <input
-                    type="checkbox"
-                    checked={listFormLiveEnabled}
-                    onChange={(e) => setListFormLiveEnabled(e.target.checked)}
-                    className="mt-0.5 rounded border-neutral-300 text-neutral-900 focus:ring-neutral-900"
-                  />
-                  <span>
-                    <span className="block text-[11px] font-bold text-neutral-800">Vincular a uma live</span>
-                    <span className="block mt-0.5 text-[9px] leading-relaxed text-neutral-500">
-                      Libera Iniciar, Pausar e Parar Live nesta Vitrine. O relatório guarda início, fim e tempo efetivo, descontando as pausas.
-                    </span>
-                  </span>
-                </label>
               </div>
 
               {/* Timer */}
@@ -5800,7 +5827,7 @@ export const MaisVendidos: React.FC = () => {
                   Internacional
                 </h3>
                 <p className="text-[10px] text-neutral-500 mt-0.5">
-                  Área separada para tradução, conversão manual de moeda e destino dos botões conforme o país detectado.
+                  Configure por país sem digitar códigos: idioma, moeda, textos e destino dos botões já partem de presets seguros.
                 </p>
               </div>
               <button type="button" onClick={() => setInternationalModalOpen(false)} className="p-1 text-neutral-400 hover:text-neutral-700 cursor-pointer shrink-0">
@@ -5824,7 +5851,7 @@ export const MaisVendidos: React.FC = () => {
               </label>
 
               <div className="rounded-lg border border-blue-100 bg-blue-50/60 px-3 py-2 text-[10px] text-blue-800">
-                A conversão é manual e previsível: informe quanto <strong>R$ 1,00</strong> vale na moeda escolhida. Ex.: USD 0,18. Nenhuma cotação externa é alterada sozinha.
+                O país é detectado automaticamente pelo acesso. País e idioma vêm pré-configurados; você só ajusta a taxa manual da moeda quando quiser converter preços. Assim a Vitrine nunca depende de uma cotação externa inesperada.
               </div>
 
               <div className="space-y-3">
@@ -5836,8 +5863,8 @@ export const MaisVendidos: React.FC = () => {
                           {(rule.countryCode || '??').toUpperCase()}
                         </span>
                         <div className="min-w-0">
-                          <p className="text-xs font-bold text-neutral-900">Regra por país</p>
-                          <p className="text-[9px] text-neutral-500">Use o código ISO de 2 letras: US, AR, PT, MX...</p>
+                          <p className="text-xs font-bold text-neutral-900">{getInternationalCountryPreset(rule.countryCode)?.name || 'País configurado'}</p>
+                          <p className="text-[9px] text-neutral-500">{getInternationalCountryPreset(rule.countryCode)?.localeLabel || rule.locale} · {rule.currencyCode}</p>
                         </div>
                       </div>
                       <div className="flex items-center gap-2">
@@ -5852,21 +5879,30 @@ export const MaisVendidos: React.FC = () => {
                     </div>
 
                     <div className="p-3 sm:p-4 space-y-4">
-                      <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+                      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-2">
                         <div className="space-y-1">
                           <label className="text-[10px] font-bold text-neutral-600">País</label>
-                          <input value={rule.countryCode} onChange={(e) => updateInternationalRule(ruleIndex, { countryCode: e.target.value.toUpperCase().replace(/[^A-Z]/g, '').slice(0, 2) })} placeholder="US" maxLength={2} className="w-full min-w-0 px-3 py-2 rounded border border-neutral-300 text-xs uppercase" />
+                          <select value={rule.countryCode} onChange={(e) => changeInternationalRuleCountry(ruleIndex, e.target.value)} className="w-full min-w-0 px-3 py-2 rounded border border-neutral-300 bg-white text-xs">
+                            {!getInternationalCountryPreset(rule.countryCode) && rule.countryCode && <option value={rule.countryCode}>{rule.countryCode} · configuração anterior</option>}
+                            {INTERNATIONAL_COUNTRY_PRESETS.map((country) => <option key={country.code} value={country.code}>{country.name}</option>)}
+                          </select>
                         </div>
                         <div className="space-y-1">
-                          <label className="text-[10px] font-bold text-neutral-600">Idioma/locale</label>
-                          <input value={rule.locale} onChange={(e) => updateInternationalRule(ruleIndex, { locale: e.target.value })} placeholder="en-US" className="w-full min-w-0 px-3 py-2 rounded border border-neutral-300 text-xs" />
+                          <label className="text-[10px] font-bold text-neutral-600">Idioma</label>
+                          <select value={rule.locale} onChange={(e) => updateInternationalRule(ruleIndex, { locale: e.target.value })} className="w-full min-w-0 px-3 py-2 rounded border border-neutral-300 bg-white text-xs">
+                            {!INTERNATIONAL_LOCALE_OPTIONS.some((locale) => locale.value === rule.locale) && rule.locale && <option value={rule.locale}>{rule.locale}</option>}
+                            {INTERNATIONAL_LOCALE_OPTIONS.map((locale) => <option key={locale.value} value={locale.value}>{locale.label}</option>)}
+                          </select>
                         </div>
                         <div className="space-y-1">
                           <label className="text-[10px] font-bold text-neutral-600">Moeda</label>
-                          <input value={rule.currencyCode} onChange={(e) => updateInternationalRule(ruleIndex, { currencyCode: e.target.value.toUpperCase().slice(0, 3) })} placeholder="USD" maxLength={3} className="w-full min-w-0 px-3 py-2 rounded border border-neutral-300 text-xs uppercase" />
+                          <select value={rule.currencyCode} onChange={(e) => updateInternationalRule(ruleIndex, { currencyCode: e.target.value })} className="w-full min-w-0 px-3 py-2 rounded border border-neutral-300 bg-white text-xs">
+                            {!INTERNATIONAL_CURRENCY_OPTIONS.includes(rule.currencyCode) && rule.currencyCode && <option value={rule.currencyCode}>{rule.currencyCode}</option>}
+                            {INTERNATIONAL_CURRENCY_OPTIONS.map((currency) => <option key={currency} value={currency}>{currency}</option>)}
+                          </select>
                         </div>
                         <div className="space-y-1">
-                          <label className="text-[10px] font-bold text-neutral-600">R$ 1 =</label>
+                          <label className="text-[10px] font-bold text-neutral-600">Taxa manual · R$ 1 =</label>
                           <input type="number" min="0.000001" step="0.000001" value={rule.currencyRate} onChange={(e) => updateInternationalRule(ruleIndex, { currencyRate: Number(e.target.value) })} className="w-full min-w-0 px-3 py-2 rounded border border-neutral-300 text-xs" />
                         </div>
                       </div>
@@ -5970,15 +6006,25 @@ export const MaisVendidos: React.FC = () => {
                   <div className="rounded-lg border border-dashed border-neutral-300 bg-neutral-50 p-8 text-center">
                     <Globe2 className="w-7 h-7 text-neutral-300 mx-auto mb-2" />
                     <p className="text-xs font-semibold text-neutral-700">Nenhum país configurado</p>
-                    <p className="text-[10px] text-neutral-500 mt-1">Adicione apenas os países que precisam de tradução ou moeda diferente.</p>
+                    <p className="text-[10px] text-neutral-500 mt-1">Escolha um país abaixo. Idioma, moeda e textos auxiliares serão preenchidos automaticamente.</p>
                   </div>
                 )}
               </div>
 
-              <button type="button" onClick={addInternationalRule} className="inline-flex items-center gap-1.5 px-3 py-2 rounded border border-neutral-300 bg-white text-xs font-semibold text-neutral-700 hover:bg-neutral-50 cursor-pointer">
-                <Plus className="w-3.5 h-3.5" />
-                Adicionar país
-              </button>
+              <div className="rounded-xl border border-neutral-200 bg-neutral-50 p-3">
+                <div className="text-[10px] font-bold uppercase tracking-wider text-neutral-500 mb-2">Adicionar mercado</div>
+                <div className="flex flex-col sm:flex-row gap-2">
+                  <select value={internationalCountryToAdd} onChange={(e) => setInternationalCountryToAdd(e.target.value)} className="flex-1 min-w-0 px-3 py-2 rounded border border-neutral-300 bg-white text-xs">
+                    {INTERNATIONAL_COUNTRY_PRESETS.map((country) => (
+                      <option key={country.code} value={country.code}>{country.name} · {country.localeLabel} · {country.currency}</option>
+                    ))}
+                  </select>
+                  <button type="button" onClick={addInternationalRule} className="inline-flex justify-center items-center gap-1.5 px-3 py-2 rounded bg-neutral-900 text-white text-xs font-semibold hover:bg-neutral-800 cursor-pointer">
+                    <Plus className="w-3.5 h-3.5" />
+                    Adicionar país
+                  </button>
+                </div>
+              </div>
             </div>
 
             <div className="px-4 sm:px-5 py-4 border-t border-neutral-200 flex flex-col-reverse sm:flex-row sm:items-center sm:justify-end gap-2 shrink-0">
