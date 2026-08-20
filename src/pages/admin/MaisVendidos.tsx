@@ -45,6 +45,7 @@ import {
   Pause,
   Square,
   FileDown,
+  Sparkles,
 } from 'lucide-react';
 import { Repository } from '../../lib/repository';
 import { getReadableTextColor } from '../../lib/contrast';
@@ -851,6 +852,14 @@ function getInternationalCountryPreset(code?: string | null) {
   return INTERNATIONAL_COUNTRY_PRESETS.find((item) => item.code === String(code || '').toUpperCase());
 }
 
+const DEFAULT_BENEFITS = [
+  '7% OFF extra no Pix',
+  'Frete grátis para todo o Brasil',
+  'Presente exclusivo nas compras acima de R$599',
+  'Até 6x sem juros',
+  '2% de cashback',
+];
+
 export const MaisVendidos: React.FC = () => {
   // State: Lists & Supabase Status
   const [lists, setLists] = useState<BestSellerList[]>([]);
@@ -1020,6 +1029,14 @@ export const MaisVendidos: React.FC = () => {
   const [savingVideoBlock, setSavingVideoBlock] = useState<boolean>(false);
   const [videoBlockError, setVideoBlockError] = useState<string | null>(null);
   const videoBlockFileInputRef = useRef<HTMLInputElement>(null);
+
+  // State: Bloco opcional de benefícios (entra na mesma ordem de produtos/vídeos)
+  const [isBenefitsBlockModalOpen, setIsBenefitsBlockModalOpen] = useState<boolean>(false);
+  const [editingBenefitsBlock, setEditingBenefitsBlock] = useState<BestSellerProduct | null>(null);
+  const [benefitsBlockTitle, setBenefitsBlockTitle] = useState('Vantagens Zhaya');
+  const [benefitsBlockItems, setBenefitsBlockItems] = useState<string[]>([...DEFAULT_BENEFITS]);
+  const [savingBenefitsBlock, setSavingBenefitsBlock] = useState<boolean>(false);
+  const [benefitsBlockError, setBenefitsBlockError] = useState<string | null>(null);
 
   // State: Delete Confirmation
   const [deleteConfirm, setDeleteConfirm] = useState<{
@@ -1747,6 +1764,105 @@ export const MaisVendidos: React.FC = () => {
       setVideoBlockError(err?.message || 'Erro inesperado ao salvar o vídeo destaque.');
     } finally {
       setSavingVideoBlock(false);
+    }
+  };
+
+
+  // ---------------------------------------------------------------------------
+  // Bloco de benefícios: opcional, pré-preenchido e totalmente editável.
+  // É salvo na mesma lista ordenável sem exigir coluna SQL adicional.
+  // ---------------------------------------------------------------------------
+  const handleOpenCreateBenefitsBlock = () => {
+    if (!selectedList) return;
+    const existing = products.find((item) => item.itemType === 'benefits');
+    if (existing) {
+      handleOpenEditBenefitsBlock(existing);
+      return;
+    }
+    setEditingBenefitsBlock(null);
+    setBenefitsBlockTitle('Vantagens Zhaya');
+    setBenefitsBlockItems([...DEFAULT_BENEFITS]);
+    setBenefitsBlockError(null);
+    setIsBenefitsBlockModalOpen(true);
+  };
+
+  const handleOpenEditBenefitsBlock = (item: BestSellerProduct) => {
+    setEditingBenefitsBlock(item);
+    setBenefitsBlockTitle(item.name || 'Vantagens Zhaya');
+    setBenefitsBlockItems(item.benefits?.length ? [...item.benefits] : [...DEFAULT_BENEFITS]);
+    setBenefitsBlockError(null);
+    setIsBenefitsBlockModalOpen(true);
+  };
+
+  const handleSaveBenefitsBlock = async (event: React.FormEvent) => {
+    event.preventDefault();
+    if (!selectedList) return;
+    const cleanTitle = benefitsBlockTitle.trim();
+    const cleanBenefits = benefitsBlockItems.map((item) => item.trim()).filter(Boolean).slice(0, 10);
+    if (!cleanTitle) {
+      setBenefitsBlockError('Preencha o título do bloco.');
+      return;
+    }
+    if (cleanBenefits.length === 0) {
+      setBenefitsBlockError('Preencha pelo menos um benefício.');
+      return;
+    }
+
+    try {
+      setSavingBenefitsBlock(true);
+      setBenefitsBlockError(null);
+      const payload = {
+        listId: selectedList.id,
+        itemType: 'benefits' as const,
+        name: cleanTitle,
+        category: 'Benefícios',
+        benefits: cleanBenefits,
+        mediaItems: [],
+        imageUrl: null,
+        imageUrls: [],
+        productUrl: null,
+        originalPrice: null,
+        promotionalPrice: null,
+        soldQuantity: null,
+        showSoldQuantity: false,
+        availableQuantity: null,
+        sizes: [],
+        outOfStockSizes: [],
+        colors: [],
+        installmentsCount: null,
+        installmentValue: null,
+        badgeEnabled: false,
+        badgeText: null,
+        badgeUseListDefault: false,
+        giftMode: 'off' as const,
+        timerEnabled: false,
+      };
+      const result = editingBenefitsBlock
+        ? await Repository.updateBestSellerProduct(editingBenefitsBlock.id, payload)
+        : await Repository.createBestSellerProduct(payload);
+      if (!result.success || !result.product) {
+        setBenefitsBlockError(result.error || 'Não foi possível salvar o bloco de benefícios.');
+        return;
+      }
+
+      // Ao criar, posiciona automaticamente logo depois do primeiro produto real.
+      // Depois disso o usuário continua livre para mover o bloco na lista.
+      if (!editingBenefitsBlock) {
+        const existingIds = products.map((item) => item.id);
+        const firstProductIndex = products.findIndex((item) => item.itemType === 'product' || !item.itemType);
+        const insertAt = firstProductIndex >= 0 ? firstProductIndex + 1 : existingIds.length;
+        const orderedIds = [...existingIds];
+        orderedIds.splice(insertAt, 0, result.product.id);
+        await Repository.reorderBestSellerProducts(selectedList.id, orderedIds);
+      }
+
+      setIsBenefitsBlockModalOpen(false);
+      await loadProducts(selectedList.id);
+      await loadLists(selectedList.id);
+    } catch (err: any) {
+      setBenefitsBlockError(err?.message || 'Erro inesperado ao salvar os benefícios.');
+    } finally {
+      setSavingBenefitsBlock(false);
     }
   };
 
@@ -2906,6 +3022,14 @@ export const MaisVendidos: React.FC = () => {
               </button>
               <button
                 type="button"
+                onClick={handleOpenCreateBenefitsBlock}
+                className="inline-flex items-center gap-2 px-3 py-2 text-xs font-semibold text-neutral-700 bg-white border border-neutral-300 rounded-md hover:bg-neutral-50 transition-colors shadow-sm cursor-pointer"
+              >
+                <Sparkles className="w-4 h-4" />
+                Benefícios
+              </button>
+              <button
+                type="button"
                 onClick={handleOpenCreateVideoBlock}
                 className="inline-flex items-center gap-2 px-3 py-2 text-xs font-semibold text-neutral-700 bg-white border border-neutral-300 rounded-md hover:bg-neutral-50 transition-colors shadow-sm cursor-pointer"
               >
@@ -3467,6 +3591,14 @@ export const MaisVendidos: React.FC = () => {
                   </button>
                   <button
                     type="button"
+                    onClick={handleOpenCreateBenefitsBlock}
+                    className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold text-neutral-700 bg-white border border-neutral-300 rounded hover:bg-neutral-50 transition-colors cursor-pointer"
+                  >
+                    <Sparkles className="w-3.5 h-3.5" />
+                    Benefícios
+                  </button>
+                  <button
+                    type="button"
                     onClick={handleOpenCreateVideoBlock}
                     className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold text-neutral-700 bg-white border border-neutral-300 rounded hover:bg-neutral-50 transition-colors cursor-pointer"
                   >
@@ -3493,7 +3625,7 @@ export const MaisVendidos: React.FC = () => {
                   <Package className="w-8 h-8 text-neutral-300 mx-auto" />
                   <p className="text-xs font-semibold text-neutral-700">Nenhum item cadastrado nesta lista</p>
                   <p className="text-[11px] text-neutral-500">
-                    Adicione produtos e vídeos destaque e organize a vitrine na ordem que quiser.
+                    Adicione produtos, vídeos e benefícios e organize a vitrine na ordem que quiser.
                   </p>
                   <button
                     type="button"
@@ -3502,6 +3634,14 @@ export const MaisVendidos: React.FC = () => {
                   >
                     <Plus className="w-3.5 h-3.5" />
                     Adicionar Produto #1
+                  </button>
+                  <button
+                    type="button"
+                    onClick={handleOpenCreateBenefitsBlock}
+                    className="ml-2 inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold text-neutral-700 bg-white border border-neutral-300 rounded hover:bg-neutral-50 transition-colors cursor-pointer mt-2"
+                  >
+                    <Sparkles className="w-3.5 h-3.5" />
+                    Adicionar benefícios
                   </button>
                   <button
                     type="button"
@@ -3560,7 +3700,11 @@ export const MaisVendidos: React.FC = () => {
 
                           {/* Image Thumbnail */}
                           <div className="relative w-12 h-12 rounded bg-neutral-100 border border-neutral-200 overflow-hidden shrink-0">
-                            {prod.mediaItems?.[0]?.type === 'video' ? (
+                            {prod.itemType === 'benefits' ? (
+                              <div className="w-full h-full flex items-center justify-center bg-neutral-50 text-neutral-700">
+                                <Sparkles className="w-5 h-5" />
+                              </div>
+                            ) : prod.mediaItems?.[0]?.type === 'video' ? (
                               <div className="w-full h-full flex items-center justify-center bg-neutral-950 text-white">
                                 <Video className="w-5 h-5" />
                               </div>
@@ -3603,6 +3747,11 @@ export const MaisVendidos: React.FC = () => {
                                   <Video className="w-2.5 h-2.5" /> 9:16
                                 </span>
                               )}
+                              {prod.itemType === 'benefits' && (
+                                <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-bold bg-amber-50 text-amber-800 border border-amber-100">
+                                  <Sparkles className="w-2.5 h-2.5" /> Benefícios
+                                </span>
+                              )}
                               {prod.itemType === 'video' && prod.videoAutoplay && (
                                 <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-medium bg-emerald-50 text-emerald-700 border border-emerald-100">
                                   <Play className="w-2.5 h-2.5" /> Auto-play
@@ -3629,13 +3778,19 @@ export const MaisVendidos: React.FC = () => {
                               )}
 
                               {/* Clicks metric */}
-                              {prod.itemType !== 'video' && (
+                              {prod.itemType !== 'video' && prod.itemType !== 'benefits' && (
                                 <span
                                   className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-medium bg-neutral-100 text-neutral-700 border border-neutral-200"
                                   title="Total de cliques registrados no link da loja"
                                 >
                                   <MousePointerClick className="w-2.5 h-2.5 text-neutral-500" />
                                   <strong>{prod.clicks || 0}</strong> cliques
+                                </span>
+                              )}
+
+                              {prod.itemType === 'benefits' && (
+                                <span className="inline-flex items-center gap-1 text-[10px] text-neutral-500">
+                                  {prod.benefits?.length || 0} vantagens configuradas
                                 </span>
                               )}
 
@@ -3722,7 +3877,7 @@ export const MaisVendidos: React.FC = () => {
                         <div className="flex items-center gap-2 self-end md:self-center shrink-0 border-t md:border-t-0 pt-2 md:pt-0 border-neutral-100">
                           <button
                             type="button"
-                            onClick={() => prod.itemType === 'video' ? handleOpenEditVideoBlock(prod) : handleOpenEditProduct(prod)}
+                            onClick={() => prod.itemType === 'video' ? handleOpenEditVideoBlock(prod) : prod.itemType === 'benefits' ? handleOpenEditBenefitsBlock(prod) : handleOpenEditProduct(prod)}
                             className="inline-flex items-center gap-1 px-2.5 py-1.5 text-xs font-semibold text-neutral-700 bg-neutral-50 hover:bg-neutral-100 rounded border border-neutral-200 transition-colors cursor-pointer"
                           >
                             <Pencil className="w-3.5 h-3.5" />
@@ -3734,11 +3889,11 @@ export const MaisVendidos: React.FC = () => {
                               setDeleteConfirm({
                                 type: 'product',
                                 id: prod.id,
-                                name: prod.itemType === 'video' ? `Vídeo 9:16 #${posNumber}` : `Produto #${posNumber} - ${prod.name}`,
+                                name: prod.itemType === 'video' ? `Vídeo 9:16 #${posNumber}` : prod.itemType === 'benefits' ? `Bloco de benefícios #${posNumber}` : `Produto #${posNumber} - ${prod.name}`,
                               })
                             }
                             className="p-1.5 text-neutral-400 hover:text-red-600 hover:bg-red-50 rounded border border-neutral-200 transition-colors cursor-pointer"
-                            title={prod.itemType === 'video' ? 'Excluir vídeo destaque' : 'Excluir produto'}
+                            title={prod.itemType === 'video' ? 'Excluir vídeo destaque' : prod.itemType === 'benefits' ? 'Excluir bloco de benefícios' : 'Excluir produto'}
                           >
                             <Trash2 className="w-3.5 h-3.5" />
                           </button>
@@ -5654,6 +5809,90 @@ export const MaisVendidos: React.FC = () => {
                   className="px-4 py-2 rounded text-xs font-semibold text-white bg-neutral-900 hover:bg-neutral-800 disabled:opacity-50 transition-colors cursor-pointer shadow-sm"
                 >
                   {savingProduct ? 'Salvando...' : editingProduct ? 'Salvar Alterações' : 'Adicionar Produto'}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* ========================================================================= */}
+      {/* MODAL: Bloco de benefícios                                                 */}
+      {/* ========================================================================= */}
+      {isBenefitsBlockModalOpen && (
+        <div className="fixed inset-0 z-[60] flex items-center justify-center p-2 sm:p-4 bg-black/50 backdrop-blur-xs overflow-x-hidden">
+          <div className="bg-white rounded-lg border border-neutral-200 shadow-xl w-[calc(100vw-1rem)] sm:w-full max-w-lg max-h-[92vh] flex flex-col overflow-hidden min-w-0">
+            <div className="px-4 sm:px-5 py-4 border-b border-neutral-200 flex items-start justify-between gap-3 shrink-0">
+              <div className="min-w-0">
+                <h3 className="text-sm font-bold text-neutral-900 flex items-center gap-2"><Sparkles className="w-4 h-4" /> {editingBenefitsBlock ? 'Editar benefícios' : 'Adicionar benefícios'}</h3>
+                <p className="text-[10px] text-neutral-500 mt-0.5">Opcional. Entra na mesma ordem da vitrine e pode ser movido como os outros itens.</p>
+              </div>
+              <button type="button" onClick={() => setIsBenefitsBlockModalOpen(false)} className="text-neutral-400 hover:text-neutral-700 p-1 cursor-pointer shrink-0"><X className="w-4 h-4" /></button>
+            </div>
+
+            <form onSubmit={handleSaveBenefitsBlock} className="p-4 sm:p-5 overflow-y-auto overflow-x-hidden flex-1 min-h-0 space-y-4">
+              {benefitsBlockError && <div className="p-3 rounded bg-red-50 text-red-800 border border-red-200 text-xs">{benefitsBlockError}</div>}
+
+              <div className="space-y-1">
+                <label className="text-xs font-semibold text-neutral-700">Título</label>
+                <input
+                  type="text"
+                  value={benefitsBlockTitle}
+                  onChange={(e) => setBenefitsBlockTitle(e.target.value.slice(0, 80))}
+                  maxLength={80}
+                  required
+                  className="w-full px-3 py-2 border border-neutral-300 rounded text-xs focus:outline-none focus:ring-1 focus:ring-neutral-900"
+                />
+              </div>
+
+              <div className="space-y-2">
+                <div className="flex items-center justify-between gap-3">
+                  <div>
+                    <label className="text-xs font-semibold text-neutral-700">Benefícios</label>
+                    <p className="text-[9px] text-neutral-500 mt-0.5">Já deixamos os dados atuais preenchidos. Edite ou remova o que não quiser mostrar.</p>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => setBenefitsBlockItems((prev) => prev.length >= 10 ? prev : [...prev, ''])}
+                    className="shrink-0 inline-flex items-center gap-1 px-2 py-1.5 text-[10px] font-semibold border border-neutral-300 rounded hover:bg-neutral-50 cursor-pointer"
+                  >
+                    <Plus className="w-3 h-3" /> Adicionar
+                  </button>
+                </div>
+
+                <div className="space-y-2">
+                  {benefitsBlockItems.map((benefit, index) => (
+                    <div key={index} className="flex items-center gap-2 min-w-0">
+                      <input
+                        type="text"
+                        value={benefit}
+                        onChange={(e) => setBenefitsBlockItems((prev) => prev.map((item, i) => i === index ? e.target.value.slice(0, 120) : item))}
+                        maxLength={120}
+                        placeholder={`Benefício ${index + 1}`}
+                        className="flex-1 min-w-0 px-3 py-2 border border-neutral-300 rounded text-xs focus:outline-none focus:ring-1 focus:ring-neutral-900"
+                      />
+                      <button
+                        type="button"
+                        onClick={() => setBenefitsBlockItems((prev) => prev.filter((_, i) => i !== index))}
+                        className="p-2 text-neutral-400 hover:text-red-600 hover:bg-red-50 rounded border border-neutral-200 cursor-pointer"
+                        title="Remover benefício"
+                      >
+                        <Trash2 className="w-3.5 h-3.5" />
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              </div>
+
+              <div className="rounded-lg border border-blue-100 bg-blue-50 px-3 py-2 text-[10px] leading-relaxed text-blue-800">
+                Se o modo Internacional estiver ativo, este bloco é exibido somente para visitantes identificados no Brasil. Visitantes de outros países não verão benefícios de Pix, frete Brasil ou cashback.
+              </div>
+
+              <div className="flex flex-col-reverse sm:flex-row sm:justify-end gap-2 pt-2 border-t border-neutral-100">
+                <button type="button" onClick={() => setIsBenefitsBlockModalOpen(false)} className="px-4 py-2 text-xs font-semibold text-neutral-700 border border-neutral-300 rounded hover:bg-neutral-50 cursor-pointer">Cancelar</button>
+                <button type="submit" disabled={savingBenefitsBlock} className="px-4 py-2 text-xs font-semibold text-white bg-neutral-900 rounded hover:bg-neutral-800 disabled:opacity-50 inline-flex items-center justify-center gap-1.5 cursor-pointer">
+                  {savingBenefitsBlock ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Save className="w-3.5 h-3.5" />}
+                  {savingBenefitsBlock ? 'Salvando...' : editingBenefitsBlock ? 'Salvar alterações' : 'Adicionar à vitrine'}
                 </button>
               </div>
             </form>

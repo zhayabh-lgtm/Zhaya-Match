@@ -46,6 +46,8 @@ const VIDEO_AUTOPLAY_ON = '__ZHAYA_AUTOPLAY_1__';
 const VIDEO_LOOP_ON = '__ZHAYA_LOOP_1__';
 const VIDEO_CONTROLS_ON = '__ZHAYA_CONTROLS_1__';
 const TIMER_SEPARATE_ON = '__ZHAYA_TIMER_SEPARATE_1__';
+const BENEFITS_MARKER = '__ZHAYA_BENEFITS_BLOCK__';
+const BENEFIT_PREFIX = '__ZHAYA_BENEFIT__:';
 
 function videoLegacyMarkers(autoplay: any, loop: any, controls: any): string[] {
   const markers = [VIDEO_MARKER];
@@ -55,13 +57,13 @@ function videoLegacyMarkers(autoplay: any, loop: any, controls: any): string[] {
   return markers;
 }
 
-const VIDEO_INTERNAL_MARKERS = new Set([VIDEO_MARKER, VIDEO_AUTOPLAY_ON, VIDEO_LOOP_ON, VIDEO_CONTROLS_ON, TIMER_SEPARATE_ON]);
+const VIDEO_INTERNAL_MARKERS = new Set([VIDEO_MARKER, VIDEO_AUTOPLAY_ON, VIDEO_LOOP_ON, VIDEO_CONTROLS_ON, TIMER_SEPARATE_ON, BENEFITS_MARKER]);
 
 function visibleProductColors(input: any): string[] {
   const source = Array.isArray(input) ? input : [];
   return source
     .map((value: any) => String(value))
-    .filter((value: string) => value && !VIDEO_INTERNAL_MARKERS.has(value));
+    .filter((value: string) => value && !VIDEO_INTERNAL_MARKERS.has(value) && !value.startsWith(BENEFIT_PREFIX));
 }
 
 function withTimerSeparateMarker(input: any, separate: any): string[] {
@@ -107,11 +109,37 @@ function isLegacyVideoBlockRow(row: any): boolean {
   return colors.includes(VIDEO_MARKER) || String(row?.category || '').toLowerCase() === 'vídeo';
 }
 
+function isBenefitsBlockRow(row: any): boolean {
+  const colors = Array.isArray(row?.colors) ? row.colors.map((v: any) => String(v)) : [];
+  return colors.includes(BENEFITS_MARKER) || String(row?.category || '').toLowerCase() === 'benefícios';
+}
+
+function normalizeBenefits(input: any): string[] {
+  const source = Array.isArray(input) ? input : [];
+  return Array.from(new Set(source
+    .map((value: any) => sanitizeText(String(value)).slice(0, 120))
+    .filter(Boolean)))
+    .slice(0, 10);
+}
+
+function benefitsMarkers(input: any): string[] {
+  return [BENEFITS_MARKER, ...normalizeBenefits(input).map((value) => `${BENEFIT_PREFIX}${value}`)];
+}
+
+function readBenefits(row: any): string[] {
+  const colors = Array.isArray(row?.colors) ? row.colors.map((v: any) => String(v)) : [];
+  return colors
+    .filter((value: string) => value.startsWith(BENEFIT_PREFIX))
+    .map((value: string) => value.slice(BENEFIT_PREFIX.length).trim())
+    .filter(Boolean)
+    .slice(0, 10);
+}
+
 function readVideoFlags(row: any) {
   const colors = Array.isArray(row?.colors) ? row.colors.map((v: any) => String(v)) : [];
   const legacy = isLegacyVideoBlockRow(row);
   return {
-    itemType: row?.item_type === 'video' || legacy ? 'video' as const : 'product' as const,
+    itemType: isBenefitsBlockRow(row) ? 'benefits' as const : (row?.item_type === 'video' || legacy ? 'video' as const : 'product' as const),
     autoplay: colors.includes(VIDEO_AUTOPLAY_ON) || (row?.video_autoplay !== undefined && row?.video_autoplay !== null ? Boolean(row.video_autoplay) : false),
     loop: colors.includes(VIDEO_LOOP_ON) || (row?.video_loop !== undefined && row?.video_loop !== null ? row.video_loop !== false : false),
     controls: colors.includes(VIDEO_CONTROLS_ON) || (row?.video_controls !== undefined && row?.video_controls !== null ? row.video_controls !== false : false),
@@ -129,7 +157,7 @@ function sanitizeText(str: any): string {
 }
 
 function readProductDescription(row: any): string | null {
-  if (readVideoFlags(row).itemType === 'video') return null;
+  if (readVideoFlags(row).itemType !== 'product') return null;
   const value = sanitizeText(String(row?.category || '')).slice(0, 220);
   return value && value.toLowerCase() !== 'produto' ? value : null;
 }
@@ -255,7 +283,7 @@ function reusableMediaItems(raw: any, imageUrl: any, imageUrls: any) {
 
 async function syncProductToLibrary(supabase: any, productRow: any): Promise<string | null> {
   try {
-    if (String(productRow?.item_type || 'product') === 'video' || isLegacyVideoBlockRow(productRow)) return productRow?.library_product_id || null;
+    if (String(productRow?.item_type || 'product') === 'video' || isLegacyVideoBlockRow(productRow) || isBenefitsBlockRow(productRow)) return productRow?.library_product_id || null;
     const reusableMedia = reusableMediaItems(productRow.media_items, productRow.image_url, productRow.image_urls);
     const imageUrls = reusableMedia.filter((item: any) => item.type === 'image').map((item: any) => item.url);
     const payload: Record<string, any> = {
@@ -396,6 +424,7 @@ export default async function handler(req: any, res: any) {
         videoLoop: readVideoFlags(p).loop,
         videoControls: readVideoFlags(p).controls,
         videoTitle: readVideoFlags(p).title,
+        benefits: readBenefits(p),
         productUrl: p.product_url || null,
         originalPrice: p.original_price !== null && p.original_price !== undefined ? Number(p.original_price) : null,
         promotionalPrice: p.promotional_price !== null && p.promotional_price !== undefined ? Number(p.promotional_price) : null,
@@ -514,9 +543,10 @@ export default async function handler(req: any, res: any) {
         timerSeparate,
       } = body;
 
-      const cleanItemType: 'product' | 'video' = String(itemType || body.item_type) === 'video' ? 'video' : 'product';
+      const requestedItemType = String(itemType || body.item_type);
+      const cleanItemType: 'product' | 'video' | 'benefits' = requestedItemType === 'video' ? 'video' : requestedItemType === 'benefits' ? 'benefits' : 'product';
       const cleanVideoTitle = videoTitle ? sanitizeText(String(videoTitle)).slice(0, 80) : null;
-      const cleanName = sanitizeText(name) || (cleanItemType === 'video' ? (cleanVideoTitle || 'Vídeo destaque') : '');
+      const cleanName = sanitizeText(name) || (cleanItemType === 'video' ? (cleanVideoTitle || 'Vídeo destaque') : cleanItemType === 'benefits' ? 'Vantagens Zhaya' : '');
       const cleanProductDescription = cleanItemType === 'product' && description
         ? sanitizeText(String(description)).slice(0, 220)
         : null;
@@ -524,7 +554,10 @@ export default async function handler(req: any, res: any) {
       // em todos os bancos. Assim esta função não exige uma nova migração SQL.
       const cleanCategory = cleanItemType === 'video'
         ? (sanitizeText(category).slice(0, 260) || 'Vídeo')
-        : (cleanProductDescription || 'Produto');
+        : cleanItemType === 'benefits'
+          ? 'Benefícios'
+          : (cleanProductDescription || 'Produto');
+      const cleanBenefits = cleanItemType === 'benefits' ? normalizeBenefits(body.benefits) : [];
       const parsedOriginalPrice = parsePriceInput(originalPrice !== undefined ? originalPrice : body.original_price);
       const parsedPromotionalPrice = parsePriceInput(promotionalPrice !== undefined ? promotionalPrice : body.promotional_price);
       const rawInstallmentsCount = installmentsCount !== undefined ? installmentsCount : body.installments_count;
@@ -551,14 +584,17 @@ export default async function handler(req: any, res: any) {
       const videoFallback = cleanMediaItems.find((item) => item.type === 'video');
       // Bancos antigos podem ter image_url NOT NULL. Para o bloco 9:16 usamos
       // a capa do vídeo (ou a própria URL) apenas como compatibilidade interna.
-      const cleanImageUrl = validImageUrls[0] || (cleanItemType === 'video' ? (videoFallback?.posterUrl || videoFallback?.url || null) : null);
+      const cleanImageUrl = validImageUrls[0] || (cleanItemType === 'video' ? (videoFallback?.posterUrl || videoFallback?.url || null) : cleanItemType === 'benefits' ? '/favicon.ico' : null);
       const cleanProductUrl = productUrl ? String(productUrl).trim() : null;
 
       if (!cleanName) {
         return res.status(400).json({ success: false, message: 'Nome do produto é obrigatório.' });
       }
-      if (cleanMediaItems.length === 0) {
+      if (cleanItemType !== 'benefits' && cleanMediaItems.length === 0) {
         return res.status(400).json({ success: false, message: cleanItemType === 'video' ? 'Adicione um vídeo destaque.' : 'Adicione pelo menos uma imagem ou vídeo ao produto.' });
+      }
+      if (cleanItemType === 'benefits' && cleanBenefits.length === 0) {
+        return res.status(400).json({ success: false, message: 'Preencha pelo menos um benefício.' });
       }
       if (cleanItemType === 'video' && !cleanMediaItems.some((item) => item.type === 'video')) {
         return res.status(400).json({ success: false, message: 'O bloco de vídeo destaque precisa conter um vídeo.' });
@@ -638,9 +674,6 @@ export default async function handler(req: any, res: any) {
 
       const insertPayload: Record<string, any> = {
         list_id: listId,
-        video_autoplay: Boolean(videoAutoplay),
-        video_loop: videoLoop !== undefined ? Boolean(videoLoop) : true,
-        video_controls: videoControls !== undefined ? Boolean(videoControls) : true,
         library_product_id: body.libraryProductId || body.library_product_id || null,
         position,
         name: cleanName,
@@ -656,7 +689,7 @@ export default async function handler(req: any, res: any) {
         available_quantity: parsedAvailable,
         sizes: cleanSizes,
         out_of_stock_sizes: cleanOutOfStockSizes,
-        colors: cleanItemType === 'video' ? videoLegacyMarkers(videoAutoplay, videoLoop, videoControls) : withTimerSeparateMarker(cleanColors, timerSeparate),
+        colors: cleanItemType === 'video' ? videoLegacyMarkers(videoAutoplay, videoLoop, videoControls) : cleanItemType === 'benefits' ? benefitsMarkers(cleanBenefits) : withTimerSeparateMarker(cleanColors, timerSeparate),
         installments_count: parsedInstallmentsCount,
         installment_value: parsedInstallmentValue,
         badge_enabled: isBadgeActive,
@@ -683,12 +716,15 @@ export default async function handler(req: any, res: any) {
       // precisa gravar item_type='product': esse é o comportamento padrão.
       if (cleanItemType === 'video') {
         insertPayload.item_type = 'video';
+        insertPayload.video_autoplay = Boolean(videoAutoplay);
+        insertPayload.video_loop = videoLoop !== undefined ? Boolean(videoLoop) : true;
+        insertPayload.video_controls = videoControls !== undefined ? Boolean(videoControls) : true;
         insertPayload.video_title = cleanVideoTitle;
       }
 
       const legacyVideoColors = colorsWithLegacyVideoState(
-        cleanItemType === 'video' ? [] : cleanColors,
-        cleanItemType,
+        cleanItemType === 'video' ? [] : cleanItemType === 'benefits' ? benefitsMarkers(cleanBenefits) : cleanColors,
+        cleanItemType === 'video' ? 'video' : 'product',
         videoAutoplay,
         videoLoop,
         videoControls,
@@ -747,6 +783,7 @@ export default async function handler(req: any, res: any) {
         videoLoop: readVideoFlags(data).loop,
         videoControls: readVideoFlags(data).controls,
         videoTitle: readVideoFlags(data).title,
+        benefits: readBenefits(data),
         productUrl: data.product_url || null,
         originalPrice: data.original_price !== null && data.original_price !== undefined ? Number(data.original_price) : null,
         promotionalPrice: data.promotional_price !== null && data.promotional_price !== undefined ? Number(data.promotional_price) : null,
@@ -820,6 +857,7 @@ export default async function handler(req: any, res: any) {
         updates.category = cleanCat;
       }
 
+      const updatingBenefitsBlock = String(body.itemType ?? body.item_type ?? '') === 'benefits';
       if ((body.itemType !== undefined || body.item_type !== undefined) && String(body.itemType ?? body.item_type) === 'video') {
         updates.item_type = 'video';
       }
@@ -830,8 +868,8 @@ export default async function handler(req: any, res: any) {
 
       if (body.mediaItems !== undefined) {
         const cleanMedia = normalizeMediaItems(body.mediaItems);
-        const requestedItemType = String(body.itemType ?? body.item_type ?? updates.item_type ?? 'product') === 'video' ? 'video' : 'product';
-        if (cleanMedia.length === 0) {
+        const requestedItemType = String(body.itemType ?? body.item_type ?? updates.item_type ?? 'product') === 'video' ? 'video' : updatingBenefitsBlock ? 'benefits' : 'product';
+        if (requestedItemType !== 'benefits' && cleanMedia.length === 0) {
           return res.status(400).json({ success: false, message: requestedItemType === 'video' ? 'Adicione um vídeo destaque.' : 'Adicione pelo menos uma imagem ou vídeo ao produto.' });
         }
         if (requestedItemType === 'video' && !cleanMedia.some((item) => item.type === 'video')) {
@@ -1022,6 +1060,31 @@ export default async function handler(req: any, res: any) {
       }
 
       const updatingVideoBlock = String(body.itemType ?? body.item_type ?? '') === 'video';
+      if (updatingBenefitsBlock) {
+        const cleanBenefits = normalizeBenefits(body.benefits);
+        if (cleanBenefits.length === 0) {
+          return res.status(400).json({ success: false, message: 'Preencha pelo menos um benefício.' });
+        }
+        updates.name = sanitizeText(body.name || 'Vantagens Zhaya').slice(0, 80) || 'Vantagens Zhaya';
+        updates.category = 'Benefícios';
+        updates.media_items = [];
+        updates.image_urls = [];
+        updates.image_url = '/favicon.ico';
+        updates.product_url = null;
+        updates.original_price = null;
+        updates.promotional_price = null;
+        updates.sold_quantity = null;
+        updates.show_sold_quantity = false;
+        updates.available_quantity = null;
+        updates.sizes = [];
+        updates.out_of_stock_sizes = [];
+        updates.colors = benefitsMarkers(cleanBenefits);
+        updates.installments_count = null;
+        updates.installment_value = null;
+        updates.badge_enabled = false;
+        updates.badge_text = null;
+        updates.timer_enabled = false;
+      }
       if (updatingVideoBlock) {
         // Em blocos de vídeo, category funciona como descrição editorial opcional.
         // O marcador em colors mantém a compatibilidade com bancos antigos.
@@ -1033,7 +1096,7 @@ export default async function handler(req: any, res: any) {
         updates.colors = videoLegacyMarkers(body.videoAutoplay, body.videoLoop, body.videoControls);
       }
 
-      if (!updatingVideoBlock && body.description !== undefined) {
+      if (!updatingVideoBlock && !updatingBenefitsBlock && body.description !== undefined) {
         const cleanDescription = body.description
           ? sanitizeText(String(body.description)).slice(0, 220)
           : '';
@@ -1098,6 +1161,7 @@ export default async function handler(req: any, res: any) {
         videoLoop: readVideoFlags(data).loop,
         videoControls: readVideoFlags(data).controls,
         videoTitle: readVideoFlags(data).title,
+        benefits: readBenefits(data),
         productUrl: data.product_url || null,
         originalPrice: data.original_price !== null && data.original_price !== undefined ? Number(data.original_price) : null,
         promotionalPrice: data.promotional_price !== null && data.promotional_price !== undefined ? Number(data.promotional_price) : null,

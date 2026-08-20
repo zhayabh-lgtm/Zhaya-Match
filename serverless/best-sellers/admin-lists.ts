@@ -70,10 +70,12 @@ function duplicateColorsWithVideoState(row: any): string[] {
   const autoplay = row?.video_autoplay !== undefined && row?.video_autoplay !== null ? Boolean(row.video_autoplay) : raw.includes(VIDEO_AUTOPLAY_ON);
   const loop = row?.video_loop !== undefined && row?.video_loop !== null ? row.video_loop !== false : raw.includes(VIDEO_LOOP_ON);
   const controls = row?.video_controls !== undefined && row?.video_controls !== null ? row.video_controls !== false : raw.includes(VIDEO_CONTROLS_ON);
-  if (isVideo) clean.push(VIDEO_MARKER);
-  if (autoplay) clean.push(VIDEO_AUTOPLAY_ON);
-  if (loop) clean.push(VIDEO_LOOP_ON);
-  if (controls) clean.push(VIDEO_CONTROLS_ON);
+  if (isVideo) {
+    clean.push(VIDEO_MARKER);
+    if (autoplay) clean.push(VIDEO_AUTOPLAY_ON);
+    if (loop) clean.push(VIDEO_LOOP_ON);
+    if (controls) clean.push(VIDEO_CONTROLS_ON);
+  }
   return Array.from(new Set(clean));
 }
 

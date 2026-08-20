@@ -565,7 +565,7 @@ export interface BestSellerList {
 
 export interface BestSellerProduct {
   id: string;
-  itemType?: 'product' | 'video';
+  itemType?: 'product' | 'video' | 'benefits';
   libraryProductId?: string | null;
   listId: string;
   position: number;
@@ -580,6 +580,8 @@ export interface BestSellerProduct {
   videoLoop?: boolean;
   videoControls?: boolean;
   videoTitle?: string | null;
+  /** Itens do bloco opcional de benefícios da compra. */
+  benefits?: string[];
   productUrl?: string | null;
   originalPrice?: number | null;
   promotionalPrice?: number | null;
@@ -651,7 +653,7 @@ export interface BestSellerLibraryProduct {
 
 export interface PublicBestSellerProduct {
   id: string;
-  itemType?: 'product' | 'video';
+  itemType?: 'product' | 'video' | 'benefits';
   position: number;
   name: string;
   category: string;
@@ -664,6 +666,8 @@ export interface PublicBestSellerProduct {
   videoLoop?: boolean;
   videoControls?: boolean;
   videoTitle?: string | null;
+  /** Itens do bloco opcional de benefícios da compra. */
+  benefits?: string[];
   productUrl?: string | null;
   originalPrice?: number | null;
   promotionalPrice?: number | null;

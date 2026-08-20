@@ -77,20 +77,36 @@ const VIDEO_AUTOPLAY_ON = '__ZHAYA_AUTOPLAY_1__';
 const VIDEO_LOOP_ON = '__ZHAYA_LOOP_1__';
 const VIDEO_CONTROLS_ON = '__ZHAYA_CONTROLS_1__';
 const TIMER_SEPARATE_ON = '__ZHAYA_TIMER_SEPARATE_1__';
-const VIDEO_INTERNAL_MARKERS = new Set([VIDEO_MARKER, VIDEO_AUTOPLAY_ON, VIDEO_LOOP_ON, VIDEO_CONTROLS_ON, TIMER_SEPARATE_ON]);
+const BENEFITS_MARKER = '__ZHAYA_BENEFITS_BLOCK__';
+const BENEFIT_PREFIX = '__ZHAYA_BENEFIT__:';
+const VIDEO_INTERNAL_MARKERS = new Set([VIDEO_MARKER, VIDEO_AUTOPLAY_ON, VIDEO_LOOP_ON, VIDEO_CONTROLS_ON, TIMER_SEPARATE_ON, BENEFITS_MARKER]);
 
 function visibleProductColors(input: any): string[] {
   const source = Array.isArray(input) ? input : [];
   return source
     .map((value: any) => String(value))
-    .filter((value: string) => value && !VIDEO_INTERNAL_MARKERS.has(value));
+    .filter((value: string) => value && !VIDEO_INTERNAL_MARKERS.has(value) && !value.startsWith(BENEFIT_PREFIX));
+}
+
+function isBenefitsBlockRow(row: any): boolean {
+  const colors = Array.isArray(row?.colors) ? row.colors.map((v: any) => String(v)) : [];
+  return colors.includes(BENEFITS_MARKER) || String(row?.category || '').toLowerCase() === 'benefícios';
+}
+
+function readBenefits(row: any): string[] {
+  const colors = Array.isArray(row?.colors) ? row.colors.map((v: any) => String(v)) : [];
+  return colors
+    .filter((value: string) => value.startsWith(BENEFIT_PREFIX))
+    .map((value: string) => value.slice(BENEFIT_PREFIX.length).trim())
+    .filter(Boolean)
+    .slice(0, 10);
 }
 
 function readVideoFlags(row: any) {
   const colors = Array.isArray(row?.colors) ? row.colors.map((v: any) => String(v)) : [];
   const legacy = colors.includes(VIDEO_MARKER) || String(row?.category || '').toLowerCase() === 'vídeo';
   return {
-    itemType: row?.item_type === 'video' || legacy ? 'video' as const : 'product' as const,
+    itemType: isBenefitsBlockRow(row) ? 'benefits' as const : (row?.item_type === 'video' || legacy ? 'video' as const : 'product' as const),
     autoplay: colors.includes(VIDEO_AUTOPLAY_ON) || (row?.video_autoplay !== undefined && row?.video_autoplay !== null ? Boolean(row.video_autoplay) : false),
     loop: colors.includes(VIDEO_LOOP_ON) || (row?.video_loop !== undefined && row?.video_loop !== null ? row.video_loop !== false : false),
     controls: colors.includes(VIDEO_CONTROLS_ON) || (row?.video_controls !== undefined && row?.video_controls !== null ? row.video_controls !== false : false),
@@ -99,7 +115,7 @@ function readVideoFlags(row: any) {
 }
 
 function readProductDescription(row: any): string | null {
-  if (readVideoFlags(row).itemType === 'video') return null;
+  if (readVideoFlags(row).itemType !== 'product') return null;
   const value = String(row?.category || '').trim().slice(0, 220);
   return value && value.toLowerCase() !== 'produto' ? value : null;
 }
@@ -254,6 +270,7 @@ export default async function handler(req: any, res: any) {
         videoLoop: readVideoFlags(p).loop,
         videoControls: readVideoFlags(p).controls,
         videoTitle: readVideoFlags(p).title,
+        benefits: readBenefits(p),
         productUrl: p.product_url || null,
         originalPrice: p.original_price !== null && p.original_price !== undefined ? Number(p.original_price) : null,
         promotionalPrice: p.promotional_price !== null && p.promotional_price !== undefined ? Number(p.promotional_price) : null,
@@ -294,6 +311,14 @@ export default async function handler(req: any, res: any) {
     const countryRule = internationalConfig?.enabled && detectedCountryCode
       ? rules.find((rule: any) => Boolean(rule?.enabled) && String(rule?.countryCode || '').trim().toUpperCase() === detectedCountryCode)
       : null;
+
+    // Benefícios comerciais (Pix, frete Brasil, cashback etc.) são exclusivos do Brasil.
+    // Quando o modo Internacional estiver ligado, visitantes detectados fora do BR
+    // nunca recebem esse bloco, mesmo que ele exista na ordem da vitrine.
+    const hideBrazilBenefits = Boolean(internationalConfig?.enabled && detectedCountryCode && detectedCountryCode !== 'BR');
+    if (hideBrazilBenefits) {
+      formattedProducts = formattedProducts.filter((product) => product.itemType !== 'benefits');
+    }
 
     let publicTitle = activeList.title;
     let publicSubtitle = activeList.subtitle || null;
