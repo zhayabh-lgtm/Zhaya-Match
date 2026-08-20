@@ -70,15 +70,28 @@ function signCloudinaryParams(params: Record<string, string | number>, secret: s
 }
 
 async function listCloudinaryResources(config: { cloudName: string; apiKey: string; apiSecret: string }, resourceType: 'image' | 'video' | 'raw') {
-  const endpoint = new URL(`https://api.cloudinary.com/v1_1/${encodeURIComponent(config.cloudName)}/resources/${resourceType}/upload`);
-  endpoint.searchParams.set('max_results', '500');
-  endpoint.searchParams.set('direction', 'desc');
-  endpoint.searchParams.set('fields', 'public_id,secure_url,url,resource_type,format,bytes,created_at,width,height,duration,display_name,original_filename');
   const auth = Buffer.from(`${config.apiKey}:${config.apiSecret}`).toString('base64');
-  const response = await fetch(endpoint, { headers: { Authorization: `Basic ${auth}` } });
-  const json: any = await response.json().catch(() => ({}));
-  if (!response.ok) throw new Error(json?.error?.message || `Cloudinary Admin API: HTTP ${response.status}`);
-  return (Array.isArray(json.resources) ? json.resources : []).map((item: any) => ({
+  const resources: any[] = [];
+  let nextCursor = '';
+
+  // A biblioteca pode crescer bastante. Pagina os resultados para o cálculo de
+  // armazenamento refletir todo o acervo, e não somente os primeiros 500 itens.
+  for (let page = 0; page < 20; page += 1) {
+    const endpoint = new URL(`https://api.cloudinary.com/v1_1/${encodeURIComponent(config.cloudName)}/resources/${resourceType}/upload`);
+    endpoint.searchParams.set('max_results', '500');
+    endpoint.searchParams.set('direction', 'desc');
+    endpoint.searchParams.set('fields', 'public_id,secure_url,url,resource_type,format,bytes,created_at,width,height,duration,display_name,original_filename');
+    if (nextCursor) endpoint.searchParams.set('next_cursor', nextCursor);
+
+    const response = await fetch(endpoint, { headers: { Authorization: `Basic ${auth}` } });
+    const json: any = await response.json().catch(() => ({}));
+    if (!response.ok) throw new Error(json?.error?.message || `Cloudinary Admin API: HTTP ${response.status}`);
+    resources.push(...(Array.isArray(json.resources) ? json.resources : []));
+    nextCursor = String(json.next_cursor || '');
+    if (!nextCursor) break;
+  }
+
+  return resources.map((item: any) => ({
     publicId: String(item.public_id || ''),
     url: String(item.secure_url || item.url || ''),
     resourceType,
@@ -93,6 +106,156 @@ async function listCloudinaryResources(config: { cloudName: string; apiKey: stri
   }));
 }
 
+function guessResourceType(value: string, mimeType = ''): 'image' | 'video' | 'raw' {
+  const mime = String(mimeType || '').toLowerCase();
+  if (mime.startsWith('image/')) return 'image';
+  if (mime.startsWith('video/')) return 'video';
+  const lower = String(value || '').toLowerCase().split('?')[0];
+  if (/\.(jpe?g|png|webp|gif|svg|avif)$/i.test(lower)) return 'image';
+  if (/\.(mp4|webm|mov|ogv|m4v)$/i.test(lower)) return 'video';
+  return 'raw';
+}
+
+async function listSupabaseStorageFiles(supabase: any, bucket: string) {
+  const out: Array<{ path: string; name: string; bytes: number; createdAt: string | null; mimeType: string | null }> = [];
+  const queue: string[] = [''];
+  const visited = new Set<string>();
+
+  while (queue.length > 0 && visited.size < 500) {
+    const prefix = queue.shift() || '';
+    if (visited.has(prefix)) continue;
+    visited.add(prefix);
+    let offset = 0;
+    for (let page = 0; page < 20; page += 1) {
+      const { data, error } = await supabase.storage.from(bucket).list(prefix, {
+        limit: 1000,
+        offset,
+        sortBy: { column: 'name', order: 'asc' },
+      });
+      if (error) throw error;
+      const items = Array.isArray(data) ? data : [];
+      for (const item of items) {
+        const path = prefix ? `${prefix}/${item.name}` : String(item.name || '');
+        const metadata = (item as any)?.metadata || null;
+        if ((item as any)?.id || metadata) {
+          out.push({
+            path,
+            name: String(item.name || path.split('/').pop() || 'Arquivo'),
+            bytes: Number(metadata.size || 0),
+            createdAt: (item as any)?.updated_at || (item as any)?.created_at || null,
+            mimeType: String(metadata.mimetype || metadata.contentType || '') || null,
+          });
+        } else if (path) {
+          queue.push(path);
+        }
+      }
+      if (items.length < 1000) break;
+      offset += items.length;
+    }
+  }
+  return out;
+}
+
+function scanReferenceValue(value: any, refs: Set<string>) {
+  if (typeof value === 'string') {
+    const clean = value.trim();
+    if (clean) refs.add(clean);
+    return;
+  }
+  if (Array.isArray(value)) {
+    value.forEach((item) => scanReferenceValue(item, refs));
+    return;
+  }
+  if (value && typeof value === 'object') {
+    Object.values(value).forEach((item) => scanReferenceValue(item, refs));
+  }
+}
+
+async function collectMediaReferences(supabase: any): Promise<string[]> {
+  if (!supabase) return [];
+  const refs = new Set<string>();
+  const tables = ['best_seller_lists', 'best_seller_products', 'best_seller_product_library', 'best_seller_gift_library'];
+  const results = await Promise.all(tables.map(async (table) => {
+    try {
+      const { data, error } = await supabase.from(table).select('*').limit(5000);
+      if (error) return [];
+      return Array.isArray(data) ? data : [];
+    } catch {
+      return [];
+    }
+  }));
+  results.flat().forEach((row) => scanReferenceValue(row, refs));
+  return Array.from(refs);
+}
+
+async function getStorageSnapshot() {
+  const cloudinary = getCloudinaryConfig();
+  const supabase = getSupabaseClient();
+  const extensionBucket = String(process.env.ZHAYA_EXTENSION_BUCKET || process.env.SUPABASE_EXTENSION_BUCKET || 'zhaya-match-extension').trim() || 'zhaya-match-extension';
+  const warnings: string[] = [];
+
+  let cloudinaryAssets: any[] = [];
+  if (cloudinary) {
+    try {
+      const groups = await Promise.all((['image', 'video', 'raw'] as const).map((type) => listCloudinaryResources(cloudinary, type)));
+      cloudinaryAssets = groups.flat().filter((asset: any) => String(asset.publicId || '').startsWith('zhaya-match/'));
+    } catch (error: any) {
+      warnings.push(`Cloudinary: ${error?.message || 'falha ao consultar armazenamento'}`);
+    }
+  }
+
+  let legacyFiles: Array<{ path: string; name: string; bytes: number; createdAt: string | null; mimeType: string | null }> = [];
+  let extensionFiles: Array<{ path: string; name: string; bytes: number; createdAt: string | null; mimeType: string | null }> = [];
+  if (supabase) {
+    try {
+      legacyFiles = await listSupabaseStorageFiles(supabase, BUCKET);
+    } catch (error: any) {
+      if (!/bucket|not found|does not exist/i.test(String(error?.message || ''))) warnings.push(`Supabase mídia: ${error?.message || 'falha ao consultar bucket'}`);
+    }
+    try {
+      extensionFiles = await listSupabaseStorageFiles(supabase, extensionBucket);
+    } catch (error: any) {
+      if (!/bucket|not found|does not exist/i.test(String(error?.message || ''))) warnings.push(`Supabase extensão: ${error?.message || 'falha ao consultar bucket'}`);
+    }
+  }
+
+  const cloudinaryBytes = cloudinaryAssets.reduce((sum, asset) => sum + Number(asset.bytes || 0), 0);
+  const legacyBytes = legacyFiles.reduce((sum, asset) => sum + Number(asset.bytes || 0), 0);
+  const extensionBytes = extensionFiles.reduce((sum, asset) => sum + Number(asset.bytes || 0), 0);
+  return {
+    cloudinary,
+    supabase,
+    extensionBucket,
+    warnings,
+    cloudinaryAssets,
+    legacyFiles,
+    extensionFiles,
+    usage: {
+      totalBytes: cloudinaryBytes + legacyBytes + extensionBytes,
+      totalAssets: cloudinaryAssets.length + legacyFiles.length + extensionFiles.length,
+      cloudinary: { bytes: cloudinaryBytes, count: cloudinaryAssets.length, configured: Boolean(cloudinary) },
+      supabaseMedia: { bytes: legacyBytes, count: legacyFiles.length, bucket: BUCKET },
+      extension: { bytes: extensionBytes, count: extensionFiles.length, bucket: extensionBucket },
+    },
+  };
+}
+
+async function deleteCloudinaryResource(config: { cloudName: string; apiKey: string; apiSecret: string }, resourceType: 'image' | 'video' | 'raw', publicId: string) {
+  const endpoint = new URL(`https://api.cloudinary.com/v1_1/${encodeURIComponent(config.cloudName)}/resources/${resourceType}/upload`);
+  const auth = Buffer.from(`${config.apiKey}:${config.apiSecret}`).toString('base64');
+  const form = new URLSearchParams();
+  form.append('public_ids[]', publicId);
+  form.append('invalidate', 'true');
+  const response = await fetch(endpoint, {
+    method: 'DELETE',
+    headers: { Authorization: `Basic ${auth}`, 'Content-Type': 'application/x-www-form-urlencoded' },
+    body: form.toString(),
+  });
+  const json: any = await response.json().catch(() => ({}));
+  if (!response.ok) throw new Error(json?.error?.message || `Cloudinary Admin API: HTTP ${response.status}`);
+  return json;
+}
+
 export default async function handler(req: any, res: any) {
   res.setHeader('Cache-Control', 'no-store');
   res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
@@ -105,6 +268,77 @@ export default async function handler(req: any, res: any) {
   const requestUrl = new URL(req.url || '/', `http://${req.headers?.host || 'localhost'}`);
   const body = req.body || {};
   const action = String(body.action || req.query?.action || requestUrl.searchParams.get('action') || (req.method === 'GET' ? 'cloudinary-library' : 'sign-upload'));
+
+  if (req.method === 'GET' && action === 'storage-usage') {
+    try {
+      const snapshot = await getStorageSnapshot();
+      return res.status(200).json({ success: true, usage: snapshot.usage, warnings: snapshot.warnings });
+    } catch (error: any) {
+      console.error('[BestSellers Media] storage-usage error:', error);
+      return res.status(500).json({ success: false, error: 'STORAGE_USAGE_FAILED', message: error?.message || 'Falha ao calcular armazenamento.' });
+    }
+  }
+
+  if (req.method === 'GET' && action === 'storage-library') {
+    try {
+      const snapshot = await getStorageSnapshot();
+      const references = await collectMediaReferences(snapshot.supabase);
+      const isInUse = (asset: any) => references.some((ref) => {
+        const clean = String(ref || '');
+        if (!clean) return false;
+        if (asset.provider === 'cloudinary') return clean === asset.url || (asset.publicId && clean.includes(asset.publicId));
+        return clean === asset.url || clean === asset.path || (asset.path && clean.includes(asset.path));
+      });
+
+      const assets = [
+        ...snapshot.cloudinaryAssets.map((asset: any) => ({
+          id: `cloudinary:${asset.resourceType}:${asset.publicId}`,
+          provider: 'cloudinary',
+          publicId: asset.publicId,
+          path: null,
+          bucket: null,
+          name: asset.name,
+          url: asset.url,
+          thumbnailUrl: asset.thumbnailUrl || asset.url,
+          resourceType: asset.resourceType,
+          format: asset.format || null,
+          bytes: Number(asset.bytes || 0),
+          createdAt: asset.createdAt || null,
+          width: asset.width || null,
+          height: asset.height || null,
+          duration: asset.duration || null,
+        })),
+        ...snapshot.legacyFiles.map((asset: any) => {
+          const { data: publicUrlData } = snapshot.supabase.storage.from(BUCKET).getPublicUrl(asset.path);
+          const url = String(publicUrlData?.publicUrl || '');
+          const resourceType = guessResourceType(asset.path, asset.mimeType || '');
+          return {
+            id: `supabase:${BUCKET}:${asset.path}`,
+            provider: 'supabase',
+            publicId: null,
+            path: asset.path,
+            bucket: BUCKET,
+            name: asset.name,
+            url,
+            thumbnailUrl: resourceType === 'image' ? url : null,
+            resourceType,
+            format: asset.path.includes('.') ? asset.path.split('.').pop()?.toLowerCase() || null : null,
+            bytes: Number(asset.bytes || 0),
+            createdAt: asset.createdAt || null,
+            width: null,
+            height: null,
+            duration: null,
+          };
+        }),
+      ].map((asset: any) => ({ ...asset, inUse: isInUse(asset) }))
+        .sort((a: any, b: any) => String(b.createdAt || '').localeCompare(String(a.createdAt || '')));
+
+      return res.status(200).json({ success: true, assets, usage: snapshot.usage, warnings: snapshot.warnings });
+    } catch (error: any) {
+      console.error('[BestSellers Media] storage-library error:', error);
+      return res.status(500).json({ success: false, error: 'STORAGE_LIBRARY_FAILED', message: error?.message || 'Falha ao abrir a biblioteca.' });
+    }
+  }
 
   if (req.method === 'GET' && action === 'cloudinary-library') {
     const cloudinary = getCloudinaryConfig();
@@ -122,6 +356,37 @@ export default async function handler(req: any, res: any) {
   }
 
   if (req.method !== 'POST') return res.status(405).json({ error: 'METHOD_NOT_ALLOWED' });
+
+  if (action === 'delete-media') {
+    const provider = String(body.provider || '');
+    try {
+      if (provider === 'cloudinary') {
+        const cloudinary = getCloudinaryConfig();
+        if (!cloudinary) return res.status(500).json({ success: false, message: 'Cloudinary não está configurado.' });
+        const resourceType = body.resourceType === 'video' ? 'video' : body.resourceType === 'raw' ? 'raw' : 'image';
+        const publicId = String(body.publicId || '').trim();
+        if (!publicId || !publicId.startsWith('zhaya-match/')) return res.status(400).json({ success: false, message: 'Mídia inválida.' });
+        await deleteCloudinaryResource(cloudinary, resourceType, publicId);
+        return res.status(200).json({ success: true });
+      }
+
+      if (provider === 'supabase') {
+        const supabase = getSupabaseClient();
+        if (!supabase) return res.status(500).json({ success: false, message: 'Supabase não está configurado.' });
+        const bucket = String(body.bucket || BUCKET).trim();
+        const path = String(body.path || '').trim();
+        if (bucket !== BUCKET || !path.startsWith('bestsellers/')) return res.status(400).json({ success: false, message: 'Arquivo inválido.' });
+        const { error } = await supabase.storage.from(bucket).remove([path]);
+        if (error) throw error;
+        return res.status(200).json({ success: true });
+      }
+
+      return res.status(400).json({ success: false, message: 'Provedor de armazenamento inválido.' });
+    } catch (error: any) {
+      console.error('[BestSellers Media] delete-media error:', error);
+      return res.status(500).json({ success: false, error: 'DELETE_MEDIA_FAILED', message: error?.message || 'Não foi possível excluir a mídia.' });
+    }
+  }
 
   if (action === 'sign-cloudinary-upload') {
     const cloudinary = getCloudinaryConfig();

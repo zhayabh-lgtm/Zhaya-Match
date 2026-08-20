@@ -1262,7 +1262,6 @@ const VideoHighlightItem: React.FC<{
 
 
 const BenefitsBlockItem: React.FC<{ item: PublicBestSellerProduct }> = ({ item }) => {
-  const [expanded, setExpanded] = useState(false);
   const benefits = (item.benefits || []).map((value) => value.trim()).filter(Boolean);
   if (benefits.length === 0) return null;
 
@@ -1276,48 +1275,17 @@ const BenefitsBlockItem: React.FC<{ item: PublicBestSellerProduct }> = ({ item }
       className="w-full pb-7 sm:pb-10"
     >
       <div className="w-full rounded-[14px] border border-white/10 bg-white/[0.035] px-4 py-4 sm:px-5 sm:py-5">
-        <button
-          type="button"
-          onClick={() => setExpanded((value) => !value)}
-          className="w-full flex items-center justify-between gap-4 text-left cursor-pointer"
-          aria-expanded={expanded}
-        >
-          <div className="min-w-0">
-            <h2 className="text-[14px] sm:text-[15px] font-semibold text-white tracking-[-0.01em]">
-              {item.name || 'Vantagens Zhaya'}
-            </h2>
-            {!expanded && (
-              <p className="mt-1.5 text-[10px] sm:text-[11px] leading-relaxed text-neutral-500 break-words">
-                {benefits.slice(0, 3).join(' · ')}
-              </p>
-            )}
-          </div>
-          <span className="shrink-0 inline-flex items-center gap-1 text-[10px] sm:text-[11px] font-medium text-neutral-400">
-            {expanded ? 'Fechar' : 'Ver todas'}
-            <ChevronDown className={`w-4 h-4 transition-transform ${expanded ? 'rotate-180' : ''}`} strokeWidth={1.8} />
-          </span>
-        </button>
-
-        <AnimatePresence initial={false}>
-          {expanded && (
-            <motion.div
-              initial={{ height: 0, opacity: 0 }}
-              animate={{ height: 'auto', opacity: 1 }}
-              exit={{ height: 0, opacity: 0 }}
-              transition={{ duration: 0.22, ease: 'easeOut' }}
-              className="overflow-hidden"
-            >
-              <div className="pt-3 mt-3 border-t border-white/8 space-y-2.5">
-                {benefits.map((benefit, index) => (
-                  <div key={`${benefit}-${index}`} className="flex items-start gap-2.5 text-[11px] sm:text-[12px] leading-relaxed text-neutral-300">
-                    <span className="mt-[7px] w-1 h-1 rounded-full bg-neutral-500 shrink-0" />
-                    <span className="break-words [overflow-wrap:anywhere]">{benefit}</span>
-                  </div>
-                ))}
-              </div>
-            </motion.div>
-          )}
-        </AnimatePresence>
+        <h2 className="text-center text-[14px] sm:text-[15px] font-semibold text-white tracking-[-0.01em]">
+          {item.name || 'Vantagens Zhaya'}
+        </h2>
+        <div className="mt-3 pt-3 border-t border-white/8 space-y-2.5">
+          {benefits.map((benefit, index) => (
+            <div key={`${benefit}-${index}`} className="flex items-start gap-2.5 text-[11px] sm:text-[12px] leading-relaxed text-neutral-300">
+              <span className="mt-[7px] w-1 h-1 rounded-full bg-neutral-500 shrink-0" />
+              <span className="break-words [overflow-wrap:anywhere]">{benefit}</span>
+            </div>
+          ))}
+        </div>
       </div>
     </motion.section>
   );

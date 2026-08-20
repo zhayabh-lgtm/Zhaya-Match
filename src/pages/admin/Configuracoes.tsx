@@ -1,8 +1,10 @@
 import React, { useState, useEffect, useRef } from 'react';
+import { Link } from 'react-router-dom';
 import { useConfigDraft } from '../../context/ConfigDraftContext';
 import { AppConfig, SystemActivityStatus, DiagnosticContract } from '../../types/zhaya';
 import { Repository } from '../../lib/repository';
 import { CentralDeDiagnostico } from '../../components/admin/CentralDeDiagnostico';
+import { formatStorageBytes, getZhayaStorageUsage, type ZhayaStorageUsage } from '../../lib/storageLibrary';
 import {
   Save,
   Copy,
@@ -23,6 +25,7 @@ import {
   Upload,
   Download,
   Package,
+  HardDrive,
 } from 'lucide-react';
 
 export const Configuracoes: React.FC = () => {
@@ -47,7 +50,22 @@ export const Configuracoes: React.FC = () => {
   const [extensionInfo, setExtensionInfo] = useState<{ available: boolean; bucket?: string; fileName?: string; size?: number | null; updatedAt?: string | null; downloadUrl?: string | null } | null>(null);
   const [extensionMessage, setExtensionMessage] = useState<string | null>(null);
   const [extensionError, setExtensionError] = useState<string | null>(null);
+  const [storageUsage, setStorageUsage] = useState<ZhayaStorageUsage | null>(null);
+  const [storageLoading, setStorageLoading] = useState(true);
+  const [storageError, setStorageError] = useState<string | null>(null);
 
+
+  const loadStorageUsage = async () => {
+    setStorageLoading(true);
+    const result = await getZhayaStorageUsage();
+    if (result.success && result.usage) {
+      setStorageUsage(result.usage);
+      setStorageError(null);
+    } else {
+      setStorageError(result.error || 'Não foi possível calcular o armazenamento.');
+    }
+    setStorageLoading(false);
+  };
 
   const loadExtensionInfo = async () => {
     const result = await Repository.getZhayaExtensionInfo();
@@ -224,6 +242,7 @@ export const Configuracoes: React.FC = () => {
     loadActivityStatus();
     loadDiagnostics();
     void loadExtensionInfo();
+    void loadStorageUsage();
   }, [config.allowedDomains]);
 
   const handleSave = async () => {
@@ -308,6 +327,38 @@ export const Configuracoes: React.FC = () => {
         </div>
       ) : (
         <div className="space-y-6">
+          {/* Uso total de armazenamento do Zhaya Match */}
+          <div className="bg-white border border-neutral-200 rounded-lg p-5 sm:p-6">
+            <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
+              <div className="flex items-start gap-3 min-w-0">
+                <div className="w-9 h-9 rounded-lg bg-neutral-900 text-white flex items-center justify-center shrink-0">
+                  <HardDrive className="w-4 h-4" />
+                </div>
+                <div className="min-w-0">
+                  <div className="text-[10px] font-bold uppercase tracking-[0.14em] text-neutral-500">Uso de armazenamento</div>
+                  <div className="mt-0.5 flex items-baseline gap-2 flex-wrap">
+                    <span className="text-2xl font-bold text-neutral-900">{storageLoading ? 'Calculando...' : formatStorageBytes(storageUsage?.totalBytes || 0)}</span>
+                    {!storageLoading && <span className="text-[10px] text-neutral-400">{storageUsage?.totalAssets || 0} arquivos</span>}
+                  </div>
+                  <div className="mt-2 flex flex-wrap gap-x-4 gap-y-1 text-[10px] text-neutral-500">
+                    <span>Cloudinary: <strong className="text-neutral-700">{formatStorageBytes(storageUsage?.cloudinary?.bytes || 0)}</strong></span>
+                    <span>Mídia Supabase: <strong className="text-neutral-700">{formatStorageBytes(storageUsage?.supabaseMedia?.bytes || 0)}</strong></span>
+                    <span>Extensão: <strong className="text-neutral-700">{formatStorageBytes(storageUsage?.extension?.bytes || 0)}</strong></span>
+                  </div>
+                  {storageError && <div className="mt-2 text-[10px] text-red-600">{storageError}</div>}
+                </div>
+              </div>
+              <div className="flex items-center gap-2 shrink-0">
+                <button type="button" onClick={() => void loadStorageUsage()} disabled={storageLoading} className="inline-flex items-center gap-1.5 px-3 py-2 border border-neutral-300 rounded text-xs font-semibold text-neutral-700 hover:bg-neutral-50 disabled:opacity-50 cursor-pointer">
+                  <RefreshCw className={`w-3.5 h-3.5 ${storageLoading ? 'animate-spin' : ''}`} /> Atualizar
+                </button>
+                <Link to="/admin/biblioteca" className="inline-flex items-center gap-1.5 px-3 py-2 bg-neutral-900 text-white rounded text-xs font-semibold hover:bg-neutral-800">
+                  Abrir biblioteca
+                </Link>
+              </div>
+            </div>
+          </div>
+
           {/* Central de Diagnóstico Completa */}
           <CentralDeDiagnostico config={config} />
 

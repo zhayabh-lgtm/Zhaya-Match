@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { Link, useLocation, useNavigate } from 'react-router-dom';
-import { Settings, LogOut, TrendingUp, Sparkles } from 'lucide-react';
+import { Settings, LogOut, TrendingUp, Sparkles, Library } from 'lucide-react';
 import { useAuth } from '../../context/AuthContext';
 import { Repository } from '../../lib/repository';
 import { PublishStatusBar } from './PublishStatusBar';
@@ -43,6 +43,7 @@ export const AdminLayout: React.FC<AdminLayoutProps> = ({ children }) => {
     { label: 'Zhaya Match', path: '/admin/zhaya-match', icon: Sparkles },
     { label: 'Vitrine personalizada', path: '/admin/mais-vendidos', icon: TrendingUp },
     { label: 'Configurações', path: '/admin/configuracoes', icon: Settings },
+    { label: 'Biblioteca', path: '/admin/biblioteca', icon: Library },
   ];
 
   return (

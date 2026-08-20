@@ -1,0 +1,28 @@
+ZHAYA MATCH — V6
+
+ALTERAÇÕES
+1. Bloco Vantagens
+- Não usa mais gaveta/accordion na página pública.
+- Título centralizado.
+- Lista de vantagens sempre visível no formato normal.
+
+2. Média geral de horários
+- Mantido somente o gráfico.
+- Removidos título, subtítulo, horário mais acessado, faixa mais forte, visitantes analisados e vitrines com dados.
+
+3. Configurações — USO DE ARMAZENAMENTO
+- Novo resumo no início de Configurações.
+- Soma arquivos gerenciados pelo Zhaya Match no Cloudinary, bucket legado zhaya-match-media do Supabase e ZIP da extensão.
+- Exibe total e divisão por origem.
+
+4. Biblioteca
+- Nova rota /admin/biblioteca e item no menu.
+- Lista imagens, vídeos e outros arquivos enviados pelo Zhaya Match.
+- Busca e filtro por tipo.
+- Filtro "Só repetidos" com detecção por nome/tipo/tamanho.
+- Seleção múltipla e exclusão.
+- Marca arquivos encontrados como "Em uso" nas vitrines/produtos/presentes/bibliotecas salvas.
+- Exclusão permanente exige confirmação.
+
+SQL
+- Não há SQL novo nesta versão.

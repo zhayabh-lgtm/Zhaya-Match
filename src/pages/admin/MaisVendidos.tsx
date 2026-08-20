@@ -697,79 +697,33 @@ const BestSellerHourlyChart: React.FC<{ items: BestSellerAnalyticsHourItem[] }> 
 const BestSellerOverallHoursCard: React.FC<{ summary: BestSellerOverallHoursSummary | null; loading: boolean }> = ({ summary, loading }) => {
   const hours = summary?.hourlyVisitors || Array.from({ length: 24 }, (_, hour) => ({ hour, visitors: 0, averageVisitors: 0 }));
   const maxAverage = Math.max(1, ...hours.map((item) => Number(item.averageVisitors || 0)));
-  const peakHourLabel = summary?.peakHour === null || summary?.peakHour === undefined
-    ? '—'
-    : `${String(summary.peakHour).padStart(2, '0')}:00`;
-  const windowLabel = summary?.strongestWindowStart === null || summary?.strongestWindowStart === undefined
-    ? '—'
-    : `${String(summary.strongestWindowStart).padStart(2, '0')}h–${String(summary.strongestWindowEnd ?? summary.strongestWindowStart).padStart(2, '0')}h`;
 
   return (
-    <div className="rounded-xl border border-neutral-200 bg-white p-4 sm:p-5 shadow-sm">
-      <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-3">
-        <div>
-          <div className="flex items-center gap-2">
-            <Clock className="w-4 h-4 text-neutral-700" />
-            <h3 className="text-xs font-bold uppercase tracking-wider text-neutral-700">Média geral de horários</h3>
-          </div>
-          <p className="text-[10px] text-neutral-400 mt-1">Consolida os horários de entrada de todas as vitrines cadastradas. Desktop continua fora das métricas.</p>
-        </div>
-        {loading && <Loader2 className="w-4 h-4 animate-spin text-neutral-400 shrink-0" />}
-      </div>
-
-      <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 mt-4">
-        <div className="rounded-lg border border-neutral-200 bg-neutral-50 px-3 py-2.5">
-          <div className="text-[9px] font-bold uppercase tracking-wider text-neutral-400">Horário mais acessado</div>
-          <div className="text-lg font-bold text-neutral-900 mt-0.5">{peakHourLabel}</div>
-          <div className="text-[9px] text-neutral-500">{summary?.peakVisitors || 0} entradas no total</div>
-        </div>
-        <div className="rounded-lg border border-neutral-200 bg-neutral-50 px-3 py-2.5">
-          <div className="text-[9px] font-bold uppercase tracking-wider text-neutral-400">Faixa mais forte</div>
-          <div className="text-lg font-bold text-neutral-900 mt-0.5">{windowLabel}</div>
-          <div className="text-[9px] text-neutral-500">janela contínua de 3 horas</div>
-        </div>
-        <div className="rounded-lg border border-neutral-200 bg-neutral-50 px-3 py-2.5">
-          <div className="text-[9px] font-bold uppercase tracking-wider text-neutral-400">Visitantes analisados</div>
-          <div className="text-lg font-bold text-neutral-900 mt-0.5">{summary?.totalVisitors || 0}</div>
-          <div className="text-[9px] text-neutral-500">entradas únicas</div>
-        </div>
-        <div className="rounded-lg border border-neutral-200 bg-neutral-50 px-3 py-2.5">
-          <div className="text-[9px] font-bold uppercase tracking-wider text-neutral-400">Vitrines com dados</div>
-          <div className="text-lg font-bold text-neutral-900 mt-0.5">{summary?.listsWithVisitors || 0}<span className="text-xs font-medium text-neutral-400">/{summary?.listsCount || 0}</span></div>
-          <div className="text-[9px] text-neutral-500">vitrines cadastradas</div>
-        </div>
-      </div>
-
-      <div className="mt-4">
-        <div className="flex items-center justify-between gap-3 mb-2">
-          <div className="text-[9px] font-bold uppercase tracking-wider text-neutral-400">Média de entradas por vitrine em cada horário</div>
-          <div className="text-[9px] text-neutral-400">00h → 23h</div>
-        </div>
-        <div className="h-24 flex items-end gap-[3px] sm:gap-1">
-          {hours.map((item) => {
-            const avg = Number(item.averageVisitors || 0);
-            const height = avg > 0 ? Math.max(7, Math.round((avg / maxAverage) * 78)) : 2;
-            return (
-              <div key={item.hour} className="group relative flex-1 h-full flex items-end">
-                <div
-                  className={`w-full rounded-t-[2px] ${avg > 0 ? 'bg-neutral-800 group-hover:bg-black' : 'bg-neutral-200'}`}
-                  style={{ height: `${height}%` }}
-                />
-                <div className="pointer-events-none absolute left-1/2 -translate-x-1/2 bottom-full mb-1 hidden group-hover:block z-20 rounded bg-neutral-900 px-1.5 py-1 text-[9px] text-white whitespace-nowrap">
-                  {String(item.hour).padStart(2, '0')}:00 · média {avg.toLocaleString('pt-BR', { maximumFractionDigits: 1 })} · total {item.visitors}
-                </div>
+    <div className="rounded-xl border border-neutral-200 bg-white p-4 sm:p-5 shadow-sm relative">
+      {loading && <Loader2 className="w-4 h-4 animate-spin text-neutral-400 absolute top-3 right-3" />}
+      <div className="h-24 flex items-end gap-[3px] sm:gap-1">
+        {hours.map((item) => {
+          const avg = Number(item.averageVisitors || 0);
+          const height = avg > 0 ? Math.max(7, Math.round((avg / maxAverage) * 78)) : 2;
+          return (
+            <div key={item.hour} className="group relative flex-1 h-full flex items-end">
+              <div
+                className={`w-full rounded-t-[2px] ${avg > 0 ? 'bg-neutral-800 group-hover:bg-black' : 'bg-neutral-200'}`}
+                style={{ height: `${height}%` }}
+              />
+              <div className="pointer-events-none absolute left-1/2 -translate-x-1/2 bottom-full mb-1 hidden group-hover:block z-20 rounded bg-neutral-900 px-1.5 py-1 text-[9px] text-white whitespace-nowrap">
+                {String(item.hour).padStart(2, '0')}:00 · média {avg.toLocaleString('pt-BR', { maximumFractionDigits: 1 })} · total {item.visitors}
               </div>
-            );
-          })}
-        </div>
-        <div className="mt-2 grid grid-cols-7 text-[9px] text-neutral-400 font-medium">
-          <span>00h</span><span className="text-center">04h</span><span className="text-center">08h</span><span className="text-center">12h</span><span className="text-center">16h</span><span className="text-center">20h</span><span className="text-right">23h</span>
-        </div>
+            </div>
+          );
+        })}
+      </div>
+      <div className="mt-2 grid grid-cols-7 text-[9px] text-neutral-400 font-medium">
+        <span>00h</span><span className="text-center">04h</span><span className="text-center">08h</span><span className="text-center">12h</span><span className="text-center">16h</span><span className="text-center">20h</span><span className="text-right">23h</span>
       </div>
     </div>
   );
 };
-
 
 function formatLiveDuration(totalSeconds: number): string {
   const seconds = Math.max(0, Math.floor(Number(totalSeconds || 0)));
