@@ -1933,23 +1933,25 @@ export const MaisVendidosPage: React.FC = () => {
     const items = listData?.products || [];
     const productItems = items.filter((item) => item.itemType !== 'video' && item.itemType !== 'benefits');
     const introCount = Math.min(12, Math.max(1, Number(listData?.organizedIntroCount) || 3));
-    const hasFavorites = productItems.some((item) => Boolean(item.organizedFavorite));
+    const favoriteProducts = productItems
+      .filter((item) => Boolean(item.organizedFavorite))
+      .sort((a, b) => (a.position || 0) - (b.position || 0));
+    const hasFavorites = favoriteProducts.length > 0;
 
     let introItems: PublicBestSellerProduct[] = [];
     let remainingItems: PublicBestSellerProduct[] = [];
 
     if (hasFavorites) {
-      // Favoritos são uma curadoria dos primeiros produtos sem alterar a ordem geral cadastrada.
-      const prioritized = [...productItems].sort((a, b) => {
-        const favoriteDiff = Number(Boolean(b.organizedFavorite)) - Number(Boolean(a.organizedFavorite));
-        if (favoriteDiff !== 0) return favoriteDiff;
-        return (a.position || 0) - (b.position || 0);
-      });
-      introItems = prioritized.slice(0, introCount);
+      // Favoritar é uma curadoria explícita: se há favoritos no grupo público atual
+      // (Principal OU Redirecionar), somente eles formam a abertura organizada.
+      // Não completamos artificialmente com itens não favoritados.
+      introItems = favoriteProducts;
       const introIds = new Set(introItems.map((item) => item.id));
       remainingItems = items.filter((item) => !introIds.has(item.id));
     } else {
-      // Sem favoritos, preserva exatamente a lógica histórica do modo organizado.
+      // Sem curadoria manual, usa os primeiros produtos. O padrão da vitrine é 3.
+      // Mantemos blocos de vídeo/benefícios que estejam antes do corte para não
+      // quebrar a ordem editorial já cadastrada.
       const productIndexes = items
         .map((item, index) => ({ item, index }))
         .filter(({ item }) => item.itemType !== 'video' && item.itemType !== 'benefits');
@@ -1959,24 +1961,27 @@ export const MaisVendidosPage: React.FC = () => {
     }
 
     const remainingProducts = remainingItems.filter((item) => item.itemType !== 'video' && item.itemType !== 'benefits');
-    const counts = new Map<string, number>();
+    const categoryKeys = new Set<string>();
     remainingProducts.forEach((product) => {
-      const key = (product.autoCategoryKey || detectBestSellerCategoryKey(product)) as any;
-      counts.set(key, (counts.get(key) || 0) + 1);
+      const key = String(product.autoCategoryKey || detectBestSellerCategoryKey(product));
+      if (key) categoryKeys.add(key);
     });
-    const categories = Array.from(counts.entries())
-      .map(([key, count]) => ({
+    const categories = Array.from(categoryKeys)
+      .map((key) => ({
         key,
-        count,
         label: listData?.categoryTranslations?.[key] || getBestSellerCategoryLabel(ui.locale, key as any),
       }))
-      .sort((a, b) => b.count - a.count || a.label.localeCompare(b.label));
-    const active = listData?.experienceMode === 'organized' && remainingProducts.length >= 2;
-    return { active, introItems, remainingItems, remainingProducts, categories };
+      .sort((a, b) => a.label.localeCompare(b.label));
+
+    const enabled = listData?.experienceMode === 'organized';
+    // Uma única categoria não oferece escolha real. Nesse caso a etapa é pulada
+    // e os produtos restantes continuam normalmente abaixo da abertura.
+    const showSelector = enabled && categories.length >= 2;
+    return { enabled, showSelector, introItems, remainingItems, remainingProducts, categories };
   }, [listData, ui.locale]);
 
   const organizedSelectedItems = useMemo(() => {
-    if (!organizedModel.active || !organizedCategory) return [] as PublicBestSellerProduct[];
+    if (!organizedModel.showSelector || !organizedCategory) return [] as PublicBestSellerProduct[];
     if (organizedCategory === 'all') return organizedModel.remainingItems;
     return organizedModel.remainingItems.filter((item) =>
       item.itemType !== 'video' && item.itemType !== 'benefits' && (item.autoCategoryKey || detectBestSellerCategoryKey(item)) === organizedCategory
@@ -2193,7 +2198,6 @@ export const MaisVendidosPage: React.FC = () => {
 
             {listData.redirectMode && listData.redirectMessage?.trim() && (
               <section className="w-full max-w-xl mx-auto mb-8 sm:mb-10 text-center px-1">
-                <span className="inline-block text-[10px] font-black uppercase tracking-[0.2em] text-neutral-500 mb-3">ZHAYA</span>
                 <p className="text-sm sm:text-base text-neutral-200 font-normal leading-relaxed whitespace-pre-line">
                   {listData.redirectMessage}
                 </p>
@@ -2203,28 +2207,24 @@ export const MaisVendidosPage: React.FC = () => {
             {/* Vitrine de Produtos */}
             {listData.products && listData.products.length > 0 ? (
               <div className="w-full flex flex-col space-y-4 sm:space-y-10">
-                {(organizedModel.active ? organizedModel.introItems : listData.products).map((prod, idx) => renderStoreItem(prod, idx))}
+                {(organizedModel.enabled ? organizedModel.introItems : listData.products).map((prod, idx) => renderStoreItem(prod, idx))}
 
-                {organizedModel.active && (
+                {organizedModel.showSelector && (
                   <section
                     data-organized-selector
                     className="w-full max-w-[430px] mx-auto py-7 sm:py-9 px-4"
                     style={{ fontFamily: '"Neue Einstellung", "Helvetica Neue", Helvetica, Arial, sans-serif' }}
                   >
-                    {(listData.organizedTitle?.trim() || listData.organizedSubtitle?.trim()) && (
-                      <div className="text-center mb-5">
-                        {listData.organizedTitle?.trim() && (
-                          <h2 className="text-[22px] leading-[1.08] font-semibold tracking-[-0.02em] text-white">
-                            {listData.organizedTitle}
-                          </h2>
-                        )}
-                        {listData.organizedSubtitle?.trim() && (
-                          <p className={`${listData.organizedTitle?.trim() ? 'mt-2' : ''} text-[12px] leading-relaxed font-normal text-neutral-400`}>
-                            {listData.organizedSubtitle}
-                          </p>
-                        )}
-                      </div>
-                    )}
+                    <div className="text-center mb-5">
+                      <h2 className="text-[22px] leading-[1.08] font-semibold tracking-[-0.02em] text-white">
+                        {listData.organizedTitle?.trim() || ui.organizedTitle}
+                      </h2>
+                      {listData.organizedSubtitle?.trim() && (
+                        <p className="mt-2 text-[12px] leading-relaxed font-normal text-neutral-400">
+                          {listData.organizedSubtitle}
+                        </p>
+                      )}
+                    </div>
 
                     <div className="space-y-2">
                       <button
@@ -2234,9 +2234,6 @@ export const MaisVendidosPage: React.FC = () => {
                         className={`w-full min-h-[46px] rounded-[6px] px-4 py-2.5 inline-flex items-center justify-center text-center border transition-[transform,background-color,color,border-color] active:scale-[0.985] ${organizedCategory === 'all' ? 'bg-black text-white border-white outline outline-1 outline-white/80' : 'bg-white text-black border-white hover:bg-neutral-100'}`}
                       >
                         <span className="text-[13px] leading-none font-semibold">{ui.organizedAll}</span>
-                        <span className={`ml-1.5 text-[11px] leading-none font-normal ${organizedCategory === 'all' ? 'text-neutral-300' : 'text-neutral-500'}`}>
-                          {organizedModel.remainingProducts.length}
-                        </span>
                       </button>
 
                       <div className="grid grid-cols-2 gap-2">
@@ -2251,9 +2248,6 @@ export const MaisVendidosPage: React.FC = () => {
                               className={`w-full min-h-[46px] rounded-[6px] px-2.5 py-2.5 inline-flex items-center justify-center text-center border transition-[transform,background-color,color,border-color] active:scale-[0.985] ${isSelected ? 'bg-black text-white border-white outline outline-1 outline-white/80' : 'bg-white text-black border-white hover:bg-neutral-100'}`}
                             >
                               <span className="text-[12px] leading-none font-semibold truncate">{category.label}</span>
-                              <span className={`ml-1 text-[10px] leading-none font-normal shrink-0 ${isSelected ? 'text-neutral-300' : 'text-neutral-500'}`}>
-                                {category.count}
-                              </span>
                             </button>
                           );
                         })}
@@ -2278,7 +2272,13 @@ export const MaisVendidosPage: React.FC = () => {
                   </section>
                 )}
 
-                {organizedModel.active && organizedCategory && organizedSelectedItems.length > 0 && (
+                {organizedModel.enabled && !organizedModel.showSelector && organizedModel.remainingItems.length > 0 && (
+                  <div className="w-full flex flex-col space-y-4 sm:space-y-10">
+                    {organizedModel.remainingItems.map((prod, idx) => renderStoreItem(prod, idx))}
+                  </div>
+                )}
+
+                {organizedModel.showSelector && organizedCategory && organizedSelectedItems.length > 0 && (
                   <div className="w-full flex flex-col space-y-4 sm:space-y-10">
                     {organizedSelectedItems.map((prod, idx) => renderStoreItem(prod, idx))}
                     <div className="w-full flex justify-center pt-3 px-4">
