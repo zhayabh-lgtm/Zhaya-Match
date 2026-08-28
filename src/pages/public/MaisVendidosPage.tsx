@@ -2502,11 +2502,6 @@ export const MaisVendidosPage: React.FC = () => {
                             className="w-full max-w-[430px] mx-auto py-6 px-4"
                             style={{ fontFamily: '"Neue Einstellung", "Helvetica Neue", Helvetica, Arial, sans-serif' }}
                           >
-                            <div className="text-center mb-4">
-                              <h3 className="text-[18px] leading-[1.08] font-semibold tracking-[-0.02em] text-white">
-                                {listData.organizedTitle?.trim() || ui.organizedTitle}
-                              </h3>
-                            </div>
                             {renderOrganizedCategoryButtons('history', block.category, block.id)}
                             {block.items.length > 0 && (
                               <div className="pt-4 flex justify-center" aria-hidden="true">
@@ -2535,11 +2530,6 @@ export const MaisVendidosPage: React.FC = () => {
                       className="w-full max-w-[430px] mx-auto pt-5 pb-2 px-4"
                       style={{ fontFamily: '"Neue Einstellung", "Helvetica Neue", Helvetica, Arial, sans-serif' }}
                     >
-                      <div className="text-center mb-4">
-                        <h3 className="text-[18px] leading-[1.08] font-semibold tracking-[-0.02em] text-white">
-                          {listData.organizedTitle?.trim() || ui.organizedTitle}
-                        </h3>
-                      </div>
                       {renderOrganizedCategoryButtons('current', null)}
                     </section>
                   </div>
