@@ -1,4 +1,4 @@
-import React, { useEffect, useState, useMemo, useRef } from 'react';
+import React, { useEffect, useLayoutEffect, useState, useMemo, useRef } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import { useParams } from 'react-router-dom';
 import { Play, Pause, Volume2, VolumeX, ChevronLeft, ChevronRight, ChevronDown } from 'lucide-react';
@@ -1515,7 +1515,8 @@ export const MaisVendidosPage: React.FC = () => {
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [now, setNow] = useState<number>(Date.now());
   const [leadProduct, setLeadProduct] = useState<PublicBestSellerProduct | null>(null);
-  const [organizedCategoryBlocks, setOrganizedCategoryBlocks] = useState<string[]>([]);
+  type OrganizedCategoryBlockState = { id: number; category: string };
+  const [organizedCategoryBlocks, setOrganizedCategoryBlocks] = useState<OrganizedCategoryBlockState[]>([]);
   const [showOrganizedFloatingSelector, setShowOrganizedFloatingSelector] = useState<boolean>(false);
   const ui = useMemo(() => getBestSellerUiText(listData?.uiLocale || listData?.currencyLocale || (typeof navigator !== 'undefined' ? navigator.language : 'pt-BR')), [listData?.uiLocale, listData?.currencyLocale]);
 
@@ -1523,6 +1524,8 @@ export const MaisVendidosPage: React.FC = () => {
   const isFetchingRef = useRef<boolean>(false);
   const hasLoadedInitiallyRef = useRef<boolean>(false);
   const pageViewTrackedRef = useRef<string>('');
+  const organizedBlockSequenceRef = useRef<number>(0);
+  const pendingOrganizedAnchorRef = useRef<{ selector: string; top: number } | null>(null);
 
   // Atualiza relógio local para o timer (apenas cálculo visual a cada 1s)
   useEffect(() => {
@@ -1591,7 +1594,9 @@ export const MaisVendidosPage: React.FC = () => {
     pageViewTrackedRef.current = '';
     setListData(null);
     setLeadProduct(null);
+    pendingOrganizedAnchorRef.current = null;
     setOrganizedCategoryBlocks([]);
+    organizedBlockSequenceRef.current = 0;
     setErrorMessage(null);
 
     // 1. Carregamento inicial explícito
@@ -1991,18 +1996,18 @@ export const MaisVendidosPage: React.FC = () => {
   };
 
   const organizedVisibleBlocks = useMemo(() => {
-    // Mantemos no máximo duas categorias na árvore. Ao entrar a terceira,
-    // a mais antiga sai do DOM para a página não crescer indefinidamente.
-    return organizedCategoryBlocks.slice(-2).map((category, index, visible) => ({
-      id: `${category}-${organizedCategoryBlocks.length - visible.length + index}`,
-      category,
-      items: getOrganizedItemsForCategory(category),
+    // O estado já mantém no máximo dois blocos. IDs estáveis evitam que o React
+    // remonte o bloco sobrevivente quando o mais antigo sai da janela.
+    return organizedCategoryBlocks.map((block) => ({
+      ...block,
+      items: getOrganizedItemsForCategory(block.category),
     }));
   }, [organizedCategoryBlocks, organizedModel]);
 
-  const currentOrganizedCategory = organizedCategoryBlocks.length > 0
+  const currentOrganizedBlock = organizedCategoryBlocks.length > 0
     ? organizedCategoryBlocks[organizedCategoryBlocks.length - 1]
     : null;
+  const currentOrganizedCategory = currentOrganizedBlock?.category || null;
 
   const scrollToInitialOrganizedSelector = () => {
     requestAnimationFrame(() => {
@@ -2012,35 +2017,81 @@ export const MaisVendidosPage: React.FC = () => {
     });
   };
 
+  const createOrganizedBlock = (category: string): OrganizedCategoryBlockState => ({
+    id: ++organizedBlockSequenceRef.current,
+    category,
+  });
+
+  const queueOrganizedSelectorAnchor = (selector: string, previousTop: number | null) => {
+    if (previousTop === null || !Number.isFinite(previousTop)) {
+      pendingOrganizedAnchorRef.current = null;
+      return;
+    }
+    pendingOrganizedAnchorRef.current = { selector, top: previousTop };
+  };
+
+  useLayoutEffect(() => {
+    const pending = pendingOrganizedAnchorRef.current;
+    if (!pending) return;
+    pendingOrganizedAnchorRef.current = null;
+    const nextNode = document.querySelector(pending.selector) as HTMLElement | null;
+    if (!nextNode) return;
+    const nextTop = nextNode.getBoundingClientRect().top;
+    const delta = nextTop - pending.top;
+    // useLayoutEffect roda depois da mutação do DOM e antes da pintura. Assim a
+    // compensação ocorre no mesmo frame e o usuário não vê o conteúdo "pular".
+    if (Math.abs(delta) > 0.5) window.scrollBy({ top: delta, left: 0, behavior: 'auto' });
+  }, [organizedCategoryBlocks]);
+
   const handleResetOrganizedCategories = () => {
-    // O atalho flutuante sempre volta para o primeiro seletor, logo depois dos
-    // produtos principais. Também limpa os blocos categorizados já carregados,
-    // restaurando a experiência organizada ao estado inicial.
+    // Este é o único fluxo em que subir a página é intencional: o botão flutuante
+    // volta para o primeiro seletor e limpa os produtos categorizados carregados.
+    pendingOrganizedAnchorRef.current = null;
     setOrganizedCategoryBlocks([]);
     setShowOrganizedFloatingSelector(false);
     scrollToInitialOrganizedSelector();
   };
 
-  const scrollToNewestOrganizedBlock = () => {
-    requestAnimationFrame(() => {
-      requestAnimationFrame(() => {
-        document.querySelector('[data-organized-block="latest"]')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
-      });
-    });
-  };
-
-  const handleOrganizedCategorySelect = (category: string, source: 'initial' | 'history' | 'current' = 'initial') => {
+  const handleOrganizedCategorySelect = (
+    category: string,
+    source: 'initial' | 'history' | 'current' = 'initial',
+    sourceBlockId?: number,
+  ) => {
     if (source === 'initial') {
-      setOrganizedCategoryBlocks([category]);
-      requestAnimationFrame(scrollToNewestOrganizedBlock);
+      const anchorNode = document.querySelector('[data-organized-selector="initial"]') as HTMLElement | null;
+      const anchorTop = anchorNode?.getBoundingClientRect().top ?? null;
+      const nextBlock = createOrganizedBlock(category);
+      setOrganizedCategoryBlocks([nextBlock]);
+      queueOrganizedSelectorAnchor(`[data-organized-block-selector-id="${nextBlock.id}"]`, anchorTop);
       return;
     }
 
-    // O seletor do fim cria um novo bloco abaixo. Se a mesma categoria já é a
-    // atual, não duplicamos conteúdo sem necessidade.
+    if (source === 'history' && sourceBlockId) {
+      const sourceBlock = organizedCategoryBlocks.find((block) => block.id === sourceBlockId);
+      if (!sourceBlock || sourceBlock.category === category) return;
+      const anchorNode = document.querySelector(`[data-organized-block-selector-id="${sourceBlockId}"]`) as HTMLElement | null;
+      const anchorTop = anchorNode?.getBoundingClientRect().top ?? null;
+      const nextBlock = createOrganizedBlock(category);
+      setOrganizedCategoryBlocks((previous) => {
+        const sourceIndex = previous.findIndex((block) => block.id === sourceBlockId);
+        if (sourceIndex < 0) return previous;
+        // Trocar uma categoria antiga redefine a sequência a partir daquele ponto;
+        // blocos que vinham depois deixam de fazer sentido e são descartados.
+        return [...previous.slice(0, sourceIndex), nextBlock].slice(-2);
+      });
+      queueOrganizedSelectorAnchor(`[data-organized-block-selector-id="${nextBlock.id}"]`, anchorTop);
+      return;
+    }
+
+    // No seletor do fim, o próximo bloco nasce exatamente onde o usuário está.
+    // Não usamos scrollIntoView: isso era o que competia com a remoção do bloco
+    // antigo e provocava saltos aleatórios para cima no mobile.
     if (currentOrganizedCategory === category) return;
-    setOrganizedCategoryBlocks((previous) => [...previous, category].slice(-2));
-    requestAnimationFrame(scrollToNewestOrganizedBlock);
+    const anchorNode = document.querySelector('[data-organized-selector="current"]') as HTMLElement | null;
+    const anchorTop = anchorNode?.getBoundingClientRect().top ?? null;
+    const nextBlock = createOrganizedBlock(category);
+    setOrganizedCategoryBlocks((previous) => [...previous, nextBlock].slice(-2));
+    queueOrganizedSelectorAnchor(`[data-organized-block-selector-id="${nextBlock.id}"]`, anchorTop);
   };
 
   useEffect(() => {
@@ -2082,6 +2133,7 @@ export const MaisVendidosPage: React.FC = () => {
   const renderOrganizedCategoryButtons = (
     source: 'initial' | 'history' | 'current',
     selectedCategory: string | null = null,
+    sourceBlockId?: number,
   ) => {
     const buttonClass = (selected: boolean) =>
       `w-full min-h-[46px] px-3 py-2.5 rounded-[6px] inline-flex items-center justify-center text-center border transition-[transform,background-color,color,border-color] active:scale-[0.985] ${selected ? 'bg-black text-white border-white outline outline-1 outline-white/80' : 'bg-white text-black border-white hover:bg-neutral-100'}`;
@@ -2090,7 +2142,7 @@ export const MaisVendidosPage: React.FC = () => {
       <div className="space-y-2">
         <button
           type="button"
-          onClick={() => handleOrganizedCategorySelect('all', source)}
+          onClick={() => handleOrganizedCategorySelect('all', source, sourceBlockId)}
           aria-pressed={selectedCategory === 'all'}
           className={buttonClass(selectedCategory === 'all')}
         >
@@ -2105,7 +2157,7 @@ export const MaisVendidosPage: React.FC = () => {
                 key={`${source}-${selectedCategory || 'empty'}-${category.key}`}
                 type="button"
                 aria-pressed={isSelected}
-                onClick={() => handleOrganizedCategorySelect(category.key, source)}
+                onClick={() => handleOrganizedCategorySelect(category.key, source, sourceBlockId)}
                 className={buttonClass(isSelected)}
               >
                 <span className="text-[12px] leading-none font-semibold truncate">{category.label}</span>
@@ -2383,13 +2435,17 @@ export const MaisVendidosPage: React.FC = () => {
                 )}
 
                 {organizedModel.showSelector && organizedVisibleBlocks.length > 0 && (
-                  <div className="w-full flex flex-col space-y-4 sm:space-y-10">
+                  <div
+                    className="w-full flex flex-col space-y-4 sm:space-y-10"
+                    style={{ overflowAnchor: 'none' }}
+                  >
                     {organizedVisibleBlocks.map((block, blockIndex) => {
                       const isLatest = blockIndex === organizedVisibleBlocks.length - 1;
                       return (
                         <React.Fragment key={block.id}>
                           <section
                             data-organized-selector="selected"
+                            data-organized-block-selector-id={block.id}
                             className="w-full max-w-[430px] mx-auto py-6 px-4"
                             style={{ fontFamily: '"Neue Einstellung", "Helvetica Neue", Helvetica, Arial, sans-serif' }}
                           >
@@ -2398,7 +2454,7 @@ export const MaisVendidosPage: React.FC = () => {
                                 {listData.organizedTitle?.trim() || ui.organizedTitle}
                               </h3>
                             </div>
-                            {renderOrganizedCategoryButtons('history', block.category)}
+                            {renderOrganizedCategoryButtons('history', block.category, block.id)}
                             {block.items.length > 0 && (
                               <div className="pt-4 flex justify-center" aria-hidden="true">
                                 <motion.div
