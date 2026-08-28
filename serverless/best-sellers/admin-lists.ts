@@ -209,6 +209,9 @@ export default async function handler(req: any, res: any) {
           logoUrl: listData.logo_url || null,
           subtitle: listData.subtitle || null,
           ctaText: listData.cta_text || null,
+          footerCtaEnabled: Boolean(listData.footer_cta_enabled),
+          footerCtaText: listData.footer_cta_text || null,
+          footerCtaUrl: listData.footer_cta_url || null,
           showDate: listData.show_date !== false,
           showRanking: listData.show_ranking !== false,
           rankColor: listData.rank_color || '#FFFFFF',
@@ -295,6 +298,9 @@ export default async function handler(req: any, res: any) {
           logoUrl: row.logo_url || null,
           subtitle: row.subtitle || null,
           ctaText: row.cta_text || null,
+          footerCtaEnabled: Boolean(row.footer_cta_enabled),
+          footerCtaText: row.footer_cta_text || null,
+          footerCtaUrl: row.footer_cta_url || null,
           showDate: row.show_date !== false,
           showRanking: row.show_ranking !== false,
           rankColor: row.rank_color || '#FFFFFF',
@@ -376,7 +382,10 @@ export default async function handler(req: any, res: any) {
         }
 
         const targetDate = body.newListDate || new Date().toISOString().slice(0, 10);
-        const targetTitle = body.newTitle ? String(body.newTitle).trim() : `${srcList.title} (Cópia)`;
+        const sourceTitle = String(srcList.title || '').trim();
+        const targetTitle = body.newTitle !== undefined
+          ? String(body.newTitle || '').trim()
+          : (sourceTitle ? `${sourceTitle} (Cópia)` : '');
 
         // Cria nova lista (sempre inativa por segurança ao duplicar)
         const { data: newListData, error: createListErr } = await supabase
@@ -387,6 +396,9 @@ export default async function handler(req: any, res: any) {
             logo_url: srcList.logo_url || null,
             subtitle: srcList.subtitle || null,
             cta_text: srcList.cta_text || null,
+            footer_cta_enabled: Boolean(srcList.footer_cta_enabled),
+            footer_cta_text: srcList.footer_cta_text || null,
+            footer_cta_url: srcList.footer_cta_url || null,
             show_date: srcList.show_date !== false,
             show_ranking: srcList.show_ranking !== false,
             rank_color: srcList.rank_color || '#FFFFFF',
@@ -476,6 +488,9 @@ export default async function handler(req: any, res: any) {
           logoUrl: newListData.logo_url || null,
           subtitle: newListData.subtitle || null,
           ctaText: newListData.cta_text || null,
+          footerCtaEnabled: Boolean(newListData.footer_cta_enabled),
+          footerCtaText: newListData.footer_cta_text || null,
+          footerCtaUrl: newListData.footer_cta_url || null,
           showDate: newListData.show_date !== false,
           showRanking: newListData.show_ranking !== false,
           rankColor: newListData.rank_color || '#FFFFFF',
@@ -516,12 +531,15 @@ export default async function handler(req: any, res: any) {
       }
 
       // Criação normal de lista
-      const title = (body.title || 'Mais Vendidos do Dia').trim();
+      const title = String(body.title ?? '').trim();
       const requestedSlug = body.slug !== undefined && body.slug !== null ? normalizeBestSellerSlug(body.slug) : '';
       const slug = requestedSlug || buildBestSellerSlug(title);
       const logoUrl = body.logoUrl ? String(body.logoUrl).trim() : null;
       const subtitle = body.subtitle ? String(body.subtitle).trim() : null;
       const ctaText = body.ctaText ? String(body.ctaText).trim() : null;
+      const footerCtaEnabled = Boolean(body.footerCtaEnabled);
+      const footerCtaText = footerCtaEnabled && body.footerCtaText ? String(body.footerCtaText).trim().slice(0, 80) : null;
+      const footerCtaUrl = footerCtaEnabled && body.footerCtaUrl ? String(body.footerCtaUrl).trim().slice(0, 2000) : null;
       const showDate = body.showDate !== false;
       const showRanking = body.showRanking !== false;
       const rankColor = normalizeHexColor(body.rankColor);
@@ -555,8 +573,11 @@ export default async function handler(req: any, res: any) {
         ? body.internationalConfig
         : null;
 
-      if (!title) {
-        return res.status(400).json({ success: false, message: 'O título da lista é obrigatório.' });
+      if (footerCtaEnabled && (!footerCtaText || !footerCtaUrl)) {
+        return res.status(400).json({ success: false, message: 'Preencha o texto e o link do botão final da página.' });
+      }
+      if (footerCtaUrl && (!isValidSafeUrl(footerCtaUrl) || !/^https?:\/\//i.test(footerCtaUrl))) {
+        return res.status(400).json({ success: false, message: 'O link do botão final deve começar com http:// ou https://.' });
       }
       if (!listDate) {
         return res.status(400).json({ success: false, message: 'A data da lista é obrigatória.' });
@@ -601,6 +622,9 @@ export default async function handler(req: any, res: any) {
           logo_url: logoUrl,
           subtitle,
           cta_text: ctaText,
+          footer_cta_enabled: footerCtaEnabled,
+          footer_cta_text: footerCtaText,
+          footer_cta_url: footerCtaUrl,
           show_date: showDate,
           show_ranking: showRanking,
           rank_color: rankColor,
@@ -652,6 +676,9 @@ export default async function handler(req: any, res: any) {
         logoUrl: data.logo_url || null,
         subtitle: data.subtitle || null,
         ctaText: data.cta_text || null,
+        footerCtaEnabled: Boolean(data.footer_cta_enabled),
+        footerCtaText: data.footer_cta_text || null,
+        footerCtaUrl: data.footer_cta_url || null,
         showDate: data.show_date !== false,
         showRanking: data.show_ranking !== false,
         rankColor: data.rank_color || '#FFFFFF',
@@ -730,6 +757,22 @@ export default async function handler(req: any, res: any) {
       if (body.logoUrl !== undefined) updates.logo_url = body.logoUrl ? String(body.logoUrl).trim() : null;
       if (body.subtitle !== undefined) updates.subtitle = body.subtitle ? String(body.subtitle).trim() : null;
       if (body.ctaText !== undefined) updates.cta_text = body.ctaText ? String(body.ctaText).trim() : null;
+      if (body.footerCtaEnabled !== undefined) updates.footer_cta_enabled = Boolean(body.footerCtaEnabled);
+      if (body.footerCtaText !== undefined) updates.footer_cta_text = body.footerCtaText ? String(body.footerCtaText).trim().slice(0, 80) : null;
+      if (body.footerCtaUrl !== undefined) {
+        const footerUrl = body.footerCtaUrl ? String(body.footerCtaUrl).trim().slice(0, 2000) : '';
+        if (footerUrl && (!isValidSafeUrl(footerUrl) || !/^https?:\/\//i.test(footerUrl))) {
+          return res.status(400).json({ success: false, message: 'O link do botão final deve começar com http:// ou https://.' });
+        }
+        updates.footer_cta_url = footerUrl || null;
+      }
+      if (body.footerCtaEnabled === true) {
+        const nextText = body.footerCtaText !== undefined ? String(body.footerCtaText || '').trim() : null;
+        const nextUrl = body.footerCtaUrl !== undefined ? String(body.footerCtaUrl || '').trim() : null;
+        if ((body.footerCtaText !== undefined && !nextText) || (body.footerCtaUrl !== undefined && !nextUrl)) {
+          return res.status(400).json({ success: false, message: 'Preencha o texto e o link do botão final da página.' });
+        }
+      }
       if (body.showDate !== undefined) updates.show_date = Boolean(body.showDate);
       if (body.showRanking !== undefined) updates.show_ranking = Boolean(body.showRanking);
       if (body.rankColor !== undefined) updates.rank_color = normalizeHexColor(body.rankColor);
@@ -902,6 +945,9 @@ export default async function handler(req: any, res: any) {
         logoUrl: data.logo_url || null,
         subtitle: data.subtitle || null,
         ctaText: data.cta_text || null,
+        footerCtaEnabled: Boolean(data.footer_cta_enabled),
+        footerCtaText: data.footer_cta_text || null,
+        footerCtaUrl: data.footer_cta_url || null,
         showDate: data.show_date !== false,
         showRanking: data.show_ranking !== false,
         rankColor: data.rank_color || '#FFFFFF',

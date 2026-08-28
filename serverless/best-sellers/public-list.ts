@@ -92,8 +92,9 @@ const VIDEO_LOOP_ON = '__ZHAYA_LOOP_1__';
 const VIDEO_CONTROLS_ON = '__ZHAYA_CONTROLS_1__';
 const TIMER_SEPARATE_ON = '__ZHAYA_TIMER_SEPARATE_1__';
 const BENEFITS_MARKER = '__ZHAYA_BENEFITS_BLOCK__';
+const REDIRECT_MARKER = '__ZHAYA_REDIRECT_PRODUCT__';
 const BENEFIT_PREFIX = '__ZHAYA_BENEFIT__:';
-const VIDEO_INTERNAL_MARKERS = new Set([VIDEO_MARKER, VIDEO_AUTOPLAY_ON, VIDEO_LOOP_ON, VIDEO_CONTROLS_ON, TIMER_SEPARATE_ON, BENEFITS_MARKER]);
+const VIDEO_INTERNAL_MARKERS = new Set([VIDEO_MARKER, VIDEO_AUTOPLAY_ON, VIDEO_LOOP_ON, VIDEO_CONTROLS_ON, TIMER_SEPARATE_ON, BENEFITS_MARKER, REDIRECT_MARKER]);
 
 function visibleProductColors(input: any): string[] {
   const source = Array.isArray(input) ? input : [];
@@ -105,6 +106,11 @@ function visibleProductColors(input: any): string[] {
 function isBenefitsBlockRow(row: any): boolean {
   const colors = Array.isArray(row?.colors) ? row.colors.map((v: any) => String(v)) : [];
   return colors.includes(BENEFITS_MARKER) || String(row?.category || '').toLowerCase() === 'benefícios';
+}
+
+function readDisplayGroup(row: any): 'main' | 'redirect' {
+  const colors = Array.isArray(row?.colors) ? row.colors.map((v: any) => String(v)) : [];
+  return colors.includes(REDIRECT_MARKER) ? 'redirect' : 'main';
 }
 
 function readBenefits(row: any): string[] {
@@ -273,6 +279,7 @@ export default async function handler(req: any, res: any) {
       return {
         id: p.id,
         itemType: readVideoFlags(p).itemType,
+        displayGroup: readDisplayGroup(p),
         position: p.position,
         name: p.name,
         category: p.category,
@@ -332,6 +339,11 @@ export default async function handler(req: any, res: any) {
     let publicTitle = activeList.title;
     let publicSubtitle = activeList.subtitle || null;
     let publicCtaText = activeList.cta_text || null;
+    let footerCtaEnabled = Boolean(activeList.footer_cta_enabled);
+    let footerCtaText = String(activeList.footer_cta_text || '').trim().slice(0, 80) || null;
+    let footerCtaUrl = isSafeUrl(activeList.footer_cta_url) && /^https?:\/\//i.test(String(activeList.footer_cta_url || '').trim())
+      ? String(activeList.footer_cta_url).trim().slice(0, 2000)
+      : null;
     let currencyCode = 'BRL';
     let currencyLocale = 'pt-BR';
     let uiLocale = 'pt-BR';
@@ -340,6 +352,7 @@ export default async function handler(req: any, res: any) {
     let showPrices = true;
     let showInstallments = true;
     let showCta = true;
+    let showFooterCta = true;
     let showBenefits = true;
     let showSoldQuantity = true;
     let showAvailableQuantity = true;
@@ -351,6 +364,8 @@ export default async function handler(req: any, res: any) {
     let buttonDestination: 'product' | 'whatsapp' | 'custom' | 'form' = 'product';
     let formTitle: string | null = null;
     let formMessage: string | null = null;
+    let redirectMode = false;
+    let redirectMessage: string | null = null;
 
     // Mantém o comportamento anterior: com Internacional ligado, benefícios
     // brasileiros nunca vazam para um país estrangeiro sem regra própria.
@@ -371,6 +386,11 @@ export default async function handler(req: any, res: any) {
       publicTitle = String(countryRule.title || '').trim() || publicTitle;
       publicSubtitle = String(countryRule.subtitle || '').trim() || publicSubtitle;
       publicCtaText = String(countryRule.ctaText || '').trim() || publicCtaText;
+      footerCtaText = String(countryRule.footerCtaText || '').trim().slice(0, 80) || footerCtaText;
+      if (String(countryRule.footerCtaUrl || '').trim()) {
+        const countryFooterUrl = String(countryRule.footerCtaUrl || '').trim().slice(0, 2000);
+        if (isSafeUrl(countryFooterUrl) && /^https?:\/\//i.test(countryFooterUrl)) footerCtaUrl = countryFooterUrl;
+      }
 
       // Parcelamento e benefícios são brasileiros por padrão. Podem ser
       // reativados manualmente para um mercado específico quando fizer sentido.
@@ -379,6 +399,7 @@ export default async function handler(req: any, res: any) {
         ? Boolean(countryRule.showInstallments)
         : detectedCountryCode === 'BR';
       showCta = countryRule.showCta !== false;
+      showFooterCta = countryRule.showFooterCta !== false;
       showBenefits = countryRule.showBenefits !== undefined
         ? Boolean(countryRule.showBenefits)
         : detectedCountryCode === 'BR';
@@ -399,6 +420,10 @@ export default async function handler(req: any, res: any) {
       buttonDestination = destination;
       formTitle = String(countryRule.formTitle || '').trim().slice(0, 160) || null;
       formMessage = String(countryRule.formMessage || '').trim().slice(0, 900) || null;
+      redirectMode = Boolean(countryRule.redirectProducts && detectedCountryCode && detectedCountryCode !== 'BR');
+      redirectMessage = redirectMode
+        ? (String(countryRule.redirectMessage || '').trim().slice(0, 1200) || null)
+        : null;
       if (destination === 'form' && !String(countryRule.ctaText || '').trim()) {
         publicCtaText = getBestSellerUiText(uiLocale).formOpenCta;
       }
@@ -457,24 +482,34 @@ export default async function handler(req: any, res: any) {
       });
     }
 
-    if (!showBenefits) {
+    // Produtos da área Redirecionar nunca aparecem na experiência brasileira/normal.
+    // Quando o mercado ativa o redirecionamento, ocorre o inverso: apenas esses
+    // produtos são exibidos e a página entra em modo limpo.
+    formattedProducts = formattedProducts.filter((product) =>
+      redirectMode ? product.displayGroup === 'redirect' : product.displayGroup !== 'redirect'
+    );
+
+    if (!showBenefits || redirectMode) {
       formattedProducts = formattedProducts.filter((product) => product.itemType !== 'benefits');
     }
 
     const responseList: PublicBestSellerList = {
       id: activeList.id,
       slug: activeList.slug || undefined,
-      title: publicTitle,
-      logoUrl: activeList.logo_url || null,
-      subtitle: publicSubtitle,
+      title: redirectMode ? '' : publicTitle,
+      logoUrl: redirectMode ? null : (activeList.logo_url || null),
+      subtitle: redirectMode ? null : publicSubtitle,
       ctaText: publicCtaText,
-      showDate: activeList.show_date !== false,
-      showRanking: activeList.show_ranking !== false,
+      footerCtaEnabled: redirectMode ? false : Boolean(footerCtaEnabled && showFooterCta && footerCtaText && footerCtaUrl),
+      footerCtaText,
+      footerCtaUrl,
+      showDate: redirectMode ? false : activeList.show_date !== false,
+      showRanking: redirectMode ? false : activeList.show_ranking !== false,
       rankColor: activeList.rank_color || '#FFFFFF',
       sizeColor: activeList.size_color || '#FFFFFF',
-      backgroundVideoUrl: activeList.background_video_url || null,
-      backgroundVideoOpacity: normalizeOpacity(activeList.background_video_opacity),
-      backgroundVideoBlur: normalizeBlur(activeList.background_video_blur),
+      backgroundVideoUrl: redirectMode ? null : (activeList.background_video_url || null),
+      backgroundVideoOpacity: redirectMode ? 0 : normalizeOpacity(activeList.background_video_opacity),
+      backgroundVideoBlur: redirectMode ? 0 : normalizeBlur(activeList.background_video_blur),
       defaultBadgeEnabled: Boolean(activeList.default_badge_enabled),
       defaultBadgeText: activeList.default_badge_text || null,
       defaultBadgeColor: activeList.default_badge_color || '#FFFFFF',
@@ -485,11 +520,11 @@ export default async function handler(req: any, res: any) {
       giftTextColor: activeList.gift_text_color || '#FFFFFF',
       giftImageSize: normalizeGiftImageSize(activeList.gift_image_size),
       listDate: activeList.list_date,
-      timerEnabled: Boolean(activeList.timer_enabled),
-      timerEnd: activeList.timer_enabled && !activeList.timer_looping ? activeList.timer_end || null : null,
-      timerLooping: Boolean(activeList.timer_enabled && activeList.timer_looping),
+      timerEnabled: redirectMode ? false : Boolean(activeList.timer_enabled),
+      timerEnd: !redirectMode && activeList.timer_enabled && !activeList.timer_looping ? activeList.timer_end || null : null,
+      timerLooping: !redirectMode && Boolean(activeList.timer_enabled && activeList.timer_looping),
       timerDurationMinutes:
-        activeList.timer_enabled && activeList.timer_looping && activeList.timer_duration_minutes
+        !redirectMode && activeList.timer_enabled && activeList.timer_looping && activeList.timer_duration_minutes
           ? Number(activeList.timer_duration_minutes)
           : null,
       timezone: activeList.timezone || 'America/Sao_Paulo',
@@ -513,6 +548,8 @@ export default async function handler(req: any, res: any) {
       buttonDestination,
       formTitle,
       formMessage,
+      redirectMode,
+      redirectMessage,
       products: formattedProducts,
     };
 

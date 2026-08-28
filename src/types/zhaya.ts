@@ -504,10 +504,19 @@ export interface BestSellerInternationalCountryRule {
   /** Texto editorial do formulário internacional. Se vazio, a interface usa tradução automática. */
   formTitle?: string | null;
   formMessage?: string | null;
+  /** CTA editorial exibido após o último produto. Vazio = herda a configuração principal. */
+  footerCtaText?: string | null;
+  /** Link do CTA final para este mercado. Vazio = herda a configuração principal. */
+  footerCtaUrl?: string | null;
+  /** Quando ativo, este mercado recebe apenas os produtos da área Redirecionar. */
+  redirectProducts?: boolean;
+  /** Mensagem editorial exibida acima da seleção alternativa internacional. */
+  redirectMessage?: string | null;
   /** Controles de exibição específicos por mercado. */
   showPrices?: boolean;
   showInstallments?: boolean;
   showCta?: boolean;
+  showFooterCta?: boolean;
   showBenefits?: boolean;
   showSoldQuantity?: boolean;
   showAvailableQuantity?: boolean;
@@ -544,6 +553,10 @@ export interface BestSellerList {
   logoUrl?: string | null;
   subtitle?: string | null;
   ctaText?: string | null;
+  /** Botão opcional exibido depois de todo o conteúdo da vitrine. */
+  footerCtaEnabled?: boolean;
+  footerCtaText?: string | null;
+  footerCtaUrl?: string | null;
   showDate?: boolean;
   showRanking?: boolean;
   rankColor?: string;
@@ -590,6 +603,8 @@ export interface BestSellerList {
 export interface BestSellerProduct {
   id: string;
   itemType?: 'product' | 'video' | 'benefits';
+  /** Principal aparece na vitrine normal; redirect só aparece no fluxo internacional alternativo. */
+  displayGroup?: 'main' | 'redirect';
   libraryProductId?: string | null;
   listId: string;
   position: number;
@@ -678,6 +693,7 @@ export interface BestSellerLibraryProduct {
 export interface PublicBestSellerProduct {
   id: string;
   itemType?: 'product' | 'video' | 'benefits';
+  displayGroup?: 'main' | 'redirect';
   position: number;
   name: string;
   category: string;
@@ -824,6 +840,9 @@ export interface PublicBestSellerList {
   logoUrl?: string | null;
   subtitle?: string | null;
   ctaText?: string | null;
+  footerCtaEnabled?: boolean;
+  footerCtaText?: string | null;
+  footerCtaUrl?: string | null;
   showDate?: boolean;
   showRanking?: boolean;
   rankColor?: string;
@@ -871,6 +890,9 @@ export interface PublicBestSellerList {
   /** Texto editorial opcional do formulário internacional. */
   formTitle?: string | null;
   formMessage?: string | null;
+  /** Modo alternativo: remove a personalização da vitrine e exibe somente itens Redirecionar. */
+  redirectMode?: boolean;
+  redirectMessage?: string | null;
   products: PublicBestSellerProduct[];
 }
 

@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useMemo } from 'react';
 import {
   TrendingUp,
   Plus,
@@ -71,6 +71,9 @@ CREATE TABLE IF NOT EXISTS public.best_seller_lists (
   logo_url TEXT,
   subtitle TEXT,
   cta_text TEXT,
+  footer_cta_enabled BOOLEAN NOT NULL DEFAULT false,
+  footer_cta_text TEXT,
+  footer_cta_url TEXT,
   show_date BOOLEAN NOT NULL DEFAULT true,
   show_ranking BOOLEAN NOT NULL DEFAULT true,
   rank_color TEXT NOT NULL DEFAULT '#FFFFFF',
@@ -135,6 +138,9 @@ ALTER TABLE public.best_seller_lists ADD COLUMN IF NOT EXISTS slug TEXT;
 ALTER TABLE public.best_seller_lists ADD COLUMN IF NOT EXISTS logo_url TEXT;
 ALTER TABLE public.best_seller_lists ADD COLUMN IF NOT EXISTS subtitle TEXT;
 ALTER TABLE public.best_seller_lists ADD COLUMN IF NOT EXISTS cta_text TEXT;
+ALTER TABLE public.best_seller_lists ADD COLUMN IF NOT EXISTS footer_cta_enabled BOOLEAN NOT NULL DEFAULT false;
+ALTER TABLE public.best_seller_lists ADD COLUMN IF NOT EXISTS footer_cta_text TEXT;
+ALTER TABLE public.best_seller_lists ADD COLUMN IF NOT EXISTS footer_cta_url TEXT;
 ALTER TABLE public.best_seller_lists ADD COLUMN IF NOT EXISTS show_date BOOLEAN NOT NULL DEFAULT true;
 ALTER TABLE public.best_seller_lists ADD COLUMN IF NOT EXISTS show_ranking BOOLEAN NOT NULL DEFAULT true;
 ALTER TABLE public.best_seller_lists ADD COLUMN IF NOT EXISTS rank_color TEXT NOT NULL DEFAULT '#FFFFFF';
@@ -891,6 +897,7 @@ function getInternationalVisibilityDefaults(countryCode?: string | null) {
     showPrices: true,
     showInstallments: isBrazil,
     showCta: true,
+    showFooterCta: true,
     showBenefits: isBrazil,
     showSoldQuantity: true,
     showAvailableQuantity: true,
@@ -966,11 +973,14 @@ export const MaisVendidos: React.FC = () => {
   // State: List Modal (Create / Edit)
   const [isListModalOpen, setIsListModalOpen] = useState<boolean>(false);
   const [editingList, setEditingList] = useState<BestSellerList | null>(null);
-  const [listFormTitle, setListFormTitle] = useState('Mais Vendidos do Dia');
+  const [listFormTitle, setListFormTitle] = useState('');
   const [listFormSlug, setListFormSlug] = useState('');
   const [listFormLogoUrl, setListFormLogoUrl] = useState('');
   const [listFormSubtitle, setListFormSubtitle] = useState('');
   const [listFormCtaText, setListFormCtaText] = useState('');
+  const [listFormFooterCtaEnabled, setListFormFooterCtaEnabled] = useState<boolean>(false);
+  const [listFormFooterCtaText, setListFormFooterCtaText] = useState('');
+  const [listFormFooterCtaUrl, setListFormFooterCtaUrl] = useState('');
   const [listFormShowDate, setListFormShowDate] = useState<boolean>(true);
   const [listFormShowRanking, setListFormShowRanking] = useState<boolean>(true);
   const [listFormRankColor, setListFormRankColor] = useState('#FFFFFF');
@@ -1021,6 +1031,7 @@ export const MaisVendidos: React.FC = () => {
   const [editingProduct, setEditingProduct] = useState<BestSellerProduct | null>(null);
   const [prodFormName, setProdFormName] = useState('');
   const [prodFormDescription, setProdFormDescription] = useState('');
+  const [prodFormDisplayGroup, setProdFormDisplayGroup] = useState<'main' | 'redirect'>('main');
   const [prodFormImageUrl, setProdFormImageUrl] = useState('');
   const [prodFormImageUrls, setProdFormImageUrls] = useState<string[]>([]);
   const [prodFormImageUrlInput, setProdFormImageUrlInput] = useState('');
@@ -1070,6 +1081,17 @@ export const MaisVendidos: React.FC = () => {
   const [showJsonImporter, setShowJsonImporter] = useState(false);
   const [productJsonInput, setProductJsonInput] = useState('');
   const [productJsonMessage, setProductJsonMessage] = useState<string | null>(null);
+
+  // Importação em massa do JSON gerado pela captura de categoria da extensão.
+  const [isBulkJsonModalOpen, setIsBulkJsonModalOpen] = useState(false);
+  const [bulkJsonInput, setBulkJsonInput] = useState('');
+  const [bulkJsonFileName, setBulkJsonFileName] = useState('');
+  const [bulkJsonDisplayGroup, setBulkJsonDisplayGroup] = useState<'main' | 'redirect'>('main');
+  const [bulkJsonError, setBulkJsonError] = useState<string | null>(null);
+  const [bulkJsonImporting, setBulkJsonImporting] = useState(false);
+  const [bulkJsonProgress, setBulkJsonProgress] = useState({ done: 0, total: 0, imported: 0, skipped: 0, failed: 0 });
+  const bulkJsonFileInputRef = useRef<HTMLInputElement>(null);
+
   const [uploadingProdImage, setUploadingProdImage] = useState<boolean>(false);
   const prodFileInputRef = useRef<HTMLInputElement>(null);
   const prodMediaFileInputRef = useRef<HTMLInputElement>(null);
@@ -1368,11 +1390,14 @@ export const MaisVendidos: React.FC = () => {
   // Open Create List Modal
   const handleOpenCreateList = () => {
     setEditingList(null);
-    setListFormTitle('Mais Vendidos do Dia');
+    setListFormTitle('');
     setListFormSlug('');
     setListFormLogoUrl('');
     setListFormSubtitle('');
     setListFormCtaText('');
+    setListFormFooterCtaEnabled(false);
+    setListFormFooterCtaText('');
+    setListFormFooterCtaUrl('');
     setListFormShowDate(true);
     setListFormShowRanking(true);
     setListFormRankColor('#FFFFFF');
@@ -1415,11 +1440,14 @@ export const MaisVendidos: React.FC = () => {
   const handleOpenEditList = (list: BestSellerList, e?: React.MouseEvent) => {
     if (e) e.stopPropagation();
     setEditingList(list);
-    setListFormTitle(list.title);
+    setListFormTitle(list.title || '');
     setListFormSlug(list.slug || '');
     setListFormLogoUrl(list.logoUrl || '');
     setListFormSubtitle(list.subtitle || '');
     setListFormCtaText(list.ctaText || '');
+    setListFormFooterCtaEnabled(Boolean(list.footerCtaEnabled));
+    setListFormFooterCtaText(list.footerCtaText || '');
+    setListFormFooterCtaUrl(list.footerCtaUrl || '');
     setListFormShowDate(list.showDate !== false);
     setListFormShowRanking(list.showRanking !== false);
     setListFormRankColor(list.rankColor || '#FFFFFF');
@@ -2021,9 +2049,16 @@ export const MaisVendidos: React.FC = () => {
   // Save List (Create or Update)
   const handleSaveList = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!listFormTitle.trim()) {
-      setListError('O título da lista é obrigatório.');
-      return;
+    if (listFormFooterCtaEnabled) {
+      if (!listFormFooterCtaText.trim()) {
+        setListError('Informe o texto do botão final da página.');
+        return;
+      }
+      const footerUrl = listFormFooterCtaUrl.trim();
+      if (!/^https?:\/\//i.test(footerUrl)) {
+        setListError('Informe um link válido para o botão final, começando com http:// ou https://.');
+        return;
+      }
     }
     if (!listFormDate) {
       setListError('A data da lista é obrigatória.');
@@ -2079,6 +2114,9 @@ export const MaisVendidos: React.FC = () => {
           logoUrl: listFormLogoUrl.trim() || null,
           subtitle: listFormSubtitle.trim() || null,
           ctaText: listFormCtaText.trim() || null,
+          footerCtaEnabled: listFormFooterCtaEnabled,
+          footerCtaText: listFormFooterCtaEnabled ? listFormFooterCtaText.trim() || null : null,
+          footerCtaUrl: listFormFooterCtaEnabled ? listFormFooterCtaUrl.trim() || null : null,
           showDate: listFormShowDate,
           showRanking: listFormShowRanking,
           rankColor: listFormRankColor || '#FFFFFF',
@@ -2124,6 +2162,9 @@ export const MaisVendidos: React.FC = () => {
           logoUrl: listFormLogoUrl.trim() || null,
           subtitle: listFormSubtitle.trim() || null,
           ctaText: listFormCtaText.trim() || null,
+          footerCtaEnabled: listFormFooterCtaEnabled,
+          footerCtaText: listFormFooterCtaEnabled ? listFormFooterCtaText.trim() || null : null,
+          footerCtaUrl: listFormFooterCtaEnabled ? listFormFooterCtaUrl.trim() || null : null,
           showDate: listFormShowDate,
           showRanking: listFormShowRanking,
           rankColor: listFormRankColor || '#FFFFFF',
@@ -2178,7 +2219,7 @@ export const MaisVendidos: React.FC = () => {
     try {
       setDuplicatingId(list.id);
       const today = new Date().toISOString().slice(0, 10);
-      const res = await Repository.duplicateBestSellerList(list.id, today, `${list.title} (Cópia)`);
+      const res = await Repository.duplicateBestSellerList(list.id, today, list.title?.trim() ? `${list.title} (Cópia)` : '');
       if (res.success && res.list) {
         await loadLists();
       } else {
@@ -2242,6 +2283,7 @@ export const MaisVendidos: React.FC = () => {
     setEditingProduct(null);
     setProdFormName('');
     setProdFormDescription('');
+    setProdFormDisplayGroup('main');
     setProdFormImageUrl('');
     setProdFormImageUrls([]);
     setProdFormImageUrlInput('');
@@ -2294,6 +2336,7 @@ export const MaisVendidos: React.FC = () => {
   const handleOpenEditProduct = (prod: BestSellerProduct) => {
     setEditingProduct(prod);
     setProdFormName(prod.name);
+    setProdFormDisplayGroup(prod.displayGroup === 'redirect' ? 'redirect' : 'main');
     setProdFormDescription(
       String(
         prod.description ??
@@ -2369,6 +2412,248 @@ export const MaisVendidos: React.FC = () => {
     setProductError(null);
     void loadGiftPresets();
     setIsProductModalOpen(true);
+  };
+
+  const normalizeBulkProductUrl = (value: any) => {
+    const raw = String(value || '').trim();
+    if (!raw) return '';
+    try {
+      const url = new URL(raw, window.location.origin);
+      url.hash = '';
+      url.search = '';
+      return `${url.origin}${url.pathname.replace(/\/+$/, '')}`.toLowerCase();
+    } catch {
+      return raw.replace(/\/+$/, '').toLowerCase();
+    }
+  };
+
+  const parseBulkJson = (raw: string) => {
+    if (!raw.trim()) return { schemaVersion: '', entries: [] as any[], invalid: 0, error: null as string | null };
+    try {
+      const parsed = JSON.parse(raw);
+      const products = Array.isArray(parsed?.products) ? parsed.products : null;
+      if (!products) {
+        return { schemaVersion: String(parsed?.schemaVersion || ''), entries: [] as any[], invalid: 0, error: 'Este JSON não contém products[]. Use o JSON COMPLETO gerado pela captura de categoria da extensão.' };
+      }
+      const validEntries: any[] = [];
+      let invalid = 0;
+      for (const entry of products) {
+        const data = entry?.data || entry;
+        if (!data?.product || typeof data.product !== 'object') {
+          invalid += 1;
+          continue;
+        }
+        const media = Array.isArray(data.product.mediaItems) ? data.product.mediaItems : [];
+        const hasMedia = media.some((item: any) => String(item?.url || '').trim());
+        if (!String(data.product.name || '').trim() || !hasMedia) {
+          invalid += 1;
+          continue;
+        }
+        validEntries.push(data);
+      }
+      return {
+        schemaVersion: String(parsed?.schemaVersion || ''),
+        entries: validEntries,
+        invalid,
+        error: null as string | null,
+      };
+    } catch {
+      return { schemaVersion: '', entries: [] as any[], invalid: 0, error: 'JSON inválido. Cole o conteúdo completo ou selecione o arquivo .json gerado pela extensão.' };
+    }
+  };
+
+  const bulkJsonAnalysis = useMemo(() => {
+    const parsed = parseBulkJson(bulkJsonInput);
+    const existingUrls = new Set(
+      products
+        .filter((item) => (item.itemType || 'product') === 'product')
+        .map((item) => normalizeBulkProductUrl(item.productUrl))
+        .filter(Boolean),
+    );
+    const seenJsonUrls = new Set<string>();
+    const importable: any[] = [];
+    let duplicates = 0;
+    let repeatedInsideJson = 0;
+
+    for (const data of parsed.entries) {
+      const url = normalizeBulkProductUrl(data?.product?.productUrl || data?.source?.pageUrl);
+      if (url && existingUrls.has(url)) {
+        duplicates += 1;
+        continue;
+      }
+      if (url && seenJsonUrls.has(url)) {
+        repeatedInsideJson += 1;
+        continue;
+      }
+      if (url) seenJsonUrls.add(url);
+      importable.push(data);
+    }
+
+    return { ...parsed, importable, duplicates, repeatedInsideJson };
+  }, [bulkJsonInput, products]);
+
+  const handleOpenBulkJson = (displayGroup: 'main' | 'redirect' = 'main') => {
+    setBulkJsonInput('');
+    setBulkJsonFileName('');
+    setBulkJsonDisplayGroup(displayGroup);
+    setBulkJsonError(null);
+    setBulkJsonProgress({ done: 0, total: 0, imported: 0, skipped: 0, failed: 0 });
+    setIsBulkJsonModalOpen(true);
+  };
+
+  const handleBulkJsonFile = async (file?: File | null) => {
+    if (!file) return;
+    setBulkJsonError(null);
+    try {
+      const text = await file.text();
+      setBulkJsonInput(text);
+      setBulkJsonFileName(file.name);
+    } catch {
+      setBulkJsonError('Não foi possível ler este arquivo JSON.');
+    }
+  };
+
+  const buildBulkProductPayload = (data: any, position: number) => {
+    if (!selectedList) throw new Error('Nenhuma vitrine selecionada.');
+    const product = data?.product || {};
+    const source = data?.source || {};
+    const media: BestSellerMediaItem[] = (Array.isArray(product.mediaItems) ? product.mediaItems : [])
+      .map((item: any, index: number) => {
+        const type: 'image' | 'video' = item?.type === 'video' ? 'video' : 'image';
+        const url = String(item?.url || '').trim();
+        if (!url) return null;
+        return {
+          id: `bulk-json-${type}-${Date.now()}-${position}-${index}`,
+          type,
+          url,
+          posterUrl: type === 'video' ? (String(item?.poster || item?.posterUrl || '').trim() || null) : null,
+          source: 'url' as const,
+        };
+      })
+      .filter(Boolean) as BestSellerMediaItem[];
+
+    if (!media.length) throw new Error(`“${String(product.name || 'Produto')}” não possui mídia válida.`);
+    const images = media.filter((item) => item.type === 'image').map((item) => item.url);
+    const sizesRaw = Array.isArray(product.sizes) ? product.sizes : [];
+    const sizes = sizesRaw
+      .map((item: any) => typeof item === 'string' ? item : item?.label)
+      .filter(Boolean)
+      .map(String);
+    const outOfStock = Array.isArray(product.outOfStockSizes)
+      ? product.outOfStockSizes.map(String)
+      : sizesRaw.filter((item: any) => typeof item === 'object' && item?.available === false).map((item: any) => String(item.label));
+    const stock = Number(product.stockQuantity);
+    const sold = Number(product.soldQuantity);
+    const discount = Number(product.discountPercent || 0);
+
+    return {
+      listId: selectedList.id,
+      position,
+      itemType: 'product' as const,
+      displayGroup: bulkJsonDisplayGroup,
+      name: String(product.name || '').trim(),
+      description: null,
+      imageUrl: images[0] || null,
+      imageUrls: images,
+      mediaItems: media,
+      videoAutoplay: false,
+      videoLoop: false,
+      videoControls: true,
+      videoTitle: null,
+      productUrl: String(product.productUrl || source.pageUrl || '').trim() || null,
+      originalPrice: Number.isFinite(Number(product.originalPrice)) ? Number(product.originalPrice) : null,
+      promotionalPrice: Number.isFinite(Number(product.promotionalPrice)) ? Number(product.promotionalPrice) : null,
+      installmentsCount: Number(product.installmentsCount) > 0 ? Math.round(Number(product.installmentsCount)) : null,
+      installmentValue: Number.isFinite(Number(product.installmentValue)) ? Number(product.installmentValue) : null,
+      soldQuantity: Number.isFinite(sold) ? Math.max(1, Math.min(10, Math.round(sold))) : Math.floor(Math.random() * 10) + 1,
+      showSoldQuantity: true,
+      availableQuantity: Number.isFinite(stock) && stock >= 0 ? (stock > 0 ? Math.max(1, Math.min(2, Math.round(stock))) : 0) : 1,
+      sizes: normalizeSizeValues(sizes),
+      outOfStockSizes: normalizeSizeValues(outOfStock).filter((size) => normalizeSizeValues(sizes).includes(size)),
+      // Mantém a mesma regra do importador individual: cor editorial continua manual.
+      colors: [],
+      badgeEnabled: discount > 0,
+      badgeText: discount > 0 ? `-${Math.round(discount)}%OFF` : null,
+      badgeColor: selectedList.defaultBadgeColor || '#FFFFFF',
+      badgeUseListDefault: false,
+      giftMode: selectedList.giftEnabled ? 'inherit' as const : 'off' as const,
+      giftImageUrl: null,
+      giftImagePath: null,
+      giftTitle: null,
+      giftLabel: null,
+      giftTextColor: '#FFFFFF',
+      giftImageSize: 48,
+      timerEnabled: false,
+      timerEnd: null,
+      timerLooping: false,
+      timerDurationMinutes: null,
+      timerColor: '#FFFFFF',
+      timerSeparate: false,
+    };
+  };
+
+  const handleImportBulkJson = async () => {
+    if (!selectedList || bulkJsonImporting) return;
+    setBulkJsonError(null);
+    if (bulkJsonAnalysis.error) {
+      setBulkJsonError(bulkJsonAnalysis.error);
+      return;
+    }
+    if (!bulkJsonAnalysis.importable.length) {
+      setBulkJsonError(bulkJsonAnalysis.duplicates > 0
+        ? 'Todos os produtos deste JSON já estão cadastrados nesta vitrine.'
+        : 'Nenhum produto válido foi encontrado para importar.');
+      return;
+    }
+
+    const total = bulkJsonAnalysis.importable.length;
+    const basePosition = products.reduce((max, item) => Math.max(max, Number(item.position) || 0), 0);
+    let imported = 0;
+    let failed = 0;
+    const failures: string[] = [];
+    setBulkJsonImporting(true);
+    setBulkJsonProgress({
+      done: 0,
+      total,
+      imported: 0,
+      skipped: bulkJsonAnalysis.duplicates + bulkJsonAnalysis.repeatedInsideJson + bulkJsonAnalysis.invalid,
+      failed: 0,
+    });
+
+    // Quatro requisições por vez deixam lotes grandes rápidos, mas cada item recebe
+    // uma posição explícita para preservar exatamente a ordem capturada na categoria.
+    const queue = bulkJsonAnalysis.importable.map((data, index) => ({ data, index }));
+    const worker = async () => {
+      while (queue.length) {
+        const current = queue.shift();
+        if (!current) break;
+        try {
+          const payload = buildBulkProductPayload(current.data, basePosition + current.index + 1);
+          const result = await Repository.createBestSellerProduct(payload);
+          if (!result.success) throw new Error(result.error || 'Falha ao criar produto.');
+          imported += 1;
+        } catch (error: any) {
+          failed += 1;
+          failures.push(`${String(current.data?.product?.name || `Produto ${current.index + 1}`)}: ${error?.message || 'erro desconhecido'}`);
+        } finally {
+          const done = imported + failed;
+          setBulkJsonProgress((prev) => ({ ...prev, done, imported, failed }));
+        }
+      }
+    };
+
+    try {
+      await Promise.all(Array.from({ length: Math.min(4, total) }, () => worker()));
+      await loadProducts(selectedList.id);
+      await loadLists(selectedList.id);
+      if (failed === 0) {
+        setBulkJsonProgress((prev) => ({ ...prev, done: total, imported, failed: 0 }));
+      } else {
+        setBulkJsonError(`${failed} produto(s) não foram importados. ${failures.slice(0, 3).join(' | ')}${failures.length > 3 ? ' | …' : ''}`);
+      }
+    } finally {
+      setBulkJsonImporting(false);
+    }
   };
 
   const handleImportProductJson = () => {
@@ -2704,6 +2989,7 @@ export const MaisVendidos: React.FC = () => {
         imageUrl: finalMainImage,
         imageUrls: finalImageUrls,
         itemType: 'product' as const,
+        displayGroup: prodFormDisplayGroup,
         mediaItems: finalMediaItems,
         videoAutoplay: prodFormVideoAutoplay,
         videoLoop: false,
@@ -2774,24 +3060,43 @@ export const MaisVendidos: React.FC = () => {
   };
 
   // Reorder product position (Move Up / Move Down)
-  const handleMoveProduct = async (index: number, direction: 'up' | 'down') => {
+  const handleMoveProduct = async (productId: string, direction: 'up' | 'down') => {
     if (!selectedList) return;
+    const current = products.find((item) => item.id === productId);
+    if (!current) return;
+    const group: 'main' | 'redirect' = current.displayGroup === 'redirect' ? 'redirect' : 'main';
+    const mainItems = products.filter((item) => item.displayGroup !== 'redirect');
+    const redirectItems = products.filter((item) => item.displayGroup === 'redirect');
+    const groupItems = group === 'redirect' ? [...redirectItems] : [...mainItems];
+    const index = groupItems.findIndex((item) => item.id === productId);
     const targetIndex = direction === 'up' ? index - 1 : index + 1;
-    if (targetIndex < 0 || targetIndex >= products.length) return;
+    if (index < 0 || targetIndex < 0 || targetIndex >= groupItems.length) return;
 
-    const newProducts = [...products];
-    const [moved] = newProducts.splice(index, 1);
-    newProducts.splice(targetIndex, 0, moved);
+    const [moved] = groupItems.splice(index, 1);
+    groupItems.splice(targetIndex, 0, moved);
+    const newProducts = group === 'redirect'
+      ? [...mainItems, ...groupItems]
+      : [...groupItems, ...redirectItems];
 
-    // Optimistic UI update
+    // O banco continua com uma ordem global, mas cada seção é reordenada sem
+    // permitir que uma seta atravesse Principal ↔ Redirecionar.
     setProducts(newProducts);
+    const success = await Repository.reorderBestSellerProducts(selectedList.id, newProducts.map((p) => p.id));
+    if (!success) await loadProducts(selectedList.id);
+  };
 
-    const orderedIds = newProducts.map((p) => p.id);
-    const success = await Repository.reorderBestSellerProducts(selectedList.id, orderedIds);
-    if (!success) {
-      // Revert if failed
-      await loadProducts(selectedList.id);
+  const handleChangeProductDisplayGroup = async (prod: BestSellerProduct, group: 'main' | 'redirect') => {
+    if (!selectedList || prod.itemType === 'video' || prod.itemType === 'benefits') return;
+    if ((prod.displayGroup === 'redirect' ? 'redirect' : 'main') === group) return;
+    const snapshot = products;
+    setProducts((current) => current.map((item) => item.id === prod.id ? { ...item, displayGroup: group } : item));
+    const result = await Repository.updateBestSellerProduct(prod.id, { displayGroup: group });
+    if (!result.success) {
+      setProducts(snapshot);
+      alert(result.error || 'Não foi possível mover o produto.');
+      return;
     }
+    await loadProducts(selectedList.id);
   };
 
   // Delete Action Execution
@@ -2825,6 +3130,9 @@ export const MaisVendidos: React.FC = () => {
 
   const liveElapsedSeconds = getLiveElapsedSeconds(liveSession, liveClock);
   const productItemsForMetrics = products.filter((item) => item.itemType !== 'video');
+  const mainDisplayProducts = products.filter((item) => item.displayGroup !== 'redirect');
+  const redirectDisplayProducts = products.filter((item) => item.displayGroup === 'redirect');
+  const productsForAdminDisplay = [...mainDisplayProducts, ...redirectDisplayProducts];
 
   const handleLiveAction = async (action: 'start' | 'pause' | 'resume' | 'stop') => {
     if (!selectedList || liveActionLoading) return;
@@ -2849,7 +3157,7 @@ export const MaisVendidos: React.FC = () => {
     const clicks = analytics?.totalClicks ?? selectedList.totalClicks ?? 0;
     const conversion = visitors > 0 ? Math.round((clicks / visitors) * 1000) / 10 : 0;
     const lines: string[] = [
-      `Relatório - ${formatDatePtBR(selectedList.listDate)} - ${selectedList.title}`,
+      `Relatório - ${formatDatePtBR(selectedList.listDate)} - ${selectedList.title || 'Vitrine sem título'}`,
       '',
       `Visitantes: ${visitors}`,
       `Cliques: ${clicks} · Conversão: ${String(conversion).replace('.', ',')}%`,
@@ -2980,6 +3288,10 @@ export const MaisVendidos: React.FC = () => {
       customUrl: '',
       formTitle: '',
       formMessage: '',
+      redirectProducts: false,
+      redirectMessage: '',
+      footerCtaText: '',
+      footerCtaUrl: '',
       ...getInternationalVisibilityDefaults(preset.code),
       productTranslations: {},
     };
@@ -3050,6 +3362,7 @@ export const MaisVendidos: React.FC = () => {
         showPrices: preserveOrReplace('showPrices'),
         showInstallments: preserveOrReplace('showInstallments'),
         showCta: preserveOrReplace('showCta'),
+        showFooterCta: preserveOrReplace('showFooterCta'),
         showBenefits: preserveOrReplace('showBenefits'),
         showSoldQuantity: preserveOrReplace('showSoldQuantity'),
         showAvailableQuantity: preserveOrReplace('showAvailableQuantity'),
@@ -3075,6 +3388,20 @@ export const MaisVendidos: React.FC = () => {
     const invalid = normalizedRules.find((rule) => !/^[A-Z]{2}$/.test(rule.countryCode) || !Number.isFinite(rule.currencyRate) || rule.currencyRate <= 0);
     if (invalid) {
       setInternationalError('Cada regra precisa de um país ISO com 2 letras e uma taxa maior que zero.');
+      return;
+    }
+    const invalidFooterUrl = normalizedRules.find((rule) => {
+      const value = String(rule.footerCtaUrl || '').trim();
+      return value && !/^https?:\/\//i.test(value);
+    });
+    if (invalidFooterUrl) {
+      setInternationalError('O link internacional do CTA final deve começar com http:// ou https://.');
+      return;
+    }
+    const redirectWithoutMessage = normalizedRules.find((rule) => rule.redirectProducts && !String(rule.redirectMessage || '').trim());
+    if (redirectWithoutMessage) {
+      const countryName = getInternationalCountryPreset(redirectWithoutMessage.countryCode)?.name || redirectWithoutMessage.countryCode;
+      setInternationalError(`Escreva a mensagem de redirecionamento para ${countryName}.`);
       return;
     }
     setInternationalSaving(true);
@@ -3320,7 +3647,7 @@ export const MaisVendidos: React.FC = () => {
                       </div>
 
                       <div className="flex items-baseline gap-2">
-                        <h3 className="text-sm font-semibold text-neutral-900">{list.title}</h3>
+                        <h3 className="text-sm font-semibold text-neutral-900">{list.title || 'Vitrine sem título'}</h3>
                         {list.subtitle && (
                           <span className="text-xs text-neutral-500 italic">
                             — {list.subtitle}
@@ -3376,7 +3703,7 @@ export const MaisVendidos: React.FC = () => {
                           setDeleteConfirm({
                             type: 'list',
                             id: list.id,
-                            name: `Lista de ${formatDatePtBR(list.listDate)} (${list.title})`,
+                            name: `Lista de ${formatDatePtBR(list.listDate)} (${list.title || 'Vitrine sem título'})`,
                           });
                         }}
                         title="Excluir Lista"
@@ -3429,7 +3756,7 @@ export const MaisVendidos: React.FC = () => {
                     {selectedList.totalClicks ?? products.reduce((sum, item) => sum + (item.clicks || 0), 0)} cliques
                   </span>
                 </div>
-                <h2 className="text-base font-bold text-neutral-900">{selectedList.title}</h2>
+                <h2 className="text-base font-bold text-neutral-900">{selectedList.title || 'Vitrine sem título'}</h2>
                 {selectedList.subtitle && (
                   <p className="text-xs text-neutral-500 italic">{selectedList.subtitle}</p>
                 )}
@@ -3716,7 +4043,15 @@ export const MaisVendidos: React.FC = () => {
                     A posição (#1, #2, #3...) é controlada manualmente através das setas de ordenação.
                   </p>
                 </div>
-                <div className="flex items-center gap-2">
+                <div className="flex items-center gap-2 flex-wrap justify-end">
+                  <button
+                    type="button"
+                    onClick={() => handleOpenBulkJson()}
+                    className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold text-neutral-700 bg-white border border-neutral-300 rounded hover:bg-neutral-50 transition-colors cursor-pointer"
+                  >
+                    <Layers className="w-3.5 h-3.5" />
+                    Adicionar JSON em Massa
+                  </button>
                   <button
                     type="button"
                     onClick={handleOpenProductLibrary}
@@ -3795,15 +4130,55 @@ export const MaisVendidos: React.FC = () => {
                     <Database className="w-3.5 h-3.5" />
                     Reaproveitar salvo
                   </button>
+                  <button
+                    type="button"
+                    onClick={() => handleOpenBulkJson()}
+                    className="ml-2 inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold text-neutral-700 bg-white border border-neutral-300 rounded hover:bg-neutral-50 transition-colors cursor-pointer mt-2"
+                  >
+                    <Layers className="w-3.5 h-3.5" />
+                    Adicionar JSON em Massa
+                  </button>
                 </div>
               ) : (
                 <div className="space-y-2.5">
-                  {products.map((prod, idx) => {
-                    const posNumber = idx + 1;
+                  {mainDisplayProducts.length === 0 && (
+                    <div className="rounded-lg border border-neutral-200 bg-neutral-50 px-3.5 py-3">
+                      <div className="flex flex-wrap items-center justify-between gap-2">
+                        <div>
+                          <div className="text-[10px] font-black uppercase tracking-[0.16em] text-neutral-600">Principal</div>
+                          <p className="text-[10px] text-neutral-500 mt-0.5">Conteúdo normal da vitrine. Nenhum item nesta área.</p>
+                        </div>
+                        <span className="text-[10px] font-bold text-neutral-500">0 item(ns)</span>
+                      </div>
+                    </div>
+                  )}
+                  {productsForAdminDisplay.map((prod, idx) => {
+                    const group: 'main' | 'redirect' = prod.displayGroup === 'redirect' ? 'redirect' : 'main';
+                    const groupItems = group === 'redirect' ? redirectDisplayProducts : mainDisplayProducts;
+                    const groupIndex = groupItems.findIndex((item) => item.id === prod.id);
+                    const posNumber = groupIndex + 1;
+                    const showGroupHeader = groupIndex === 0;
                     return (
+                      <React.Fragment key={prod.id}>
+                        {showGroupHeader && (
+                          <div className={`rounded-lg border px-3.5 py-3 ${group === 'redirect' ? 'border-amber-200 bg-amber-50' : 'border-neutral-200 bg-neutral-50'}`}>
+                            <div className="flex flex-wrap items-center justify-between gap-2">
+                              <div>
+                                <div className={`text-[10px] font-black uppercase tracking-[0.16em] ${group === 'redirect' ? 'text-amber-800' : 'text-neutral-600'}`}>
+                                  {group === 'redirect' ? 'Redirecionar' : 'Principal'}
+                                </div>
+                                <p className="text-[10px] text-neutral-500 mt-0.5">
+                                  {group === 'redirect'
+                                    ? 'Não aparece para brasileiros. Só entra em países com “Redirecionar produtos esgotados” ativado.'
+                                    : 'Conteúdo normal da vitrine.'}
+                                </p>
+                              </div>
+                              <span className="text-[10px] font-bold text-neutral-500">{groupItems.length} item(ns)</span>
+                            </div>
+                          </div>
+                        )}
                       <div
-                        key={prod.id}
-                        className="bg-white border border-neutral-200 rounded-lg p-3.5 flex flex-col md:flex-row md:items-center justify-between gap-3 hover:border-neutral-300 transition-colors"
+                        className={`bg-white border rounded-lg p-3.5 flex flex-col md:flex-row md:items-center justify-between gap-3 transition-colors ${group === 'redirect' ? 'border-amber-200 hover:border-amber-300' : 'border-neutral-200 hover:border-neutral-300'}`}
                       >
                         {/* Position & Image Thumbnail & Main Info */}
                         <div className="flex items-center gap-3.5 min-w-0 flex-1">
@@ -3812,8 +4187,8 @@ export const MaisVendidos: React.FC = () => {
                             <div className="flex flex-col gap-0.5">
                               <button
                                 type="button"
-                                disabled={idx === 0}
-                                onClick={() => handleMoveProduct(idx, 'up')}
+                                disabled={groupIndex === 0}
+                                onClick={() => handleMoveProduct(prod.id, 'up')}
                                 title="Mover para cima no ranking"
                                 className="p-1 text-neutral-400 hover:text-neutral-900 disabled:opacity-20 disabled:hover:text-neutral-400 rounded hover:bg-neutral-100 transition-colors cursor-pointer"
                               >
@@ -3821,8 +4196,8 @@ export const MaisVendidos: React.FC = () => {
                               </button>
                               <button
                                 type="button"
-                                disabled={idx === products.length - 1}
-                                onClick={() => handleMoveProduct(idx, 'down')}
+                                disabled={groupIndex === groupItems.length - 1}
+                                onClick={() => handleMoveProduct(prod.id, 'down')}
                                 title="Mover para baixo no ranking"
                                 className="p-1 text-neutral-400 hover:text-neutral-900 disabled:opacity-20 disabled:hover:text-neutral-400 rounded hover:bg-neutral-100 transition-colors cursor-pointer"
                               >
@@ -3878,6 +4253,11 @@ export const MaisVendidos: React.FC = () => {
                               <span className="text-xs font-bold text-neutral-900 truncate">
                                 {prod.itemType === 'video' ? (prod.videoTitle || 'Vídeo destaque') : prod.name}
                               </span>
+                              {prod.displayGroup === 'redirect' && prod.itemType !== 'video' && prod.itemType !== 'benefits' && (
+                                <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-bold bg-amber-100 text-amber-900 border border-amber-200">
+                                  <Globe2 className="w-2.5 h-2.5" /> Redirecionar
+                                </span>
+                              )}
                               {prod.itemType === 'video' && (
                                 <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-bold bg-neutral-900 text-white">
                                   <Video className="w-2.5 h-2.5" /> 9:16
@@ -4011,6 +4391,17 @@ export const MaisVendidos: React.FC = () => {
 
                         {/* Actions */}
                         <div className="flex items-center gap-2 self-end md:self-center shrink-0 border-t md:border-t-0 pt-2 md:pt-0 border-neutral-100">
+                          {prod.itemType !== 'video' && prod.itemType !== 'benefits' && (
+                            <button
+                              type="button"
+                              onClick={() => void handleChangeProductDisplayGroup(prod, prod.displayGroup === 'redirect' ? 'main' : 'redirect')}
+                              className={`inline-flex items-center gap-1 px-2.5 py-1.5 text-[10px] font-bold rounded border transition-colors cursor-pointer ${prod.displayGroup === 'redirect' ? 'text-neutral-700 bg-white border-neutral-200 hover:bg-neutral-50' : 'text-amber-900 bg-amber-50 border-amber-200 hover:bg-amber-100'}`}
+                              title={prod.displayGroup === 'redirect' ? 'Voltar para a vitrine principal' : 'Mover para a seleção alternativa internacional'}
+                            >
+                              <Globe2 className="w-3.5 h-3.5" />
+                              {prod.displayGroup === 'redirect' ? 'Para Principal' : 'Para Redirecionar'}
+                            </button>
+                          )}
                           <button
                             type="button"
                             onClick={() => prod.itemType === 'video' ? handleOpenEditVideoBlock(prod) : prod.itemType === 'benefits' ? handleOpenEditBenefitsBlock(prod) : handleOpenEditProduct(prod)}
@@ -4035,8 +4426,27 @@ export const MaisVendidos: React.FC = () => {
                           </button>
                         </div>
                       </div>
+                      </React.Fragment>
                     );
                   })}
+                  {redirectDisplayProducts.length === 0 && (
+                    <div className="rounded-lg border border-dashed border-amber-300 bg-amber-50 px-3.5 py-3">
+                      <div className="flex flex-wrap items-center justify-between gap-3">
+                        <div>
+                          <div className="text-[10px] font-black uppercase tracking-[0.16em] text-amber-800">Redirecionar</div>
+                          <p className="text-[10px] text-neutral-500 mt-0.5 max-w-xl">Produtos desta área nunca aparecem para brasileiros. Eles são usados apenas nos países em que “Redirecionar produtos esgotados” estiver ativado.</p>
+                        </div>
+                        <button
+                          type="button"
+                          onClick={() => handleOpenBulkJson('redirect')}
+                          className="inline-flex items-center gap-1.5 px-3 py-1.5 text-[10px] font-bold text-amber-900 bg-white border border-amber-200 rounded hover:bg-amber-100 transition-colors cursor-pointer"
+                        >
+                          <Layers className="w-3.5 h-3.5" />
+                          Adicionar JSON em Massa
+                        </button>
+                      </div>
+                    </div>
+                  )}
                 </div>
               )}
             </div>
@@ -4081,15 +4491,15 @@ export const MaisVendidos: React.FC = () => {
                 <div className="p-3.5 sm:p-4 space-y-4">
 
               <div className="space-y-1">
-                <label className="font-semibold text-neutral-700">Título da Vitrine *</label>
+                <label className="font-semibold text-neutral-700">Título da Vitrine (Opcional)</label>
                 <input
                   type="text"
                   value={listFormTitle}
                   onChange={(e) => setListFormTitle(e.target.value)}
                   placeholder="Ex: Best Sellers da Semana"
-                  required
                   className="w-full px-3 py-2 border border-neutral-300 rounded focus:ring-1 focus:ring-neutral-900 focus:outline-none text-xs"
                 />
+                <p className="text-[10px] text-neutral-500">Se ficar vazio, nenhum título será exibido na página.</p>
               </div>
 
               <div className="space-y-1">
@@ -4332,6 +4742,50 @@ export const MaisVendidos: React.FC = () => {
                   placeholder="Ex: As peças mais desejadas de hoje"
                   className="w-full px-3 py-2 border border-neutral-300 rounded focus:ring-1 focus:ring-neutral-900 focus:outline-none text-xs"
                 />
+                <p className="text-[10px] text-neutral-500">Se ficar vazio, o subtítulo não ocupa espaço na vitrine.</p>
+              </div>
+
+              <div className="space-y-3 rounded-lg bg-neutral-50 border border-neutral-200 p-3">
+                <label className="flex items-start gap-2 cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={listFormFooterCtaEnabled}
+                    onChange={(e) => setListFormFooterCtaEnabled(e.target.checked)}
+                    className="mt-0.5 rounded border-neutral-300 text-neutral-900 focus:ring-neutral-900"
+                  />
+                  <span>
+                    <span className="font-semibold text-neutral-800">Botão no final da página</span>
+                    <span className="block text-[10px] text-neutral-500 mt-0.5">
+                      Exibe um CTA depois do último produto para levar a pessoa a uma coleção, categoria ou outro site.
+                    </span>
+                  </span>
+                </label>
+
+                {listFormFooterCtaEnabled && (
+                  <div className="grid grid-cols-1 gap-2 pl-6">
+                    <div className="space-y-1">
+                      <label className="text-[10px] font-semibold text-neutral-700">Texto do botão</label>
+                      <input
+                        type="text"
+                        value={listFormFooterCtaText}
+                        onChange={(e) => setListFormFooterCtaText(e.target.value)}
+                        placeholder="VER TODOS OS PRODUTOS"
+                        maxLength={80}
+                        className="w-full px-3 py-2 border border-neutral-300 rounded bg-white focus:ring-1 focus:ring-neutral-900 focus:outline-none text-xs"
+                      />
+                    </div>
+                    <div className="space-y-1">
+                      <label className="text-[10px] font-semibold text-neutral-700">Link</label>
+                      <input
+                        type="url"
+                        value={listFormFooterCtaUrl}
+                        onChange={(e) => setListFormFooterCtaUrl(e.target.value)}
+                        placeholder="https://www.zhaya.com.br/..."
+                        className="w-full px-3 py-2 border border-neutral-300 rounded bg-white focus:ring-1 focus:ring-neutral-900 focus:outline-none text-xs"
+                      />
+                    </div>
+                  </div>
+                )}
               </div>
 
 
@@ -4920,6 +5374,146 @@ export const MaisVendidos: React.FC = () => {
         </div>
       )}
 
+
+      {/* ========================================================================= */}
+      {/* MODAL: Adicionar JSON em Massa (captura de categoria da extensão)          */}
+      {/* ========================================================================= */}
+      {isBulkJsonModalOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50 backdrop-blur-xs">
+          <div className="bg-white rounded-lg border border-neutral-200 shadow-xl max-w-2xl w-full max-h-[90vh] flex flex-col overflow-hidden animate-in fade-in zoom-in-95 duration-150">
+            <div className="px-5 py-4 border-b border-neutral-200 flex items-center justify-between gap-3 shrink-0">
+              <div>
+                <h3 className="text-sm font-bold text-neutral-900 flex items-center gap-2"><Layers className="w-4 h-4" /> Adicionar JSON em Massa</h3>
+                <p className="text-[10px] text-neutral-500 mt-0.5">Importa de uma vez os produtos capturados em uma categoria pela extensão Zhaya Match.</p>
+              </div>
+              <button
+                type="button"
+                disabled={bulkJsonImporting}
+                onClick={() => setIsBulkJsonModalOpen(false)}
+                className="text-neutral-400 hover:text-neutral-700 p-1 rounded transition-colors cursor-pointer disabled:opacity-40"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            <div className="p-5 space-y-4 overflow-y-auto text-xs">
+              <div className="rounded-lg border border-neutral-200 bg-neutral-50 p-3 text-[11px] text-neutral-600 leading-relaxed">
+                Use o <strong>JSON COMPLETO</strong> gerado pelo modo “Capturar categoria” da extensão. A ordem de <code className="font-mono text-[10px]">products[]</code> será mantida na vitrine. Produtos já cadastrados pela mesma URL são ignorados automaticamente.
+              </div>
+
+              {bulkJsonError && (
+                <div className="p-3 rounded bg-red-50 text-red-800 border border-red-200 text-[11px]">{bulkJsonError}</div>
+              )}
+
+              <div className="space-y-2">
+                <label className="text-[10px] font-bold uppercase tracking-wider text-neutral-500">Adicionar produtos em</label>
+                <div className="grid grid-cols-2 gap-2">
+                  <button
+                    type="button"
+                    disabled={bulkJsonImporting}
+                    onClick={() => setBulkJsonDisplayGroup('main')}
+                    className={`rounded border px-3 py-2.5 text-left cursor-pointer disabled:opacity-50 ${bulkJsonDisplayGroup === 'main' ? 'border-neutral-900 bg-neutral-900 text-white' : 'border-neutral-200 bg-white text-neutral-700'}`}
+                  >
+                    <span className="block text-[10px] font-bold">PRINCIPAL</span>
+                    <span className={`block text-[9px] mt-0.5 ${bulkJsonDisplayGroup === 'main' ? 'text-neutral-300' : 'text-neutral-400'}`}>Vitrine normal, inclusive Brasil.</span>
+                  </button>
+                  <button
+                    type="button"
+                    disabled={bulkJsonImporting}
+                    onClick={() => setBulkJsonDisplayGroup('redirect')}
+                    className={`rounded border px-3 py-2.5 text-left cursor-pointer disabled:opacity-50 ${bulkJsonDisplayGroup === 'redirect' ? 'border-amber-500 bg-amber-50 text-amber-950' : 'border-neutral-200 bg-white text-neutral-700'}`}
+                  >
+                    <span className="block text-[10px] font-bold">REDIRECIONAR</span>
+                    <span className="block text-[9px] mt-0.5 text-neutral-500">Seleção alternativa para países configurados.</span>
+                  </button>
+                </div>
+              </div>
+
+              <input
+                ref={bulkJsonFileInputRef}
+                type="file"
+                accept="application/json,.json"
+                className="hidden"
+                onChange={(e) => { void handleBulkJsonFile(e.target.files?.[0]); e.currentTarget.value = ''; }}
+              />
+
+              <div className="flex flex-wrap items-center gap-2">
+                <button
+                  type="button"
+                  disabled={bulkJsonImporting}
+                  onClick={() => bulkJsonFileInputRef.current?.click()}
+                  className="inline-flex items-center gap-1.5 px-3 py-2 rounded bg-neutral-900 text-white text-[10px] font-bold cursor-pointer disabled:opacity-50"
+                >
+                  <Upload className="w-3.5 h-3.5" /> SELECIONAR ARQUIVO JSON
+                </button>
+                {bulkJsonFileName && <span className="text-[10px] text-neutral-500 truncate max-w-[360px]" title={bulkJsonFileName}>{bulkJsonFileName}</span>}
+              </div>
+
+              <div className="space-y-1">
+                <div className="flex items-center justify-between gap-2">
+                  <label className="font-semibold text-neutral-700">Ou cole o JSON completo</label>
+                  {bulkJsonInput && <span className="text-[9px] text-neutral-400">{Math.round(bulkJsonInput.length / 1024)} KB</span>}
+                </div>
+                <textarea
+                  value={bulkJsonInput}
+                  onChange={(e) => { setBulkJsonInput(e.target.value); setBulkJsonFileName(''); setBulkJsonError(null); }}
+                  rows={10}
+                  spellCheck={false}
+                  disabled={bulkJsonImporting}
+                  placeholder={'{\n  "schemaVersion": "zhaya-match-category@1",\n  "products": [...]\n}'}
+                  className="w-full rounded border border-neutral-300 bg-white px-3 py-2 font-mono text-[10px] leading-relaxed focus:outline-none focus:ring-1 focus:ring-neutral-900 disabled:bg-neutral-100"
+                />
+              </div>
+
+              {bulkJsonInput.trim() && !bulkJsonAnalysis.error && (
+                <div className="grid grid-cols-2 sm:grid-cols-5 gap-2">
+                  <div className="rounded border border-neutral-200 p-2 bg-white"><div className="text-[9px] uppercase text-neutral-400 font-bold">Encontrados</div><div className="text-lg font-bold text-neutral-900">{bulkJsonAnalysis.entries.length}</div></div>
+                  <div className="rounded border border-emerald-200 p-2 bg-emerald-50"><div className="text-[9px] uppercase text-emerald-600 font-bold">Novos</div><div className="text-lg font-bold text-emerald-800">{bulkJsonAnalysis.importable.length}</div></div>
+                  <div className="rounded border border-amber-200 p-2 bg-amber-50"><div className="text-[9px] uppercase text-amber-600 font-bold">Já na vitrine</div><div className="text-lg font-bold text-amber-800">{bulkJsonAnalysis.duplicates}</div></div>
+                  <div className="rounded border border-neutral-200 p-2 bg-neutral-50"><div className="text-[9px] uppercase text-neutral-500 font-bold">Repetidos</div><div className="text-lg font-bold text-neutral-700">{bulkJsonAnalysis.repeatedInsideJson}</div></div>
+                  <div className="rounded border border-red-200 p-2 bg-red-50"><div className="text-[9px] uppercase text-red-500 font-bold">Inválidos</div><div className="text-lg font-bold text-red-700">{bulkJsonAnalysis.invalid}</div></div>
+                </div>
+              )}
+
+              {bulkJsonImporting || bulkJsonProgress.done > 0 ? (
+                <div className="rounded-lg border border-neutral-200 p-3 space-y-2">
+                  <div className="flex items-center justify-between text-[10px] font-semibold text-neutral-600">
+                    <span>{bulkJsonImporting ? 'Importando produtos…' : 'Importação concluída'}</span>
+                    <span>{bulkJsonProgress.done}/{bulkJsonProgress.total}</span>
+                  </div>
+                  <div className="h-2 rounded-full bg-neutral-100 overflow-hidden">
+                    <div className="h-full bg-neutral-900 transition-all" style={{ width: `${bulkJsonProgress.total ? Math.round((bulkJsonProgress.done / bulkJsonProgress.total) * 100) : 0}%` }} />
+                  </div>
+                  <div className="flex flex-wrap gap-x-4 gap-y-1 text-[10px] text-neutral-500">
+                    <span><strong className="text-emerald-700">{bulkJsonProgress.imported}</strong> importados</span>
+                    <span><strong className="text-amber-700">{bulkJsonProgress.skipped}</strong> ignorados</span>
+                    <span><strong className="text-red-700">{bulkJsonProgress.failed}</strong> falhas</span>
+                  </div>
+                </div>
+              ) : null}
+            </div>
+
+            <div className="px-5 py-3 border-t border-neutral-200 flex items-center justify-between gap-3 shrink-0 bg-neutral-50">
+              <span className="text-[9px] text-neutral-400">
+                {bulkJsonAnalysis.schemaVersion ? `Formato: ${bulkJsonAnalysis.schemaVersion}` : 'Formato esperado: zhaya-match-category@1'}
+              </span>
+              <div className="flex items-center gap-2">
+                <button type="button" disabled={bulkJsonImporting} onClick={() => setIsBulkJsonModalOpen(false)} className="px-3 py-2 rounded border border-neutral-300 bg-white text-[10px] font-semibold text-neutral-600 cursor-pointer disabled:opacity-50">Fechar</button>
+                <button
+                  type="button"
+                  onClick={() => void handleImportBulkJson()}
+                  disabled={bulkJsonImporting || Boolean(bulkJsonAnalysis.error) || bulkJsonAnalysis.importable.length === 0}
+                  className="inline-flex items-center gap-1.5 px-4 py-2 rounded bg-neutral-900 text-white text-[10px] font-bold disabled:opacity-40 cursor-pointer"
+                >
+                  {bulkJsonImporting ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Layers className="w-3.5 h-3.5" />}
+                  {bulkJsonImporting ? 'IMPORTANDO…' : `IMPORTAR ${bulkJsonAnalysis.importable.length || ''} PRODUTO${bulkJsonAnalysis.importable.length === 1 ? '' : 'S'}`}
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* ========================================================================= */}
       {/* MODAL 2: Adicionar / Editar Produto                                       */}
       {/* ========================================================================= */}
@@ -5010,6 +5604,28 @@ export const MaisVendidos: React.FC = () => {
                     required
                     className="w-full px-3 py-2 border border-neutral-300 rounded focus:ring-1 focus:ring-neutral-900 focus:outline-none text-xs"
                   />
+                </div>
+
+                <div className="space-y-1">
+                  <label className="font-semibold text-neutral-700">Área do produto</label>
+                  <div className="grid grid-cols-2 gap-2">
+                    <button
+                      type="button"
+                      onClick={() => setProdFormDisplayGroup('main')}
+                      className={`rounded border px-3 py-2 text-left transition-colors cursor-pointer ${prodFormDisplayGroup === 'main' ? 'border-neutral-900 bg-neutral-900 text-white' : 'border-neutral-200 bg-white text-neutral-700 hover:bg-neutral-50'}`}
+                    >
+                      <span className="block text-[10px] font-bold uppercase tracking-wider">Principal</span>
+                      <span className={`block text-[9px] mt-0.5 ${prodFormDisplayGroup === 'main' ? 'text-neutral-300' : 'text-neutral-400'}`}>Aparece normalmente na vitrine.</span>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setProdFormDisplayGroup('redirect')}
+                      className={`rounded border px-3 py-2 text-left transition-colors cursor-pointer ${prodFormDisplayGroup === 'redirect' ? 'border-amber-500 bg-amber-50 text-amber-950' : 'border-neutral-200 bg-white text-neutral-700 hover:bg-neutral-50'}`}
+                    >
+                      <span className="block text-[10px] font-bold uppercase tracking-wider">Redirecionar</span>
+                      <span className="block text-[9px] mt-0.5 text-neutral-500">Oculto no Brasil; usado como seleção alternativa internacional.</span>
+                    </button>
+                  </div>
                 </div>
 
                 <div className="space-y-1">
@@ -6417,6 +7033,41 @@ export const MaisVendidos: React.FC = () => {
                         />
                       </div>
 
+                      <div className={`rounded-lg border p-3 space-y-3 ${rule.redirectProducts ? 'border-amber-200 bg-amber-50' : 'border-neutral-200 bg-neutral-50'}`}>
+                        <label className="flex items-start gap-2.5 cursor-pointer">
+                          <input
+                            type="checkbox"
+                            checked={Boolean(rule.redirectProducts)}
+                            onChange={(e) => updateInternationalRule(ruleIndex, { redirectProducts: e.target.checked })}
+                            className="mt-0.5"
+                          />
+                          <span>
+                            <span className={`block text-[10px] font-bold ${rule.redirectProducts ? 'text-amber-900' : 'text-neutral-700'}`}>Redirecionar produtos esgotados</span>
+                            <span className="block text-[9px] text-neutral-500 mt-0.5 leading-relaxed">
+                              Quando ativo, visitantes deste país não veem os itens da área Principal. A página fica limpa e mostra somente os produtos colocados em <strong>Redirecionar</strong>.
+                            </span>
+                          </span>
+                        </label>
+                        {rule.redirectProducts && (
+                          <div className="space-y-2 pl-0 sm:pl-6">
+                            <textarea
+                              value={rule.redirectMessage || ''}
+                              onChange={(e) => updateInternationalRule(ruleIndex, { redirectMessage: e.target.value })}
+                              rows={3}
+                              maxLength={1200}
+                              placeholder="Ex.: Infelizmente, os produtos desta seleção não possuem envio internacional. Mas preparamos abaixo uma lista de produtos disponíveis para o seu país."
+                              className="w-full min-w-0 px-3 py-2 rounded border border-amber-200 bg-white text-xs resize-y"
+                            />
+                            <div className="flex flex-wrap items-center justify-between gap-2 text-[9px]">
+                              <span className="text-neutral-500">A mensagem é manual e pode ser traduzida normalmente para cada país.</span>
+                              <span className={`font-bold ${redirectDisplayProducts.length > 0 ? 'text-emerald-700' : 'text-amber-700'}`}>
+                                {redirectDisplayProducts.length > 0 ? `${redirectDisplayProducts.length} produto(s) em Redirecionar` : 'Nenhum produto em Redirecionar ainda'}
+                              </span>
+                            </div>
+                          </div>
+                        )}
+                      </div>
+
                       <div className="rounded-lg border border-neutral-200 bg-neutral-50 p-3">
                         <div className="mb-2">
                           <p className="text-[10px] font-bold text-neutral-700">O que aparece neste país</p>
@@ -6427,6 +7078,7 @@ export const MaisVendidos: React.FC = () => {
                             ['showPrices', 'Preços'],
                             ['showInstallments', 'Parcelamento sem juros'],
                             ['showCta', 'Botão de compra'],
+                            ['showFooterCta', 'CTA final da página'],
                             ['showBenefits', 'Bloco de benefícios'],
                             ['showSoldQuantity', 'Quantidade vendida'],
                             ['showAvailableQuantity', 'Estoque disponível'],
@@ -6451,7 +7103,7 @@ export const MaisVendidos: React.FC = () => {
                       <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
                         <div className="space-y-1">
                           <label className="text-[10px] font-bold text-neutral-600">Título traduzido</label>
-                          <input value={rule.title || ''} onChange={(e) => updateInternationalRule(ruleIndex, { title: e.target.value })} className="w-full min-w-0 px-3 py-2 rounded border border-neutral-300 text-xs" placeholder={selectedList.title} />
+                          <input value={rule.title || ''} onChange={(e) => updateInternationalRule(ruleIndex, { title: e.target.value })} className="w-full min-w-0 px-3 py-2 rounded border border-neutral-300 text-xs" placeholder={selectedList.title || 'Sem título'} />
                         </div>
                         <div className="space-y-1">
                           <label className="text-[10px] font-bold text-neutral-600">Subtítulo traduzido</label>
@@ -6462,6 +7114,30 @@ export const MaisVendidos: React.FC = () => {
                           <input value={rule.ctaText || ''} onChange={(e) => updateInternationalRule(ruleIndex, { ctaText: e.target.value })} className="w-full min-w-0 px-3 py-2 rounded border border-neutral-300 text-xs" placeholder={selectedList.ctaText || 'COMPRAR'} />
                         </div>
                       </div>
+
+                      {selectedList.footerCtaEnabled && (
+                        <div className="rounded-lg border border-neutral-200 bg-neutral-50 p-3 space-y-2">
+                          <div>
+                            <p className="text-[10px] font-bold text-neutral-700">CTA final da página</p>
+                            <p className="text-[9px] text-neutral-500 mt-0.5">Conteúdo manual: vazio herda o texto e o link definidos na vitrine principal.</p>
+                          </div>
+                          <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                            <input
+                              value={rule.footerCtaText || ''}
+                              onChange={(e) => updateInternationalRule(ruleIndex, { footerCtaText: e.target.value })}
+                              placeholder={selectedList.footerCtaText || 'Texto do botão final'}
+                              className="w-full min-w-0 px-3 py-2 rounded border border-neutral-300 bg-white text-xs"
+                            />
+                            <input
+                              type="url"
+                              value={rule.footerCtaUrl || ''}
+                              onChange={(e) => updateInternationalRule(ruleIndex, { footerCtaUrl: e.target.value })}
+                              placeholder={selectedList.footerCtaUrl || 'https://...'}
+                              className="w-full min-w-0 px-3 py-2 rounded border border-neutral-300 bg-white text-xs"
+                            />
+                          </div>
+                        </div>
+                      )}
 
                       <div className="rounded-lg border border-neutral-200 bg-neutral-50 p-3 space-y-2">
                         <label className="text-[10px] font-bold text-neutral-600">Destino dos botões neste país</label>
@@ -6536,7 +7212,14 @@ export const MaisVendidos: React.FC = () => {
                                 <div key={product.id} className="rounded border border-neutral-100 p-2.5 space-y-2.5">
                                   <div className="flex items-center justify-between gap-2">
                                     <div className="min-w-0 text-[10px] font-bold text-neutral-800 truncate" title={product.name}>{product.name}</div>
-                                    <span className="shrink-0 text-[8px] font-bold uppercase tracking-wider text-neutral-400">{itemLabel}</span>
+                                    <div className="shrink-0 flex items-center gap-1.5">
+                                      {product.displayGroup === 'redirect' && (
+                                        <span className="inline-flex items-center gap-1 rounded bg-amber-100 px-1.5 py-0.5 text-[8px] font-black uppercase tracking-wider text-amber-800">
+                                          <Globe2 className="w-2.5 h-2.5" /> Redirecionar
+                                        </span>
+                                      )}
+                                      <span className="text-[8px] font-bold uppercase tracking-wider text-neutral-400">{itemLabel}</span>
+                                    </div>
                                   </div>
 
                                   {product.itemType === 'benefits' ? (

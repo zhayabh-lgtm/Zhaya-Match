@@ -2029,42 +2029,58 @@ export const MaisVendidosPage: React.FC = () => {
         {/* ========================================================================= */}
         {!loading && !errorMessage && listData && (
           <div className="w-full flex flex-col items-center">
-            {/* Header Editorial: data primeiro, depois logo e timer. */}
-            <header className="w-full text-center mb-6 sm:mb-8">
-              {listData.showDate !== false && formattedDate && (
-                <p className="mb-3 text-[10px] sm:text-[11px] tracking-[0.18em] text-neutral-500 font-bold leading-none">
-                  {formattedDate}
+            {/* Cabeçalho só existe quando há conteúdo configurado para ele.
+                Título e subtítulo vazios não geram fallback nem espaço residual. */}
+            {(Boolean(listData.showDate !== false && formattedDate) ||
+              Boolean(listData.logoUrl) ||
+              Boolean(listData.title?.trim()) ||
+              Boolean(listData.subtitle?.trim()) ||
+              Boolean(!firstItemIsHeroVideo && listTimerElement)) && (
+              <header className="w-full text-center mb-6 sm:mb-8">
+                {listData.showDate !== false && formattedDate && (
+                  <p className="mb-3 text-[10px] sm:text-[11px] tracking-[0.18em] text-neutral-500 font-bold leading-none">
+                    {formattedDate}
+                  </p>
+                )}
+
+                {listData.logoUrl ? (
+                  <div className="w-[calc(100%+2rem)] -mx-4 sm:w-[calc(100%+3rem)] sm:-mx-6 max-w-[100vw] flex justify-center items-center overflow-hidden">
+                    <img
+                      src={listData.logoUrl}
+                      alt={listData.title?.trim() || 'Zhaya'}
+                      className="w-full h-auto max-w-none object-contain block"
+                    />
+                  </div>
+                ) : listData.title?.trim() ? (
+                  <div>
+                    <h1 className="text-2xl sm:text-3xl font-black tracking-[-0.035em] text-white uppercase leading-tight">
+                      {listData.title}
+                    </h1>
+                  </div>
+                ) : null}
+
+                {listData.subtitle?.trim() && (
+                  <p className="mt-3 text-xs sm:text-sm text-neutral-400 font-normal tracking-wide max-w-sm mx-auto">
+                    {listData.subtitle}
+                  </p>
+                )}
+
+                {!firstItemIsHeroVideo && listTimerElement && (
+                  <div className="mt-3">
+                    {listTimerElement}
+                  </div>
+                )}
+              </header>
+            )}
+
+            {listData.redirectMode && listData.redirectMessage?.trim() && (
+              <section className="w-full max-w-xl mx-auto mb-8 sm:mb-10 text-center px-1">
+                <span className="inline-block text-[10px] font-black uppercase tracking-[0.2em] text-neutral-500 mb-3">ZHAYA</span>
+                <p className="text-sm sm:text-base text-neutral-200 font-normal leading-relaxed whitespace-pre-line">
+                  {listData.redirectMessage}
                 </p>
-              )}
-
-              {listData.logoUrl ? (
-                <div className="w-[calc(100%+2rem)] -mx-4 sm:w-[calc(100%+3rem)] sm:-mx-6 max-w-[100vw] flex justify-center items-center overflow-hidden">
-                  <img
-                    src={listData.logoUrl}
-                    alt={listData.title || 'Zhaya'}
-                    className="w-full h-auto max-w-none object-contain block"
-                  />
-                </div>
-              ) : (
-                <div>
-                  <h1 className="text-2xl sm:text-3xl font-black tracking-[-0.035em] text-white uppercase leading-tight">
-                    {listData.title || ui.bestSellersToday}
-                  </h1>
-                </div>
-              )}
-
-              {listData.subtitle && (
-                <p className="mt-3 text-xs sm:text-sm text-neutral-400 font-normal tracking-wide max-w-sm mx-auto">
-                  {listData.subtitle}
-                </p>
-              )}
-
-              {!firstItemIsHeroVideo && listTimerElement && (
-                <div className="mt-3">
-                  {listTimerElement}
-                </div>
-              )}
-            </header>
+              </section>
+            )}
 
             {/* Vitrine de Produtos */}
             {listData.products && listData.products.length > 0 ? (
@@ -2136,6 +2152,19 @@ export const MaisVendidosPage: React.FC = () => {
             ) : (
               <div className="w-full py-12 text-center text-xs text-neutral-400 font-light">
                 {ui.noProducts}
+              </div>
+            )}
+
+            {listData.footerCtaEnabled && listData.footerCtaText?.trim() && listData.footerCtaUrl?.trim() && (
+              <div className="w-full mt-10 sm:mt-14 flex justify-center">
+                <a
+                  href={listData.footerCtaUrl}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="w-full max-w-sm min-h-12 px-6 py-3.5 rounded-[4px] bg-white text-black hover:bg-neutral-100 inline-flex items-center justify-center text-center text-[11px] sm:text-xs font-black uppercase tracking-[0.14em] transition-colors"
+                >
+                  {listData.footerCtaText}
+                </a>
               </div>
             )}
           </div>
