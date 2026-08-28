@@ -5,6 +5,7 @@ import { Play, Pause, Volume2, VolumeX, ChevronLeft, ChevronRight, ChevronDown }
 import { Repository } from '../../lib/repository';
 import { getReadableTextColor } from '../../lib/contrast';
 import { getBestSellerUiText, formatBestSellerUiText, type BestSellerUiText } from '../../lib/bestSellerI18n';
+import { detectBestSellerCategoryKey, getBestSellerCategoryLabel } from '../../lib/bestSellerCategories';
 import type { PublicBestSellerList, PublicBestSellerProduct, PublicBestSellerMediaItem } from '../../types/zhaya';
 
 /**
@@ -1514,6 +1515,7 @@ export const MaisVendidosPage: React.FC = () => {
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [now, setNow] = useState<number>(Date.now());
   const [leadProduct, setLeadProduct] = useState<PublicBestSellerProduct | null>(null);
+  const [organizedCategory, setOrganizedCategory] = useState<string | null>(null);
   const ui = useMemo(() => getBestSellerUiText(listData?.uiLocale || listData?.currencyLocale || (typeof navigator !== 'undefined' ? navigator.language : 'pt-BR')), [listData?.uiLocale, listData?.currencyLocale]);
 
   const lastDataRef = useRef<string>('');
@@ -1588,6 +1590,7 @@ export const MaisVendidosPage: React.FC = () => {
     pageViewTrackedRef.current = '';
     setListData(null);
     setLeadProduct(null);
+    setOrganizedCategory(null);
     setErrorMessage(null);
 
     // 1. Carregamento inicial explícito
@@ -1894,7 +1897,7 @@ export const MaisVendidosPage: React.FC = () => {
       window.removeEventListener('pagehide', flush);
       flush();
     };
-  }, [listData?.id, listData?.products?.length]);
+  }, [listData?.id, listData?.products?.length, organizedCategory]);
 
   const firstItemIsHeroVideo = Boolean(
     listData?.products?.[0]?.itemType === 'video' &&
@@ -1925,6 +1928,101 @@ export const MaisVendidosPage: React.FC = () => {
       </div>
     </div>
   ) : null;
+
+  const organizedModel = useMemo(() => {
+    const items = listData?.products || [];
+    const productIndexes = items
+      .map((item, index) => ({ item, index }))
+      .filter(({ item }) => item.itemType !== 'video' && item.itemType !== 'benefits');
+    const introCount = Math.min(12, Math.max(1, Number(listData?.organizedIntroCount) || 3));
+    const cutoff = productIndexes.length >= introCount ? productIndexes[introCount - 1].index : items.length - 1;
+    const introItems = cutoff >= 0 ? items.slice(0, cutoff + 1) : [];
+    const remainingItems = cutoff >= 0 ? items.slice(cutoff + 1) : items;
+    const remainingProducts = remainingItems.filter((item) => item.itemType !== 'video' && item.itemType !== 'benefits');
+    const counts = new Map<string, number>();
+    remainingProducts.forEach((product) => {
+      const key = (product.autoCategoryKey || detectBestSellerCategoryKey(product)) as any;
+      counts.set(key, (counts.get(key) || 0) + 1);
+    });
+    const categories = Array.from(counts.entries())
+      .map(([key, count]) => ({
+        key,
+        count,
+        label: listData?.categoryTranslations?.[key] || getBestSellerCategoryLabel(ui.locale, key as any),
+      }))
+      .sort((a, b) => b.count - a.count || a.label.localeCompare(b.label));
+    const active = listData?.experienceMode === 'organized' && remainingProducts.length >= 2;
+    return { active, introItems, remainingItems, remainingProducts, categories };
+  }, [listData, ui.locale]);
+
+  const organizedSelectedItems = useMemo(() => {
+    if (!organizedModel.active || !organizedCategory) return [] as PublicBestSellerProduct[];
+    if (organizedCategory === 'all') return organizedModel.remainingItems;
+    return organizedModel.remainingItems.filter((item) =>
+      item.itemType !== 'video' && item.itemType !== 'benefits' && (item.autoCategoryKey || detectBestSellerCategoryKey(item)) === organizedCategory
+    );
+  }, [organizedModel, organizedCategory]);
+
+  const renderStoreItem = (prod: PublicBestSellerProduct, idx: number) => {
+    if (!listData) return null;
+    const originalIndex = listData.products.findIndex((item) => item.id === prod.id);
+    const safeIndex = originalIndex >= 0 ? originalIndex : idx;
+    if (prod.itemType === 'benefits') return <BenefitsBlockItem key={prod.id} item={prod} ui={ui} />;
+    if (prod.itemType === 'video') {
+      const nextProduct = listData.products.slice(safeIndex + 1).find((item) => item.itemType === 'product' || !item.itemType);
+      const isHeroVideo = safeIndex === 0;
+      return (
+        <VideoHighlightItem
+          key={prod.id}
+          item={prod}
+          listId={listData.id}
+          isHero={isHeroVideo}
+          hasProductBelow={Boolean(nextProduct)}
+          nextProductId={nextProduct?.id || null}
+          timerContent={isHeroVideo ? listTimerElement : null}
+          ui={ui}
+        />
+      );
+    }
+    const displayRank = listData.products.slice(0, safeIndex + 1).filter((item) => item.itemType === 'product' || !item.itemType).length;
+    const firstProductIndex = listData.products.findIndex((item) => item.itemType === 'product' || !item.itemType);
+    return (
+      <ProductItem
+        key={prod.id}
+        product={prod}
+        index={safeIndex}
+        displayRank={displayRank}
+        isFirst={safeIndex === firstProductIndex}
+        ctaText={(listData.ctaText || '').trim() || ui.defaultCta}
+        rankColor={listData.rankColor || '#FFFFFF'}
+        sizeColor={listData.sizeColor || '#FFFFFF'}
+        showRanking={listData.showRanking !== false}
+        now={now}
+        listId={listData.id}
+        listTimerEnabled={listData.timerEnabled}
+        listTimerLooping={listData.timerLooping}
+        listTimerDurationMinutes={listData.timerDurationMinutes}
+        listTimerEnd={listData.timerEnd}
+        currencyCode={listData.currencyCode || 'BRL'}
+        currencyLocale={listData.currencyLocale || 'pt-BR'}
+        approximateConversion={Boolean(listData.approximateConversion)}
+        approximateLabel={listData.approximateLabel || (listData.approximateConversion ? ui.approximateConversion : null)}
+        ui={ui}
+        showPrices={listData.showPrices !== false}
+        showInstallments={listData.showInstallments !== false}
+        showCta={listData.showCta !== false}
+        showSoldQuantity={listData.showSoldQuantity !== false}
+        showAvailableQuantity={listData.showAvailableQuantity !== false}
+        showSizes={listData.showSizes !== false}
+        showColors={listData.showColors !== false}
+        showBadges={listData.showBadges !== false}
+        showGift={listData.showGift !== false}
+        showProductTimers={listData.showProductTimers !== false}
+        buttonDestination={listData.buttonDestination || 'product'}
+        onOpenForm={setLeadProduct}
+      />
+    );
+  };
 
   return (
     <div
@@ -2085,69 +2183,50 @@ export const MaisVendidosPage: React.FC = () => {
             {/* Vitrine de Produtos */}
             {listData.products && listData.products.length > 0 ? (
               <div className="w-full flex flex-col space-y-4 sm:space-y-10">
-                {listData.products.map((prod, idx) => {
-                  if (prod.itemType === 'benefits') {
-                    return <BenefitsBlockItem key={prod.id} item={prod} ui={ui} />;
-                  }
-                  if (prod.itemType === 'video') {
-                    const nextProduct = listData.products
-                      .slice(idx + 1)
-                      .find((item) => item.itemType === 'product' || !item.itemType);
-                    const isHeroVideo = idx === 0;
-                    return (
-                      <VideoHighlightItem
-                        key={prod.id}
-                        item={prod}
-                        listId={listData.id}
-                        isHero={isHeroVideo}
-                        hasProductBelow={Boolean(nextProduct)}
-                        nextProductId={nextProduct?.id || null}
-                        timerContent={isHeroVideo ? listTimerElement : null}
-                        ui={ui}
-                      />
-                    );
-                  }
-                  const displayRank = listData.products
-                    .slice(0, idx + 1)
-                    .filter((item) => item.itemType === 'product' || !item.itemType).length;
-                  const firstProductIndex = listData.products.findIndex((item) => item.itemType === 'product' || !item.itemType);
-                  return (
-                    <ProductItem
-                      key={prod.id}
-                      product={prod}
-                      index={idx}
-                      displayRank={displayRank}
-                      isFirst={idx === firstProductIndex}
-                      ctaText={(listData.ctaText || '').trim() || ui.defaultCta}
-                      rankColor={listData.rankColor || '#FFFFFF'}
-                      sizeColor={listData.sizeColor || '#FFFFFF'}
-                      showRanking={listData.showRanking !== false}
-                      now={now}
-                      listId={listData.id}
-                      listTimerEnabled={listData.timerEnabled}
-                      listTimerLooping={listData.timerLooping}
-                      listTimerDurationMinutes={listData.timerDurationMinutes}
-                      listTimerEnd={listData.timerEnd}
-                      currencyCode={listData.currencyCode || 'BRL'}
-                      currencyLocale={listData.currencyLocale || 'pt-BR'}
-                      approximateConversion={Boolean(listData.approximateConversion)}
-                      approximateLabel={listData.approximateLabel || (listData.approximateConversion ? ui.approximateConversion : null)}
-                      ui={ui}
-                      showPrices={listData.showPrices !== false}
-                      showInstallments={listData.showInstallments !== false}
-                      showCta={listData.showCta !== false}
-                      showSoldQuantity={listData.showSoldQuantity !== false}
-                      showAvailableQuantity={listData.showAvailableQuantity !== false}
-                      showSizes={listData.showSizes !== false}
-                      showColors={listData.showColors !== false}
-                      showBadges={listData.showBadges !== false}
-                      showGift={listData.showGift !== false}
-                      showProductTimers={listData.showProductTimers !== false}
-                      buttonDestination={listData.buttonDestination || 'product'}
-                      onOpenForm={setLeadProduct}
-                    />
-                  );
-                })}
+                {(organizedModel.active ? organizedModel.introItems : listData.products).map((prod, idx) => renderStoreItem(prod, idx))}
+
+                {organizedModel.active && (
+                  <section data-organized-selector className="w-full max-w-2xl mx-auto py-8 sm:py-12 px-1">
+                    <div className="text-center mb-5 sm:mb-6">
+                      <p className="text-[10px] font-black uppercase tracking-[0.2em] text-neutral-500 mb-2">ZHAYA MATCH</p>
+                      <h2 className="text-xl sm:text-2xl font-black tracking-[-0.025em] text-white">{listData.organizedTitle || ui.organizedTitle}</h2>
+                      <p className="mt-2 text-xs sm:text-sm text-neutral-400">{listData.organizedSubtitle || ui.organizedSubtitle}</p>
+                    </div>
+
+                    <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
+                      <button
+                        type="button"
+                        onClick={() => setOrganizedCategory('all')}
+                        className={`min-h-16 rounded-lg border px-3 py-3 text-left transition-colors ${organizedCategory === 'all' ? 'border-white bg-white text-black' : 'border-neutral-800 bg-neutral-950 text-white hover:border-neutral-600'}`}
+                      >
+                        <span className="block text-[11px] font-black">{ui.organizedAll}</span>
+                        <span className={`block mt-1 text-[9px] ${organizedCategory === 'all' ? 'text-neutral-600' : 'text-neutral-500'}`}>{formatBestSellerUiText(ui.organizedProducts, { count: organizedModel.remainingProducts.length })}</span>
+                      </button>
+                      {organizedModel.categories.map((category) => (
+                        <button
+                          key={category.key}
+                          type="button"
+                          onClick={() => setOrganizedCategory(category.key)}
+                          className={`min-h-16 rounded-lg border px-3 py-3 text-left transition-colors ${organizedCategory === category.key ? 'border-white bg-white text-black' : 'border-neutral-800 bg-neutral-950 text-white hover:border-neutral-600'}`}
+                        >
+                          <span className="block text-[11px] font-black">{category.label}</span>
+                          <span className={`block mt-1 text-[9px] ${organizedCategory === category.key ? 'text-neutral-600' : 'text-neutral-500'}`}>{formatBestSellerUiText(ui.organizedProducts, { count: category.count })}</span>
+                        </button>
+                      ))}
+                    </div>
+                  </section>
+                )}
+
+                {organizedModel.active && organizedCategory && organizedSelectedItems.length > 0 && (
+                  <div className="w-full flex flex-col space-y-4 sm:space-y-10">
+                    {organizedSelectedItems.map((prod, idx) => renderStoreItem(prod, idx))}
+                    <div className="w-full flex justify-center pt-2">
+                      <button type="button" onClick={() => { setOrganizedCategory(null); document.querySelector('[data-organized-selector]')?.scrollIntoView({ behavior: 'smooth', block: 'center' }); }} className="text-[10px] font-bold uppercase tracking-[0.12em] text-neutral-500 hover:text-white transition-colors cursor-pointer">
+                        {ui.organizedBack}
+                      </button>
+                    </div>
+                  </div>
+                )}
               </div>
             ) : (
               <div className="w-full py-12 text-center text-xs text-neutral-400 font-light">

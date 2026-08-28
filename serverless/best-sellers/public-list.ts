@@ -2,6 +2,7 @@ import { createClient } from '@supabase/supabase-js';
 import { isValidServiceRoleKey } from '../../src/lib/supabaseKeyValidator.js';
 import type { PublicBestSellerList, PublicBestSellerProduct } from '../../src/types/zhaya.js';
 import { getBestSellerUiText } from '../../src/lib/bestSellerI18n.js';
+import { detectBestSellerCategoryKey } from '../../src/lib/bestSellerCategories.js';
 
 function getSupabaseClient() {
   const supabaseUrl = process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL || '';
@@ -366,6 +367,9 @@ export default async function handler(req: any, res: any) {
     let formMessage: string | null = null;
     let redirectMode = false;
     let redirectMessage: string | null = null;
+    let organizedTitle: string | null = null;
+    let organizedSubtitle: string | null = null;
+    let categoryTranslations: Record<string, string> = {};
 
     // Mantém o comportamento anterior: com Internacional ligado, benefícios
     // brasileiros nunca vazam para um país estrangeiro sem regra própria.
@@ -424,6 +428,15 @@ export default async function handler(req: any, res: any) {
       redirectMessage = redirectMode
         ? (String(countryRule.redirectMessage || '').trim().slice(0, 1200) || null)
         : null;
+      organizedTitle = String(countryRule.organizedTitle || '').trim().slice(0, 160) || null;
+      organizedSubtitle = String(countryRule.organizedSubtitle || '').trim().slice(0, 300) || null;
+      if (countryRule.categoryTranslations && typeof countryRule.categoryTranslations === 'object') {
+        categoryTranslations = Object.fromEntries(
+          Object.entries(countryRule.categoryTranslations)
+            .map(([key, value]) => [String(key).slice(0, 60), String(value || '').trim().slice(0, 80)] as const)
+            .filter(([, value]) => Boolean(value))
+        );
+      }
       if (destination === 'form' && !String(countryRule.ctaText || '').trim()) {
         publicCtaText = getBestSellerUiText(uiLocale).formOpenCta;
       }
@@ -432,6 +445,7 @@ export default async function handler(req: any, res: any) {
       const customUrl = isSafeUrl(countryRule.customUrl) ? String(countryRule.customUrl).trim() : null;
 
       formattedProducts = formattedProducts.map((product) => {
+        const stableCategoryKey = product.autoCategoryKey || detectBestSellerCategoryKey(product);
         const translation: any = translations[product.id] || {};
         const converted = (value: number | null | undefined) => value === null || value === undefined ? value : Math.round(value * safeRate * 100) / 100;
         const has = (key: string) => Object.prototype.hasOwnProperty.call(translation, key);
@@ -463,6 +477,7 @@ export default async function handler(req: any, res: any) {
 
         return {
           ...product,
+          autoCategoryKey: stableCategoryKey,
           name: String(translation.name || product.name).trim() || product.name,
           category: translatedVideoDescription,
           description: product.itemType === 'video' ? product.description : translatedDescription,
@@ -485,9 +500,9 @@ export default async function handler(req: any, res: any) {
     // Produtos da área Redirecionar nunca aparecem na experiência brasileira/normal.
     // Quando o mercado ativa o redirecionamento, ocorre o inverso: apenas esses
     // produtos são exibidos e a página entra em modo limpo.
-    formattedProducts = formattedProducts.filter((product) =>
-      redirectMode ? product.displayGroup === 'redirect' : product.displayGroup !== 'redirect'
-    );
+    formattedProducts = formattedProducts
+      .map((product) => ({ ...product, autoCategoryKey: product.autoCategoryKey || detectBestSellerCategoryKey(product) }))
+      .filter((product) => redirectMode ? product.displayGroup === 'redirect' : product.displayGroup !== 'redirect');
 
     if (!showBenefits || redirectMode) {
       formattedProducts = formattedProducts.filter((product) => product.itemType !== 'benefits');
@@ -501,6 +516,11 @@ export default async function handler(req: any, res: any) {
       subtitle: redirectMode ? null : publicSubtitle,
       ctaText: publicCtaText,
       footerCtaEnabled: redirectMode ? false : Boolean(footerCtaEnabled && showFooterCta && footerCtaText && footerCtaUrl),
+      experienceMode: activeList.experience_mode === 'organized' ? 'organized' : 'traditional',
+      organizedIntroCount: Math.min(12, Math.max(1, Number(activeList.organized_intro_count) || 3)),
+      organizedTitle: organizedTitle || getBestSellerUiText(uiLocale).organizedTitle,
+      organizedSubtitle: organizedSubtitle || getBestSellerUiText(uiLocale).organizedSubtitle,
+      categoryTranslations,
       footerCtaText,
       footerCtaUrl,
       showDate: redirectMode ? false : activeList.show_date !== false,

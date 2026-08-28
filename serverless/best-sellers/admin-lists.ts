@@ -212,6 +212,8 @@ export default async function handler(req: any, res: any) {
           footerCtaEnabled: Boolean(listData.footer_cta_enabled),
           footerCtaText: listData.footer_cta_text || null,
           footerCtaUrl: listData.footer_cta_url || null,
+          experienceMode: listData.experience_mode === 'organized' ? 'organized' : 'traditional',
+          organizedIntroCount: Math.min(12, Math.max(1, Number(listData.organized_intro_count) || 3)),
           showDate: listData.show_date !== false,
           showRanking: listData.show_ranking !== false,
           rankColor: listData.rank_color || '#FFFFFF',
@@ -301,6 +303,8 @@ export default async function handler(req: any, res: any) {
           footerCtaEnabled: Boolean(row.footer_cta_enabled),
           footerCtaText: row.footer_cta_text || null,
           footerCtaUrl: row.footer_cta_url || null,
+          experienceMode: row.experience_mode === 'organized' ? 'organized' : 'traditional',
+          organizedIntroCount: Math.min(12, Math.max(1, Number(row.organized_intro_count) || 3)),
           showDate: row.show_date !== false,
           showRanking: row.show_ranking !== false,
           rankColor: row.rank_color || '#FFFFFF',
@@ -399,6 +403,8 @@ export default async function handler(req: any, res: any) {
             footer_cta_enabled: Boolean(srcList.footer_cta_enabled),
             footer_cta_text: srcList.footer_cta_text || null,
             footer_cta_url: srcList.footer_cta_url || null,
+            experience_mode: srcList.experience_mode === 'organized' ? 'organized' : 'traditional',
+            organized_intro_count: Math.min(12, Math.max(1, Number(srcList.organized_intro_count) || 3)),
             show_date: srcList.show_date !== false,
             show_ranking: srcList.show_ranking !== false,
             rank_color: srcList.rank_color || '#FFFFFF',
@@ -491,6 +497,8 @@ export default async function handler(req: any, res: any) {
           footerCtaEnabled: Boolean(newListData.footer_cta_enabled),
           footerCtaText: newListData.footer_cta_text || null,
           footerCtaUrl: newListData.footer_cta_url || null,
+          experienceMode: newListData.experience_mode === 'organized' ? 'organized' : 'traditional',
+          organizedIntroCount: Math.min(12, Math.max(1, Number(newListData.organized_intro_count) || 3)),
           showDate: newListData.show_date !== false,
           showRanking: newListData.show_ranking !== false,
           rankColor: newListData.rank_color || '#FFFFFF',
@@ -540,6 +548,8 @@ export default async function handler(req: any, res: any) {
       const footerCtaEnabled = Boolean(body.footerCtaEnabled);
       const footerCtaText = footerCtaEnabled && body.footerCtaText ? String(body.footerCtaText).trim().slice(0, 80) : null;
       const footerCtaUrl = footerCtaEnabled && body.footerCtaUrl ? String(body.footerCtaUrl).trim().slice(0, 2000) : null;
+      const experienceMode = body.experienceMode === 'organized' ? 'organized' : 'traditional';
+      const organizedIntroCount = Math.min(12, Math.max(1, Math.round(Number(body.organizedIntroCount) || 3)));
       const showDate = body.showDate !== false;
       const showRanking = body.showRanking !== false;
       const rankColor = normalizeHexColor(body.rankColor);
@@ -625,6 +635,8 @@ export default async function handler(req: any, res: any) {
           footer_cta_enabled: footerCtaEnabled,
           footer_cta_text: footerCtaText,
           footer_cta_url: footerCtaUrl,
+          experience_mode: experienceMode,
+          organized_intro_count: organizedIntroCount,
           show_date: showDate,
           show_ranking: showRanking,
           rank_color: rankColor,
@@ -679,6 +691,8 @@ export default async function handler(req: any, res: any) {
         footerCtaEnabled: Boolean(data.footer_cta_enabled),
         footerCtaText: data.footer_cta_text || null,
         footerCtaUrl: data.footer_cta_url || null,
+        experienceMode: data.experience_mode === 'organized' ? 'organized' : 'traditional',
+        organizedIntroCount: Math.min(12, Math.max(1, Number(data.organized_intro_count) || 3)),
         showDate: data.show_date !== false,
         showRanking: data.show_ranking !== false,
         rankColor: data.rank_color || '#FFFFFF',
@@ -773,6 +787,8 @@ export default async function handler(req: any, res: any) {
           return res.status(400).json({ success: false, message: 'Preencha o texto e o link do botão final da página.' });
         }
       }
+      if (body.experienceMode !== undefined) updates.experience_mode = body.experienceMode === 'organized' ? 'organized' : 'traditional';
+      if (body.organizedIntroCount !== undefined) updates.organized_intro_count = Math.min(12, Math.max(1, Math.round(Number(body.organizedIntroCount) || 3)));
       if (body.showDate !== undefined) updates.show_date = Boolean(body.showDate);
       if (body.showRanking !== undefined) updates.show_ranking = Boolean(body.showRanking);
       if (body.rankColor !== undefined) updates.rank_color = normalizeHexColor(body.rankColor);
@@ -910,6 +926,19 @@ export default async function handler(req: any, res: any) {
         }
       }
 
+      if (body.applyTimerColorToAll === true) {
+        const timerColorForAll = normalizeHexColor(body.timerColorForAll || '#FFFFFF');
+        const { error: timerColorApplyError } = await supabase
+          .from('best_seller_products')
+          .update({ timer_color: timerColorForAll, updated_at: new Date().toISOString() })
+          .eq('list_id', id);
+
+        if (timerColorApplyError) {
+          console.warn('[Admin BestSellers API] Não foi possível aplicar a cor a todos os timers dos produtos:', timerColorApplyError.message);
+          return res.status(500).json({ success: false, error: 'DATABASE_ERROR', message: 'A Vitrine foi salva, mas não foi possível aplicar a cor em todos os timers dos produtos.' });
+        }
+      }
+
       if (body.applyTimerToAll === true) {
         const timerUpdates = data.timer_enabled
           ? {
@@ -948,6 +977,8 @@ export default async function handler(req: any, res: any) {
         footerCtaEnabled: Boolean(data.footer_cta_enabled),
         footerCtaText: data.footer_cta_text || null,
         footerCtaUrl: data.footer_cta_url || null,
+        experienceMode: data.experience_mode === 'organized' ? 'organized' : 'traditional',
+        organizedIntroCount: Math.min(12, Math.max(1, Number(data.organized_intro_count) || 3)),
         showDate: data.show_date !== false,
         showRanking: data.show_ranking !== false,
         rankColor: data.rank_color || '#FFFFFF',

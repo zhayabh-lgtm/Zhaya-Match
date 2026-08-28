@@ -16,6 +16,8 @@ CREATE TABLE IF NOT EXISTS public.best_seller_lists (
   footer_cta_enabled BOOLEAN NOT NULL DEFAULT false,
   footer_cta_text TEXT,
   footer_cta_url TEXT,
+  experience_mode TEXT NOT NULL DEFAULT 'traditional',
+  organized_intro_count INTEGER NOT NULL DEFAULT 3,
   show_date BOOLEAN NOT NULL DEFAULT true,
   show_ranking BOOLEAN NOT NULL DEFAULT true,
   rank_color TEXT NOT NULL DEFAULT '#FFFFFF',
@@ -83,6 +85,8 @@ ALTER TABLE public.best_seller_lists ADD COLUMN IF NOT EXISTS cta_text TEXT;
 ALTER TABLE public.best_seller_lists ADD COLUMN IF NOT EXISTS footer_cta_enabled BOOLEAN NOT NULL DEFAULT false;
 ALTER TABLE public.best_seller_lists ADD COLUMN IF NOT EXISTS footer_cta_text TEXT;
 ALTER TABLE public.best_seller_lists ADD COLUMN IF NOT EXISTS footer_cta_url TEXT;
+ALTER TABLE public.best_seller_lists ADD COLUMN IF NOT EXISTS experience_mode TEXT NOT NULL DEFAULT 'traditional';
+ALTER TABLE public.best_seller_lists ADD COLUMN IF NOT EXISTS organized_intro_count INTEGER NOT NULL DEFAULT 3;
 ALTER TABLE public.best_seller_lists ADD COLUMN IF NOT EXISTS show_date BOOLEAN NOT NULL DEFAULT true;
 ALTER TABLE public.best_seller_lists ADD COLUMN IF NOT EXISTS show_ranking BOOLEAN NOT NULL DEFAULT true;
 ALTER TABLE public.best_seller_lists ADD COLUMN IF NOT EXISTS rank_color TEXT NOT NULL DEFAULT '#FFFFFF';

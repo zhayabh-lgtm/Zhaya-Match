@@ -470,6 +470,7 @@ export interface PublicBestSellerMediaItem {
 
 
 export type BestSellerButtonDestination = 'product' | 'whatsapp' | 'custom' | 'form';
+export type BestSellerExperienceMode = 'traditional' | 'organized';
 
 export interface BestSellerInternationalProductTranslation {
   /** Conteúdo editorial digitado manualmente no painel. */
@@ -512,6 +513,10 @@ export interface BestSellerInternationalCountryRule {
   redirectProducts?: boolean;
   /** Mensagem editorial exibida acima da seleção alternativa internacional. */
   redirectMessage?: string | null;
+  /** Overrides do novo modo Imersiva organizada. Vazios usam tradução automática da interface. */
+  organizedTitle?: string | null;
+  organizedSubtitle?: string | null;
+  categoryTranslations?: Record<string, string>;
   /** Controles de exibição específicos por mercado. */
   showPrices?: boolean;
   showInstallments?: boolean;
@@ -555,6 +560,10 @@ export interface BestSellerList {
   ctaText?: string | null;
   /** Botão opcional exibido depois de todo o conteúdo da vitrine. */
   footerCtaEnabled?: boolean;
+  /** Experiência dos produtos. Traditional preserva o comportamento histórico. */
+  experienceMode?: BestSellerExperienceMode;
+  /** Quantos produtos imersivos aparecem antes do seletor automático de categorias. */
+  organizedIntroCount?: number;
   footerCtaText?: string | null;
   footerCtaUrl?: string | null;
   showDate?: boolean;
@@ -581,6 +590,10 @@ export interface BestSellerList {
   giftImageSize?: number;
   /** Admin-only action flag; not persisted on the list row. */
   applyTimerToAll?: boolean;
+  /** Admin-only: aplica uma única cor a todos os timers individuais da vitrine. */
+  applyTimerColorToAll?: boolean;
+  /** Cor usada pela ação em massa acima; não é persistida na linha da vitrine. */
+  timerColorForAll?: string;
   /** Habilita os controles de sessão de live para esta vitrine. */
   liveEnabled?: boolean;
   /** Configuração internacional manual por país. */
@@ -694,6 +707,8 @@ export interface PublicBestSellerProduct {
   id: string;
   itemType?: 'product' | 'video' | 'benefits';
   displayGroup?: 'main' | 'redirect';
+  /** Categoria semântica calculada a partir do produto original; permanece estável mesmo após traduzir o nome. */
+  autoCategoryKey?: string;
   position: number;
   name: string;
   category: string;
@@ -841,6 +856,12 @@ export interface PublicBestSellerList {
   subtitle?: string | null;
   ctaText?: string | null;
   footerCtaEnabled?: boolean;
+  experienceMode?: BestSellerExperienceMode;
+  organizedIntroCount?: number;
+  /** Textos resolvidos do modo organizado para o mercado atual. */
+  organizedTitle?: string | null;
+  organizedSubtitle?: string | null;
+  categoryTranslations?: Record<string, string>;
   footerCtaText?: string | null;
   footerCtaUrl?: string | null;
   showDate?: boolean;

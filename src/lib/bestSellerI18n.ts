@@ -53,6 +53,12 @@ export interface BestSellerUiText {
   formRequired: string;
   formInvalidEmail: string;
   formClose: string;
+  organizedTitle: string;
+  organizedSubtitle: string;
+  organizedAll: string;
+  organizedProducts: string;
+  organizedContinue: string;
+  organizedBack: string;
 }
 
 
@@ -73,7 +79,15 @@ type BestSellerFormUiTextKeys =
   | 'formInvalidEmail'
   | 'formClose';
 
-type BestSellerBaseUiText = Omit<BestSellerUiText, BestSellerFormUiTextKeys>;
+type BestSellerOrganizedUiTextKeys =
+  | 'organizedTitle'
+  | 'organizedSubtitle'
+  | 'organizedAll'
+  | 'organizedProducts'
+  | 'organizedContinue'
+  | 'organizedBack';
+
+type BestSellerBaseUiText = Omit<BestSellerUiText, BestSellerFormUiTextKeys | BestSellerOrganizedUiTextKeys>;
 
 const PACKS: Record<string, BestSellerBaseUiText> = {
   pt: {
@@ -357,6 +371,36 @@ const FORM_PACKS: Record<string, Pick<BestSellerUiText, BestSellerFormUiTextKeys
   },
 };
 
+
+
+type BestSellerOrganizedUiText = Pick<BestSellerUiText, BestSellerOrganizedUiTextKeys>;
+
+const ORGANIZED_PACKS: Record<string, BestSellerOrganizedUiText> = {
+  pt: { organizedTitle: 'O que você quer encontrar?', organizedSubtitle: 'Explore esta seleção por categoria.', organizedAll: 'Ver tudo', organizedProducts: '{count} produtos', organizedContinue: 'Continuar explorando', organizedBack: 'Trocar categoria' },
+  en: { organizedTitle: 'What are you looking for?', organizedSubtitle: 'Explore this selection by category.', organizedAll: 'View all', organizedProducts: '{count} products', organizedContinue: 'Keep exploring', organizedBack: 'Change category' },
+  es: { organizedTitle: '¿Qué estás buscando?', organizedSubtitle: 'Explora esta selección por categoría.', organizedAll: 'Ver todo', organizedProducts: '{count} productos', organizedContinue: 'Seguir explorando', organizedBack: 'Cambiar categoría' },
+  de: { organizedTitle: 'Wonach suchen Sie?', organizedSubtitle: 'Entdecken Sie diese Auswahl nach Kategorie.', organizedAll: 'Alle anzeigen', organizedProducts: '{count} Produkte', organizedContinue: 'Weiter entdecken', organizedBack: 'Kategorie wechseln' },
+  ar: { organizedTitle: 'ما الذي تبحث عنه؟', organizedSubtitle: 'استكشف هذه التشكيلة حسب الفئة.', organizedAll: 'عرض الكل', organizedProducts: '{count} منتجات', organizedContinue: 'متابعة الاستكشاف', organizedBack: 'تغيير الفئة' },
+  fr: { organizedTitle: 'Que recherchez-vous ?', organizedSubtitle: 'Explorez cette sélection par catégorie.', organizedAll: 'Tout voir', organizedProducts: '{count} produits', organizedContinue: 'Continuer à explorer', organizedBack: 'Changer de catégorie' },
+  'zh-Hans': { organizedTitle: '您想找什么？', organizedSubtitle: '按类别浏览本次精选。', organizedAll: '查看全部', organizedProducts: '{count} 件商品', organizedContinue: '继续浏览', organizedBack: '更换类别' },
+  'zh-Hant': { organizedTitle: '您想找什麼？', organizedSubtitle: '按類別瀏覽本次精選。', organizedAll: '查看全部', organizedProducts: '{count} 件商品', organizedContinue: '繼續瀏覽', organizedBack: '更換類別' },
+  ko: { organizedTitle: '무엇을 찾고 계신가요?', organizedSubtitle: '카테고리별로 셀렉션을 둘러보세요.', organizedAll: '전체 보기', organizedProducts: '상품 {count}개', organizedContinue: '계속 둘러보기', organizedBack: '카테고리 변경' },
+  da: { organizedTitle: 'Hvad leder du efter?', organizedSubtitle: 'Udforsk udvalget efter kategori.', organizedAll: 'Se alle', organizedProducts: '{count} produkter', organizedContinue: 'Fortsæt med at udforske', organizedBack: 'Skift kategori' },
+  fi: { organizedTitle: 'Mitä etsit?', organizedSubtitle: 'Tutustu valikoimaan kategorioittain.', organizedAll: 'Näytä kaikki', organizedProducts: '{count} tuotetta', organizedContinue: 'Jatka selaamista', organizedBack: 'Vaihda kategoriaa' },
+  hi: { organizedTitle: 'आप क्या ढूँढ रहे हैं?', organizedSubtitle: 'इस चयन को श्रेणी के अनुसार देखें।', organizedAll: 'सभी देखें', organizedProducts: '{count} उत्पाद', organizedContinue: 'और देखें', organizedBack: 'श्रेणी बदलें' },
+  nl: { organizedTitle: 'Waar ben je naar op zoek?', organizedSubtitle: 'Ontdek deze selectie per categorie.', organizedAll: 'Alles bekijken', organizedProducts: '{count} producten', organizedContinue: 'Verder ontdekken', organizedBack: 'Categorie wijzigen' },
+  id: { organizedTitle: 'Apa yang Anda cari?', organizedSubtitle: 'Jelajahi pilihan ini berdasarkan kategori.', organizedAll: 'Lihat semua', organizedProducts: '{count} produk', organizedContinue: 'Lanjut jelajahi', organizedBack: 'Ganti kategori' },
+  it: { organizedTitle: 'Cosa stai cercando?', organizedSubtitle: 'Esplora questa selezione per categoria.', organizedAll: 'Vedi tutto', organizedProducts: '{count} prodotti', organizedContinue: 'Continua a esplorare', organizedBack: 'Cambia categoria' },
+  ja: { organizedTitle: '何をお探しですか？', organizedSubtitle: 'カテゴリーからセレクションをご覧ください。', organizedAll: 'すべて見る', organizedProducts: '{count} 商品', organizedContinue: 'さらに見る', organizedBack: 'カテゴリーを変更' },
+  ms: { organizedTitle: 'Apa yang anda cari?', organizedSubtitle: 'Terokai pilihan ini mengikut kategori.', organizedAll: 'Lihat semua', organizedProducts: '{count} produk', organizedContinue: 'Terus meneroka', organizedBack: 'Tukar kategori' },
+  no: { organizedTitle: 'Hva leter du etter?', organizedSubtitle: 'Utforsk utvalget etter kategori.', organizedAll: 'Se alle', organizedProducts: '{count} produkter', organizedContinue: 'Fortsett å utforske', organizedBack: 'Bytt kategori' },
+  pl: { organizedTitle: 'Czego szukasz?', organizedSubtitle: 'Przeglądaj tę selekcję według kategorii.', organizedAll: 'Zobacz wszystko', organizedProducts: '{count} produktów', organizedContinue: 'Przeglądaj dalej', organizedBack: 'Zmień kategorię' },
+  sv: { organizedTitle: 'Vad letar du efter?', organizedSubtitle: 'Utforska urvalet efter kategori.', organizedAll: 'Visa alla', organizedProducts: '{count} produkter', organizedContinue: 'Fortsätt utforska', organizedBack: 'Byt kategori' },
+  th: { organizedTitle: 'คุณกำลังมองหาอะไร?', organizedSubtitle: 'เลือกดูสินค้าตามหมวดหมู่', organizedAll: 'ดูทั้งหมด', organizedProducts: '{count} สินค้า', organizedContinue: 'เลือกดูต่อ', organizedBack: 'เปลี่ยนหมวดหมู่' },
+  tr: { organizedTitle: 'Ne arıyorsunuz?', organizedSubtitle: 'Bu seçkiyi kategoriye göre keşfedin.', organizedAll: 'Tümünü gör', organizedProducts: '{count} ürün', organizedContinue: 'Keşfetmeye devam et', organizedBack: 'Kategoriyi değiştir' },
+  vi: { organizedTitle: 'Bạn đang tìm gì?', organizedSubtitle: 'Khám phá bộ sưu tập theo danh mục.', organizedAll: 'Xem tất cả', organizedProducts: '{count} sản phẩm', organizedContinue: 'Tiếp tục khám phá', organizedBack: 'Đổi danh mục' },
+};
+
 export function resolveBestSellerUiLocale(locale?: string | null): string {
   const raw = String(locale || '').trim().replace('_', '-');
   if (!raw) return 'pt';
@@ -370,7 +414,8 @@ export function getBestSellerUiText(locale?: string | null): BestSellerUiText {
   const resolved = resolveBestSellerUiLocale(locale);
   const base = PACKS[resolved] || PACKS.en;
   const form = FORM_PACKS[resolved] || FORM_PACKS.en;
-  return { ...base, ...form };
+  const organized = ORGANIZED_PACKS[resolved] || ORGANIZED_PACKS.en;
+  return { ...base, ...form, ...organized };
 }
 
 export function formatBestSellerUiText(template: string, values: Record<string, string | number>): string {

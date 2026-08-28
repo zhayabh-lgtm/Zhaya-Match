@@ -53,6 +53,8 @@ import { Repository } from '../../lib/repository';
 import { getReadableTextColor } from '../../lib/contrast';
 import { supabase, isSupabaseConfigured } from '../../lib/supabase';
 import { uploadFileToCloudinary } from '../../lib/cloudinaryMedia';
+import { getBestSellerUiText } from '../../lib/bestSellerI18n';
+import { BEST_SELLER_CATEGORY_KEYS, detectBestSellerCategoryKey, getBestSellerCategoryBaseLabel, getBestSellerCategoryLabel } from '../../lib/bestSellerCategories';
 import { CloudinaryMediaPicker } from '../../components/admin/CloudinaryMediaPicker';
 import type { BestSellerList, BestSellerProduct, BestSellerMediaItem, BestSellerLibraryProduct, BestSellerGiftPreset, BestSellerAnalyticsSummary, BestSellerAnalyticsHourItem, BestSellerOverallHoursSummary, BestSellerLiveSession, BestSellerInternationalConfig, BestSellerInternationalCountryRule, BestSellerInternationalProductTranslation } from '../../types/zhaya';
 
@@ -74,6 +76,8 @@ CREATE TABLE IF NOT EXISTS public.best_seller_lists (
   footer_cta_enabled BOOLEAN NOT NULL DEFAULT false,
   footer_cta_text TEXT,
   footer_cta_url TEXT,
+  experience_mode TEXT NOT NULL DEFAULT 'traditional',
+  organized_intro_count INTEGER NOT NULL DEFAULT 3,
   show_date BOOLEAN NOT NULL DEFAULT true,
   show_ranking BOOLEAN NOT NULL DEFAULT true,
   rank_color TEXT NOT NULL DEFAULT '#FFFFFF',
@@ -141,6 +145,8 @@ ALTER TABLE public.best_seller_lists ADD COLUMN IF NOT EXISTS cta_text TEXT;
 ALTER TABLE public.best_seller_lists ADD COLUMN IF NOT EXISTS footer_cta_enabled BOOLEAN NOT NULL DEFAULT false;
 ALTER TABLE public.best_seller_lists ADD COLUMN IF NOT EXISTS footer_cta_text TEXT;
 ALTER TABLE public.best_seller_lists ADD COLUMN IF NOT EXISTS footer_cta_url TEXT;
+ALTER TABLE public.best_seller_lists ADD COLUMN IF NOT EXISTS experience_mode TEXT NOT NULL DEFAULT 'traditional';
+ALTER TABLE public.best_seller_lists ADD COLUMN IF NOT EXISTS organized_intro_count INTEGER NOT NULL DEFAULT 3;
 ALTER TABLE public.best_seller_lists ADD COLUMN IF NOT EXISTS show_date BOOLEAN NOT NULL DEFAULT true;
 ALTER TABLE public.best_seller_lists ADD COLUMN IF NOT EXISTS show_ranking BOOLEAN NOT NULL DEFAULT true;
 ALTER TABLE public.best_seller_lists ADD COLUMN IF NOT EXISTS rank_color TEXT NOT NULL DEFAULT '#FFFFFF';
@@ -938,6 +944,7 @@ export const MaisVendidos: React.FC = () => {
   const [loadingProducts, setLoadingProducts] = useState<boolean>(false);
   const [listAnalytics, setListAnalytics] = useState<BestSellerAnalyticsSummary | null>(null);
   const [analyticsLoading, setAnalyticsLoading] = useState<boolean>(false);
+  const [analyticsProductsExpanded, setAnalyticsProductsExpanded] = useState<boolean>(false);
   const [overallHours, setOverallHours] = useState<BestSellerOverallHoursSummary | null>(null);
   const [overallHoursLoading, setOverallHoursLoading] = useState<boolean>(false);
   const [liveSession, setLiveSession] = useState<BestSellerLiveSession | null>(null);
@@ -955,6 +962,9 @@ export const MaisVendidos: React.FC = () => {
   const [internationalSaving, setInternationalSaving] = useState<boolean>(false);
   const [internationalError, setInternationalError] = useState<string | null>(null);
   const [internationalCountryToAdd, setInternationalCountryToAdd] = useState<string>('US');
+  const [internationalJsonMessage, setInternationalJsonMessage] = useState<string | null>(null);
+  const [internationalJsonRuleIndex, setInternationalJsonRuleIndex] = useState<number | null>(null);
+  const internationalJsonFileInputRef = useRef<HTMLInputElement>(null);
 
   // Biblioteca reutilizável: guarda dados, imagens e vídeos para novas vitrines.
   const [isLibraryModalOpen, setIsLibraryModalOpen] = useState<boolean>(false);
@@ -981,6 +991,8 @@ export const MaisVendidos: React.FC = () => {
   const [listFormFooterCtaEnabled, setListFormFooterCtaEnabled] = useState<boolean>(false);
   const [listFormFooterCtaText, setListFormFooterCtaText] = useState('');
   const [listFormFooterCtaUrl, setListFormFooterCtaUrl] = useState('');
+  const [listFormExperienceMode, setListFormExperienceMode] = useState<'traditional' | 'organized'>('traditional');
+  const [listFormOrganizedIntroCount, setListFormOrganizedIntroCount] = useState('3');
   const [listFormShowDate, setListFormShowDate] = useState<boolean>(true);
   const [listFormShowRanking, setListFormShowRanking] = useState<boolean>(true);
   const [listFormRankColor, setListFormRankColor] = useState('#FFFFFF');
@@ -1015,6 +1027,8 @@ export const MaisVendidos: React.FC = () => {
   const [listFormTimerDate, setListFormTimerDate] = useState('');
   const [listFormTimerTime, setListFormTimerTime] = useState('23:59');
   const [listFormApplyTimerToAll, setListFormApplyTimerToAll] = useState<boolean>(false);
+  const [listFormTimerColorForAll, setListFormTimerColorForAll] = useState('#FFFFFF');
+  const [listFormApplyTimerColorToAll, setListFormApplyTimerColorToAll] = useState<boolean>(false);
   const [savingList, setSavingList] = useState<boolean>(false);
   const [listError, setListError] = useState<string | null>(null);
 
@@ -1398,6 +1412,8 @@ export const MaisVendidos: React.FC = () => {
     setListFormFooterCtaEnabled(false);
     setListFormFooterCtaText('');
     setListFormFooterCtaUrl('');
+    setListFormExperienceMode('traditional');
+    setListFormOrganizedIntroCount('3');
     setListFormShowDate(true);
     setListFormShowRanking(true);
     setListFormRankColor('#FFFFFF');
@@ -1429,6 +1445,8 @@ export const MaisVendidos: React.FC = () => {
     setListFormTimerDate(today);
     setListFormTimerTime('23:59');
     setListFormApplyTimerToAll(false);
+    setListFormTimerColorForAll('#FFFFFF');
+    setListFormApplyTimerColorToAll(false);
     setListError(null);
     setGiftPresetMessage(null);
     setLogoUploadError(null);
@@ -1448,6 +1466,8 @@ export const MaisVendidos: React.FC = () => {
     setListFormFooterCtaEnabled(Boolean(list.footerCtaEnabled));
     setListFormFooterCtaText(list.footerCtaText || '');
     setListFormFooterCtaUrl(list.footerCtaUrl || '');
+    setListFormExperienceMode(list.experienceMode === 'organized' ? 'organized' : 'traditional');
+    setListFormOrganizedIntroCount(String(list.organizedIntroCount || 3));
     setListFormShowDate(list.showDate !== false);
     setListFormShowRanking(list.showRanking !== false);
     setListFormRankColor(list.rankColor || '#FFFFFF');
@@ -1477,6 +1497,10 @@ export const MaisVendidos: React.FC = () => {
     setListFormTimerDurationHours(String(Math.floor(storedDuration / 60)));
     setListFormTimerDurationMinutes(String(storedDuration % 60));
     setListFormApplyTimerToAll(false);
+    const timerColorSource = (list.products?.length ? list.products : (selectedList?.id === list.id ? selectedList.products : [])) || [];
+    const timerColors = Array.from(new Set(timerColorSource.map((product) => (product.timerColor || '#FFFFFF').toUpperCase())));
+    setListFormTimerColorForAll(timerColors.length === 1 ? timerColors[0] : '#FFFFFF');
+    setListFormApplyTimerColorToAll(false);
     setLogoUploadError(null);
     setLogoInputMode(list.logoUrl ? 'url' : 'upload');
     if (list.timerEnd) {
@@ -2117,6 +2141,8 @@ export const MaisVendidos: React.FC = () => {
           footerCtaEnabled: listFormFooterCtaEnabled,
           footerCtaText: listFormFooterCtaEnabled ? listFormFooterCtaText.trim() || null : null,
           footerCtaUrl: listFormFooterCtaEnabled ? listFormFooterCtaUrl.trim() || null : null,
+          experienceMode: listFormExperienceMode,
+          organizedIntroCount: Math.min(12, Math.max(1, Math.round(Number(listFormOrganizedIntroCount) || 3))),
           showDate: listFormShowDate,
           showRanking: listFormShowRanking,
           rankColor: listFormRankColor || '#FFFFFF',
@@ -2144,6 +2170,8 @@ export const MaisVendidos: React.FC = () => {
           timerLooping: listFormTimerEnabled && listFormTimerLooping,
           timerDurationMinutes: listFormTimerEnabled && listFormTimerLooping ? timerDurationMinutesValue : null,
           applyTimerToAll: editingList ? listFormApplyTimerToAll : false,
+          applyTimerColorToAll: editingList ? listFormApplyTimerColorToAll : false,
+          timerColorForAll: listFormTimerColorForAll || '#FFFFFF',
           liveEnabled: true,
         });
 
@@ -2165,6 +2193,8 @@ export const MaisVendidos: React.FC = () => {
           footerCtaEnabled: listFormFooterCtaEnabled,
           footerCtaText: listFormFooterCtaEnabled ? listFormFooterCtaText.trim() || null : null,
           footerCtaUrl: listFormFooterCtaEnabled ? listFormFooterCtaUrl.trim() || null : null,
+          experienceMode: listFormExperienceMode,
+          organizedIntroCount: Math.min(12, Math.max(1, Math.round(Number(listFormOrganizedIntroCount) || 3))),
           showDate: listFormShowDate,
           showRanking: listFormShowRanking,
           rankColor: listFormRankColor || '#FFFFFF',
@@ -2234,6 +2264,7 @@ export const MaisVendidos: React.FC = () => {
 
   // Open List to manage products
   const handleSelectList = async (list: BestSellerList) => {
+    setAnalyticsProductsExpanded(false);
     setSelectedList(list);
     await loadProducts(list.id);
   };
@@ -2552,7 +2583,7 @@ export const MaisVendidos: React.FC = () => {
       itemType: 'product' as const,
       displayGroup: bulkJsonDisplayGroup,
       name: String(product.name || '').trim(),
-      description: null,
+      description: String(product.description || product.shortDescription || '').trim().slice(0, 220) || null,
       imageUrl: images[0] || null,
       imageUrls: images,
       mediaItems: media,
@@ -2696,6 +2727,7 @@ export const MaisVendidos: React.FC = () => {
       const discount = Number(product.discountPercent || 0);
 
       setProdFormName(String(product.name || '').trim());
+      setProdFormDescription(String(product.description || product.shortDescription || '').trim().slice(0, 220));
       setProdFormProductUrl(String(product.productUrl || source.pageUrl || '').trim());
       setProdFormMediaItems(mediaItems);
       setProdFormImageUrls(mediaItems.filter((item) => item.type === 'image').map((item) => item.url));
@@ -3266,6 +3298,7 @@ export const MaisVendidos: React.FC = () => {
     const used = new Set(normalizedRules.map((rule) => String(rule.countryCode || '').toUpperCase()));
     setInternationalCountryToAdd(INTERNATIONAL_COUNTRY_PRESETS.find((country) => !used.has(country.code))?.code || 'US');
     setInternationalError(null);
+    setInternationalJsonMessage(null);
     setInternationalModalOpen(true);
   };
 
@@ -3290,6 +3323,9 @@ export const MaisVendidos: React.FC = () => {
       formMessage: '',
       redirectProducts: false,
       redirectMessage: '',
+      organizedTitle: '',
+      organizedSubtitle: '',
+      categoryTranslations: {},
       footerCtaText: '',
       footerCtaUrl: '',
       ...getInternationalVisibilityDefaults(preset.code),
@@ -3333,6 +3369,228 @@ export const MaisVendidos: React.FC = () => {
       else delete nextTranslations[productId];
       return { ...rule, productTranslations: nextTranslations };
     }));
+  };
+
+  const getAutomaticCategoryEntries = (locale = 'pt-BR') => {
+    const counts = new Map<string, number>();
+    products
+      .filter((product) => product.itemType !== 'video' && product.itemType !== 'benefits')
+      .forEach((product) => {
+        const key = detectBestSellerCategoryKey(product);
+        counts.set(key, (counts.get(key) || 0) + 1);
+      });
+    return BEST_SELLER_CATEGORY_KEYS
+      .filter((key) => (counts.get(key) || 0) > 0)
+      .map((key) => ({
+        key,
+        count: counts.get(key) || 0,
+        sourceLabel: getBestSellerCategoryBaseLabel(key),
+        automaticLabel: getBestSellerCategoryLabel(locale, key),
+      }));
+  };
+
+  const downloadJsonFile = (filename: string, payload: unknown) => {
+    const blob = new Blob([JSON.stringify(payload, null, 2)], { type: 'application/json;charset=utf-8' });
+    const url = URL.createObjectURL(blob);
+    const anchor = document.createElement('a');
+    anchor.href = url;
+    anchor.download = filename;
+    document.body.appendChild(anchor);
+    anchor.click();
+    anchor.remove();
+    URL.revokeObjectURL(url);
+  };
+
+  const handleExportInternationalTranslations = (ruleIndex: number) => {
+    if (!selectedList) return;
+    const rule = internationalRules[ruleIndex];
+    if (!rule) return;
+    const locale = normalizeInternationalLocale(rule.locale || 'en');
+    const sourceUi = getBestSellerUiText('pt-BR');
+    const targetUi = getBestSellerUiText(locale);
+    const preset = getInternationalCountryPreset(rule.countryCode);
+    const categories = getAutomaticCategoryEntries(locale);
+    const translations = rule.productTranslations || {};
+
+    const payload = {
+      schemaVersion: 'zhaya-match-translations@1',
+      instructions: 'Traduza apenas os campos dentro de translation. Não altere schemaVersion, country, product.id, product.type, product.displayGroup nem os campos source.',
+      listId: selectedList.id,
+      country: {
+        code: String(rule.countryCode || '').toUpperCase(),
+        name: preset?.name || rule.countryCode,
+        locale,
+      },
+      list: {
+        source: {
+          title: selectedList.title || '',
+          subtitle: selectedList.subtitle || '',
+          ctaText: selectedList.ctaText || sourceUi.defaultCta,
+          footerCtaText: selectedList.footerCtaText || '',
+          formTitle: sourceUi.formDefaultTitle,
+          formMessage: sourceUi.formDefaultMessage,
+          redirectMessage: rule.redirectProducts ? 'Infelizmente os produtos acima não possuem envio internacional. Explore abaixo os produtos disponíveis para o seu país.' : '',
+          organizedTitle: sourceUi.organizedTitle,
+          organizedSubtitle: sourceUi.organizedSubtitle,
+          approximateLabel: 'Conversão aproximada',
+          whatsappMessage: '',
+        },
+        translation: {
+          title: rule.title || '',
+          subtitle: rule.subtitle || '',
+          ctaText: rule.ctaText || '',
+          footerCtaText: rule.footerCtaText || '',
+          formTitle: rule.formTitle || targetUi.formDefaultTitle,
+          formMessage: rule.formMessage || targetUi.formDefaultMessage,
+          redirectMessage: rule.redirectMessage || '',
+          organizedTitle: rule.organizedTitle || targetUi.organizedTitle,
+          organizedSubtitle: rule.organizedSubtitle || targetUi.organizedSubtitle,
+          approximateLabel: rule.approximateLabel || targetUi.approximateConversion,
+          whatsappMessage: rule.whatsappMessage || '',
+        },
+      },
+      categories: categories.map((category) => ({
+        key: category.key,
+        count: category.count,
+        source: category.sourceLabel,
+        translation: rule.categoryTranslations?.[category.key] || category.automaticLabel,
+      })),
+      products: products.map((product) => {
+        const translated = translations[product.id] || {};
+        const sourceDescription = product.itemType === 'video'
+          ? (product.category && product.category.toLowerCase() !== 'vídeo' ? product.category : '')
+          : (product.description || product.category || '');
+        const effectiveBadgeText = product.badgeUseListDefault ? (selectedList.defaultBadgeText || '') : (product.badgeText || '');
+        const effectiveGiftLabel = product.giftMode === 'inherit' ? (selectedList.giftLabel || '') : (product.giftLabel || '');
+        const effectiveGiftTitle = product.giftMode === 'inherit' ? (selectedList.giftTitle || '') : (product.giftTitle || '');
+        return {
+          id: product.id,
+          type: product.itemType || 'product',
+          displayGroup: product.displayGroup === 'redirect' ? 'redirect' : 'main',
+          source: {
+            name: product.name || '',
+            description: sourceDescription,
+            videoTitle: product.videoTitle || '',
+            benefits: product.benefits || [],
+            badgeText: effectiveBadgeText,
+            giftLabel: effectiveGiftLabel,
+            giftTitle: effectiveGiftTitle,
+            colors: product.colors || [],
+            sizes: product.sizes || [],
+            outOfStockSizes: product.outOfStockSizes || [],
+          },
+          translation: {
+            name: translated.name || '',
+            description: translated.description || '',
+            videoTitle: translated.videoTitle || '',
+            benefits: translated.benefits || [],
+            badgeText: translated.badgeText || '',
+            giftLabel: translated.giftLabel || '',
+            giftTitle: translated.giftTitle || '',
+            colors: translated.colors || [],
+            sizes: translated.sizes || [],
+            outOfStockSizes: translated.outOfStockSizes || [],
+          },
+        };
+      }),
+    };
+
+    const safeCountry = String(rule.countryCode || 'INT').toUpperCase();
+    const safeSlug = String(selectedList.slug || selectedList.title || 'vitrine').toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 50) || 'vitrine';
+    downloadJsonFile(`zhaya-match-traducoes-${safeSlug}-${safeCountry}.json`, payload);
+    setInternationalJsonMessage(`JSON de ${safeCountry} exportado com ${products.length} item(ns) e ${categories.length} categoria(s).`);
+    setInternationalError(null);
+  };
+
+  const applyInternationalTranslationJson = (raw: string, ruleIndex: number) => {
+    const parsed = JSON.parse(raw);
+    if (parsed?.schemaVersion !== 'zhaya-match-translations@1') throw new Error('Formato inválido. Use um JSON de traduções exportado pelo Zhaya Match.');
+    const targetRule = internationalRules[ruleIndex];
+    if (!targetRule) throw new Error('País de destino não encontrado.');
+    const fileCountry = String(parsed?.country?.code || '').toUpperCase();
+    const targetCountry = String(targetRule.countryCode || '').toUpperCase();
+    if (fileCountry && fileCountry !== targetCountry) {
+      throw new Error(`Este arquivo foi exportado para ${fileCountry}, mas você está importando em ${targetCountry}.`);
+    }
+
+    const textOrNull = (value: unknown): string | null => {
+      const text = String(value ?? '').trim();
+      return text || null;
+    };
+    const listOfText = (value: unknown): string[] => Array.isArray(value)
+      ? value.map((item) => String(item ?? '').trim()).filter(Boolean).slice(0, 40)
+      : [];
+    const listTranslation = parsed?.list?.translation && typeof parsed.list.translation === 'object' ? parsed.list.translation : {};
+    const categories = Array.isArray(parsed?.categories) ? parsed.categories : [];
+    const productRows = Array.isArray(parsed?.products) ? parsed.products : [];
+    const validProductIds = new Set(products.map((product) => product.id));
+
+    setInternationalRules((current) => current.map((rule, index) => {
+      if (index !== ruleIndex) return rule;
+      const nextRule: BestSellerInternationalCountryRule = { ...rule };
+      const listFields: Array<keyof BestSellerInternationalCountryRule> = [
+        'title', 'subtitle', 'ctaText', 'footerCtaText', 'formTitle', 'formMessage', 'redirectMessage',
+        'organizedTitle', 'organizedSubtitle', 'approximateLabel', 'whatsappMessage',
+      ];
+      listFields.forEach((key) => {
+        if (Object.prototype.hasOwnProperty.call(listTranslation, key)) {
+          (nextRule as any)[key] = textOrNull(listTranslation[key]);
+        }
+      });
+
+      const nextCategories: Record<string, string> = { ...(rule.categoryTranslations || {}) };
+      categories.forEach((category: any) => {
+        const key = String(category?.key || '').trim();
+        if (!key) return;
+        const value = String(category?.translation ?? '').trim();
+        if (value) nextCategories[key] = value;
+        else delete nextCategories[key];
+      });
+      nextRule.categoryTranslations = nextCategories;
+
+      const nextProductTranslations: Record<string, BestSellerInternationalProductTranslation> = { ...(rule.productTranslations || {}) };
+      const allowedTextFields = ['name', 'description', 'videoTitle', 'badgeText', 'giftLabel', 'giftTitle'] as const;
+      const allowedListFields = ['benefits', 'colors', 'sizes', 'outOfStockSizes'] as const;
+      productRows.forEach((row: any) => {
+        const productId = String(row?.id || '');
+        if (!productId || !validProductIds.has(productId) || !row?.translation || typeof row.translation !== 'object') return;
+        const existing: BestSellerInternationalProductTranslation = { ...(nextProductTranslations[productId] || {}) };
+        allowedTextFields.forEach((key) => {
+          if (Object.prototype.hasOwnProperty.call(row.translation, key)) {
+            const value = textOrNull(row.translation[key]);
+            if (value === null) delete (existing as any)[key];
+            else (existing as any)[key] = value;
+          }
+        });
+        allowedListFields.forEach((key) => {
+          if (Object.prototype.hasOwnProperty.call(row.translation, key)) {
+            const value = listOfText(row.translation[key]);
+            if (value.length === 0) delete (existing as any)[key];
+            else (existing as any)[key] = value;
+          }
+        });
+        if (Object.keys(existing).length > 0) nextProductTranslations[productId] = existing;
+        else delete nextProductTranslations[productId];
+      });
+      nextRule.productTranslations = nextProductTranslations;
+      return nextRule;
+    }));
+
+    setInternationalJsonMessage(`Traduções importadas para ${targetCountry}: ${productRows.length} item(ns) processado(s). Revise e clique em “Salvar internacional”.`);
+    setInternationalError(null);
+  };
+
+  const handleInternationalTranslationFile = async (file: File | undefined) => {
+    if (!file || internationalJsonRuleIndex === null) return;
+    try {
+      const raw = await file.text();
+      applyInternationalTranslationJson(raw, internationalJsonRuleIndex);
+    } catch (error: any) {
+      setInternationalError(error?.message || 'Não foi possível importar o JSON de traduções.');
+    } finally {
+      setInternationalJsonRuleIndex(null);
+      if (internationalJsonFileInputRef.current) internationalJsonFileInputRef.current.value = '';
+    }
   };
 
   const changeInternationalRuleCountry = (index: number, countryCode: string) => {
@@ -4012,8 +4270,8 @@ export const MaisVendidos: React.FC = () => {
 
                   <div className="rounded-lg border border-neutral-200 p-3">
                     <div className="flex items-center gap-1.5 text-[10px] font-bold uppercase tracking-wider text-neutral-500 mb-2"><ShoppingBag className="w-3.5 h-3.5" /> Por produto</div>
-                    <div className="space-y-2">
-                      {listAnalytics.products.length > 0 ? listAnalytics.products.map((item) => (
+                    <div className={`space-y-2 ${analyticsProductsExpanded ? 'max-h-[420px] overflow-y-auto pr-1' : ''}`}>
+                      {listAnalytics.products.length > 0 ? listAnalytics.products.slice(0, analyticsProductsExpanded ? undefined : 8).map((item) => (
                         <div key={item.productId} className="text-[11px]">
                           <div className="font-semibold text-neutral-700 truncate" title={item.name}>{item.name}</div>
                           <div className="text-neutral-400 flex flex-wrap items-center gap-x-2 gap-y-0.5 mt-0.5">
@@ -4024,6 +4282,11 @@ export const MaisVendidos: React.FC = () => {
                           </div>
                         </div>
                       )) : <span className="text-[11px] text-neutral-400">Sem produtos.</span>}
+                      {listAnalytics.products.length > 8 && (
+                        <button type="button" onClick={() => setAnalyticsProductsExpanded((value) => !value)} className="w-full mt-2 py-1.5 rounded border border-neutral-200 bg-neutral-50 text-[9px] font-bold text-neutral-600 hover:bg-neutral-100 cursor-pointer">
+                          {analyticsProductsExpanded ? 'Mostrar menos' : `Ver todos os ${listAnalytics.products.length} produtos`}
+                        </button>
+                      )}
                     </div>
                   </div>
                   </div>
@@ -4746,6 +5009,34 @@ export const MaisVendidos: React.FC = () => {
               </div>
 
               <div className="space-y-3 rounded-lg bg-neutral-50 border border-neutral-200 p-3">
+                <div>
+                  <div className="font-semibold text-neutral-800">Experiência dos produtos</div>
+                  <p className="text-[10px] text-neutral-500 mt-0.5">O modo tradicional continua exatamente como já funciona. O organizado é opcional para vitrines grandes.</p>
+                </div>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                  <button type="button" onClick={() => setListFormExperienceMode('traditional')} className={`rounded border px-3 py-2.5 text-left cursor-pointer ${listFormExperienceMode === 'traditional' ? 'border-neutral-900 bg-white text-neutral-950' : 'border-neutral-200 bg-white text-neutral-600'}`}>
+                    <span className="block text-[10px] font-bold">Imersiva tradicional</span>
+                    <span className="block text-[9px] text-neutral-500 mt-0.5">Todos os itens seguem em sequência.</span>
+                  </button>
+                  <button type="button" onClick={() => setListFormExperienceMode('organized')} className={`rounded border px-3 py-2.5 text-left cursor-pointer ${listFormExperienceMode === 'organized' ? 'border-neutral-900 bg-neutral-900 text-white' : 'border-neutral-200 bg-white text-neutral-600'}`}>
+                    <span className="block text-[10px] font-bold">Imersiva organizada</span>
+                    <span className={`block text-[9px] mt-0.5 ${listFormExperienceMode === 'organized' ? 'text-neutral-300' : 'text-neutral-500'}`}>Mostra alguns destaques e depois categorias automáticas.</span>
+                  </button>
+                </div>
+                {listFormExperienceMode === 'organized' && (
+                  <div className="flex items-center justify-between gap-3 rounded border border-neutral-200 bg-white px-3 py-2.5">
+                    <div>
+                      <div className="text-[10px] font-semibold text-neutral-700">Produtos antes das categorias</div>
+                      <div className="text-[9px] text-neutral-500">Recomendado: 3, baseado no ponto em que a rolagem começa a cansar.</div>
+                    </div>
+                    <select value={listFormOrganizedIntroCount} onChange={(e) => setListFormOrganizedIntroCount(e.target.value)} className="w-20 px-2 py-2 border border-neutral-300 rounded bg-white text-xs font-bold">
+                      {[1,2,3,4,5,6,8,10,12].map((value) => <option key={value} value={value}>{value}</option>)}
+                    </select>
+                  </div>
+                )}
+              </div>
+
+              <div className="space-y-3 rounded-lg bg-neutral-50 border border-neutral-200 p-3">
                 <label className="flex items-start gap-2 cursor-pointer">
                   <input
                     type="checkbox"
@@ -5330,6 +5621,40 @@ export const MaisVendidos: React.FC = () => {
                         </div>
                       </div>
                     )}
+                  </div>
+                )}
+
+                {editingList && (
+                  <div className="rounded-lg border border-neutral-200 bg-neutral-50 p-3 space-y-2.5">
+                    <div>
+                      <p className="text-[11px] font-black text-neutral-800 tracking-wide">COR DE TODOS OS PRODUTOS</p>
+                      <p className="text-[9px] text-neutral-500 mt-0.5">Define de uma vez a cor dos timers individuais de todos os produtos desta vitrine.</p>
+                    </div>
+                    <div className="flex flex-wrap items-center gap-2">
+                      <input
+                        type="color"
+                        value={/^#[0-9A-F]{6}$/i.test(listFormTimerColorForAll) ? listFormTimerColorForAll : '#FFFFFF'}
+                        onChange={(e) => setListFormTimerColorForAll(e.target.value.toUpperCase())}
+                        className="h-9 w-11 p-1 border border-neutral-300 rounded bg-white cursor-pointer"
+                      />
+                      <input
+                        type="text"
+                        value={listFormTimerColorForAll}
+                        onChange={(e) => setListFormTimerColorForAll(e.target.value.toUpperCase())}
+                        maxLength={7}
+                        className="w-24 px-2.5 py-2 border border-neutral-300 rounded text-xs font-mono uppercase bg-white"
+                      />
+                      <label className="flex items-center gap-2 cursor-pointer ml-0 sm:ml-1">
+                        <input
+                          type="checkbox"
+                          checked={listFormApplyTimerColorToAll}
+                          onChange={(e) => setListFormApplyTimerColorToAll(e.target.checked)}
+                          className="rounded border-neutral-300 text-neutral-900 focus:ring-neutral-900"
+                        />
+                        <span className="text-[10px] font-bold text-neutral-700">Aplicar a todos ao salvar</span>
+                      </label>
+                    </div>
+                    <p className="text-[9px] text-neutral-500">A cor individual atual será substituída em todos os itens. Isso não liga nem desliga timers e não altera duração ou horário.</p>
                   </div>
                 )}
 
@@ -6951,6 +7276,16 @@ export const MaisVendidos: React.FC = () => {
               {internationalError && (
                 <div className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-xs text-red-800">{internationalError}</div>
               )}
+              <input
+                ref={internationalJsonFileInputRef}
+                type="file"
+                accept="application/json,.json"
+                className="hidden"
+                onChange={(e) => void handleInternationalTranslationFile(e.target.files?.[0])}
+              />
+              {internationalJsonMessage && (
+                <div className="rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2 text-[11px] text-emerald-800">{internationalJsonMessage}</div>
+              )}
 
               <label className="flex items-start gap-3 rounded-lg border border-neutral-200 bg-neutral-50 p-3 cursor-pointer">
                 <input type="checkbox" checked={internationalEnabled} onChange={(e) => setInternationalEnabled(e.target.checked)} className="mt-0.5" />
@@ -6979,7 +7314,13 @@ export const MaisVendidos: React.FC = () => {
                           <p className="text-[9px] text-neutral-500">{getInternationalCountryPreset(rule.countryCode)?.localeLabel || rule.locale} · {rule.currencyCode}</p>
                         </div>
                       </div>
-                      <div className="flex items-center gap-2">
+                      <div className="flex flex-wrap items-center justify-end gap-1.5">
+                        <button type="button" onClick={() => handleExportInternationalTranslations(ruleIndex)} className="inline-flex items-center gap-1 px-2 py-1.5 rounded border border-neutral-200 bg-white text-[9px] font-bold text-neutral-700 hover:bg-neutral-50 cursor-pointer" title="Extrair todos os textos desta vitrine para tradução em massa">
+                          <FileDown className="w-3 h-3" /> Exportar traduções
+                        </button>
+                        <button type="button" onClick={() => { setInternationalJsonRuleIndex(ruleIndex); setInternationalJsonMessage(null); setInternationalError(null); setTimeout(() => internationalJsonFileInputRef.current?.click(), 0); }} className="inline-flex items-center gap-1 px-2 py-1.5 rounded border border-neutral-200 bg-white text-[9px] font-bold text-neutral-700 hover:bg-neutral-50 cursor-pointer" title="Aplicar um JSON já traduzido neste país">
+                          <Upload className="w-3 h-3" /> Importar traduções
+                        </button>
                         <label className="inline-flex items-center gap-1.5 text-[10px] font-semibold text-neutral-600">
                           <input type="checkbox" checked={rule.enabled !== false} onChange={(e) => updateInternationalRule(ruleIndex, { enabled: e.target.checked })} />
                           Ativa
@@ -7032,6 +7373,43 @@ export const MaisVendidos: React.FC = () => {
                           className="w-full min-w-0 px-3 py-2 rounded border border-neutral-300 text-xs disabled:bg-neutral-100 disabled:text-neutral-400"
                         />
                       </div>
+
+                      {selectedList.experienceMode === 'organized' && (() => {
+                        const categoryEntries = getAutomaticCategoryEntries(rule.locale);
+                        const automaticUi = getBestSellerUiText(rule.locale);
+                        return (
+                          <div className="rounded-lg border border-violet-200 bg-violet-50/50 p-3 space-y-3">
+                            <div>
+                              <p className="text-[10px] font-bold text-violet-900">Imersiva organizada · tradução</p>
+                              <p className="text-[9px] text-violet-700 mt-0.5">Os textos e nomes das categorias já têm tradução automática. Preencha apenas se quiser substituir a versão deste país.</p>
+                            </div>
+                            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                              <input value={rule.organizedTitle || ''} onChange={(e) => updateInternationalRule(ruleIndex, { organizedTitle: e.target.value })} placeholder={automaticUi.organizedTitle} className="w-full min-w-0 px-3 py-2 rounded border border-violet-200 bg-white text-xs" />
+                              <input value={rule.organizedSubtitle || ''} onChange={(e) => updateInternationalRule(ruleIndex, { organizedSubtitle: e.target.value })} placeholder={automaticUi.organizedSubtitle} className="w-full min-w-0 px-3 py-2 rounded border border-violet-200 bg-white text-xs" />
+                            </div>
+                            {categoryEntries.length > 0 && (
+                              <details className="group rounded border border-violet-100 bg-white overflow-hidden">
+                                <summary className="list-none cursor-pointer px-3 py-2 flex items-center justify-between text-[10px] font-semibold text-violet-900 [&::-webkit-details-marker]:hidden">
+                                  <span>Categorias automáticas ({categoryEntries.length})</span><ChevronDown className="w-3.5 h-3.5 transition-transform group-open:rotate-180" />
+                                </summary>
+                                <div className="border-t border-violet-100 p-2.5 grid grid-cols-1 sm:grid-cols-2 gap-2">
+                                  {categoryEntries.map((category) => (
+                                    <label key={category.key} className="block rounded border border-neutral-200 p-2">
+                                      <span className="flex items-center justify-between gap-2 text-[9px] text-neutral-500 mb-1"><span>{category.sourceLabel}</span><span>{category.count}</span></span>
+                                      <input
+                                        value={rule.categoryTranslations?.[category.key] || ''}
+                                        onChange={(e) => updateInternationalRule(ruleIndex, { categoryTranslations: { ...(rule.categoryTranslations || {}), [category.key]: e.target.value } })}
+                                        placeholder={category.automaticLabel}
+                                        className="w-full min-w-0 px-2.5 py-1.5 rounded border border-neutral-200 text-[10px]"
+                                      />
+                                    </label>
+                                  ))}
+                                </div>
+                              </details>
+                            )}
+                          </div>
+                        );
+                      })()}
 
                       <div className={`rounded-lg border p-3 space-y-3 ${rule.redirectProducts ? 'border-amber-200 bg-amber-50' : 'border-neutral-200 bg-neutral-50'}`}>
                         <label className="flex items-start gap-2.5 cursor-pointer">
