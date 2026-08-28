@@ -4,12 +4,13 @@ import { useParams } from 'react-router-dom';
 import { Play, Pause, Volume2, VolumeX, ChevronLeft, ChevronRight, ChevronDown } from 'lucide-react';
 import { Repository } from '../../lib/repository';
 import { getReadableTextColor } from '../../lib/contrast';
+import { getBestSellerUiText, formatBestSellerUiText, type BestSellerUiText } from '../../lib/bestSellerI18n';
 import type { PublicBestSellerList, PublicBestSellerProduct, PublicBestSellerMediaItem } from '../../types/zhaya';
 
 /**
  * Formata a data no padrão '17 AGO 2026' ou '17 DE AGOSTO DE 2026' considerando fuso horário de São Paulo
  */
-export function formatBestSellerDate(dateStr: string, timezone = 'America/Sao_Paulo'): string {
+export function formatBestSellerDate(dateStr: string, timezone = 'America/Sao_Paulo', locale = 'pt-BR'): string {
   if (!dateStr) return '';
   try {
     const parts = dateStr.split('-');
@@ -18,7 +19,7 @@ export function formatBestSellerDate(dateStr: string, timezone = 'America/Sao_Pa
       const month = parseInt(parts[1], 10) - 1;
       const day = parseInt(parts[2], 10);
       const d = new Date(Date.UTC(year, month, day, 12, 0, 0));
-      return new Intl.DateTimeFormat('pt-BR', {
+      return new Intl.DateTimeFormat(locale || 'pt-BR', {
         timeZone: timezone,
         day: '2-digit',
         month: 'short',
@@ -30,7 +31,7 @@ export function formatBestSellerDate(dateStr: string, timezone = 'America/Sao_Pa
     }
 
     const d = new Date(dateStr);
-    return new Intl.DateTimeFormat('pt-BR', {
+    return new Intl.DateTimeFormat(locale || 'pt-BR', {
       timeZone: timezone,
       day: '2-digit',
       month: 'short',
@@ -168,20 +169,26 @@ function getEvergreenTimerEndMs(
 /**
  * Formata texto de quantidade vendida com singular/plural
  */
-export function formatSoldQuantityText(qty: number | null | undefined): string | null {
+export function formatSoldQuantityText(
+  qty: number | null | undefined,
+  ui: BestSellerUiText = getBestSellerUiText('pt-BR'),
+): string | null {
   if (qty === null || qty === undefined || qty < 1) return null;
-  if (qty === 1) return '1 vendido hoje';
-  return `${qty} vendidos hoje`;
+  if (ui.locale === 'pt' && qty === 1) return '1 vendido hoje';
+  return formatBestSellerUiText(ui.soldCount, { count: qty });
 }
 
 /**
- * Formata texto de estoque disponível com singular/plural
+ * Formata texto de estoque disponível no idioma da vitrine.
  */
-export function formatAvailableQuantityText(qty: number | null | undefined): string | null {
+export function formatAvailableQuantityText(
+  qty: number | null | undefined,
+  ui: BestSellerUiText = getBestSellerUiText('pt-BR'),
+): string | null {
   if (qty === null || qty === undefined || qty < 1) return null;
-  if (qty === 1) return '1 unidade disponível';
-  if (qty <= 3) return `Últimas ${qty} unidades`;
-  return `${qty} unidades disponíveis`;
+  if (ui.locale === 'pt' && qty === 1) return '1 unidade disponível';
+  if (qty <= 3) return formatBestSellerUiText(ui.lowStockCount, { count: qty });
+  return formatBestSellerUiText(ui.stockCount, { count: qty });
 }
 
 /**
@@ -327,7 +334,8 @@ const GalleryVideo: React.FC<{
   autoPlay?: boolean;
   loop?: boolean;
   showControls?: boolean;
-}> = ({ src, label, onError, posterUrl, fallbackPosterUrl, onPlaybackStarted, autoPlay = false, loop = false, showControls = true }) => {
+  ui?: BestSellerUiText;
+}> = ({ src, label, onError, posterUrl, fallbackPosterUrl, onPlaybackStarted, autoPlay = false, loop = false, showControls = true, ui = getBestSellerUiText('pt-BR') }) => {
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const containerRef = useRef<HTMLDivElement | null>(null);
   const [activated, setActivated] = useState(false);
@@ -518,7 +526,7 @@ const GalleryVideo: React.FC<{
           {coverUrl ? (
             <img
               src={coverUrl}
-              alt={`${label} - capa`}
+              alt={`${label} - ${ui.cover}`}
               loading="eager"
               fetchPriority="high"
               decoding="async"
@@ -534,10 +542,10 @@ const GalleryVideo: React.FC<{
             type="button"
             onPointerDown={stopPointer}
             onClick={(event) => { event.stopPropagation(); startPlayback(); }}
-            aria-label="Assistir vídeo"
+            aria-label={ui.watchVideo}
             className="zhaya-video-watch-button absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 z-30 inline-flex min-h-12 min-w-[170px] items-center justify-center rounded-full px-6 py-3 text-[11px] font-black uppercase tracking-[0.14em] backdrop-blur-[2px] transition-transform duration-150 active:scale-[0.98]"
           >
-            ASSISTIR VÍDEO
+            {ui.watchVideo}
           </button>}
         </div>
       )}
@@ -547,7 +555,7 @@ const GalleryVideo: React.FC<{
           type="button"
           onPointerDown={stopPointer}
           onClick={(event) => { event.stopPropagation(); togglePlayback(); }}
-          aria-label={playing ? 'Pausar vídeo' : 'Reproduzir vídeo'}
+          aria-label={playing ? ui.pauseVideo : ui.playVideo}
           className="absolute inset-0 z-20 cursor-pointer bg-transparent"
         />
       )}
@@ -557,7 +565,7 @@ const GalleryVideo: React.FC<{
           type="button"
           onPointerDown={stopPointer}
           onClick={(event) => { event.stopPropagation(); togglePlayback(); }}
-          aria-label="Reproduzir vídeo"
+          aria-label={ui.playVideo}
           className="absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 z-30 flex h-16 w-16 items-center justify-center text-white/95 transition-transform duration-150 active:scale-95"
         >
           <Play size={42} strokeWidth={1.7} fill="currentColor" />
@@ -575,7 +583,7 @@ const GalleryVideo: React.FC<{
             type="button"
             onClick={togglePlayback}
             className="shrink-0 inline-flex items-center justify-center text-white/95 hover:text-white"
-            aria-label={playing ? 'Pausar vídeo' : 'Reproduzir vídeo'}
+            aria-label={playing ? ui.pauseVideo : ui.playVideo}
           >
             {playing ? <Pause size={18} fill="currentColor" /> : <Play size={18} fill="currentColor" />}
           </button>
@@ -587,7 +595,7 @@ const GalleryVideo: React.FC<{
             step="0.05"
             value={Math.min(currentTime, Math.max(duration, 0.01))}
             onChange={(event) => handleSeek(Number(event.target.value))}
-            aria-label="Progresso do vídeo"
+            aria-label={ui.videoProgress}
             className="min-w-0 flex-1 h-1 accent-white cursor-pointer"
           />
 
@@ -595,7 +603,7 @@ const GalleryVideo: React.FC<{
             type="button"
             onClick={toggleMute}
             className="shrink-0 inline-flex items-center justify-center text-white/90 hover:text-white"
-            aria-label={muted || volume === 0 ? 'Ativar som' : 'Silenciar vídeo'}
+            aria-label={muted || volume === 0 ? ui.enableSound : ui.muteVideo}
           >
             {muted || volume === 0 ? <VolumeX size={18} /> : <Volume2 size={18} />}
           </button>
@@ -607,7 +615,7 @@ const GalleryVideo: React.FC<{
             step="0.05"
             value={muted ? 0 : volume}
             onChange={(event) => handleVolume(Number(event.target.value))}
-            aria-label="Volume do vídeo"
+            aria-label={ui.videoVolume}
             className="w-14 sm:w-20 h-1 accent-white cursor-pointer"
           />
         </div>
@@ -636,7 +644,8 @@ const ProductMediaGallery: React.FC<{
   videoAutoplay?: boolean;
   onVideoStarted?: () => void;
   onSlideSeen?: (index: number, total: number) => void;
-}> = ({ mediaItems, productName, isFirst, rankLabel, rankColor, sizeColor, showRanking, badgeContent, giftContent, sizes, outOfStockSizes, timerContent, videoAutoplay = false, onVideoStarted, onSlideSeen }) => {
+  ui?: BestSellerUiText;
+}> = ({ mediaItems, productName, isFirst, rankLabel, rankColor, sizeColor, showRanking, badgeContent, giftContent, sizes, outOfStockSizes, timerContent, videoAutoplay = false, onVideoStarted, onSlideSeen, ui = getBestSellerUiText('pt-BR') }) => {
   const [currentIndex, setCurrentIndex] = useState(0);
   const [failedMedia, setFailedMedia] = useState<Record<number, boolean>>({});
   const [direction, setDirection] = useState(0);
@@ -761,6 +770,7 @@ const ProductMediaGallery: React.FC<{
                 autoPlay={videoAutoplay}
                 loop={false}
                 showControls
+                ui={ui}
               />
             ) : (
               <img
@@ -774,7 +784,7 @@ const ProductMediaGallery: React.FC<{
             )
           ) : (
             <div className="w-full h-full flex items-center justify-center bg-transparent text-neutral-500 px-4 text-center">
-              <span className="text-xs tracking-[0.14em] uppercase">Mídia indisponível</span>
+              <span className="text-xs tracking-[0.14em] uppercase">{ui.mediaUnavailable}</span>
             </div>
           )}
         </motion.div>
@@ -787,7 +797,7 @@ const ProductMediaGallery: React.FC<{
         <div
           className="absolute left-3.5 top-3 z-20 pointer-events-none text-[27px] sm:text-[29px] leading-none font-black tracking-[-0.055em]"
           style={{ color: rankColor, textShadow: 'none', WebkitTextStroke: '0px transparent', filter: 'none' }}
-          aria-label={`Posição ${rankLabel}`}
+          aria-label={formatBestSellerUiText(ui.position, { position: rankLabel })}
         >
           #{rankLabel}
         </div>
@@ -806,7 +816,7 @@ const ProductMediaGallery: React.FC<{
                 >
                   {size}
                   {unavailable && (
-                    <span className="absolute left-full ml-1 -top-1 text-[12px] leading-none font-semibold text-red-500" style={{ textShadow: 'none', filter: 'none' }} aria-label="Fora de estoque">×</span>
+                    <span className="absolute left-full ml-1 -top-1 text-[12px] leading-none font-semibold text-red-500" style={{ textShadow: 'none', filter: 'none' }} aria-label={ui.outOfStock}>×</span>
                   )}
                 </span>
               );
@@ -827,7 +837,7 @@ const ProductMediaGallery: React.FC<{
           <button
             type="button"
             onClick={handlePrev}
-            aria-label="Mídia anterior"
+            aria-label={ui.previousMedia}
             className="absolute left-2 top-1/2 -translate-y-1/2 z-30 flex h-12 w-10 items-center justify-center text-white/95 transition-transform duration-150 active:scale-95 cursor-pointer"
             style={{ filter: 'drop-shadow(0 4px 10px rgba(0,0,0,0.72))' }}
           >
@@ -836,13 +846,13 @@ const ProductMediaGallery: React.FC<{
           <button
             type="button"
             onClick={handleNext}
-            aria-label="Próxima mídia"
+            aria-label={ui.nextMedia}
             className="absolute right-2 top-1/2 -translate-y-1/2 z-30 flex h-12 w-10 items-center justify-center text-white/95 transition-transform duration-150 active:scale-95 cursor-pointer"
             style={{ filter: 'drop-shadow(0 4px 10px rgba(0,0,0,0.72))' }}
           >
             <ChevronRight size={32} strokeWidth={2.4} />
           </button>
-          <div className="absolute left-1/2 -translate-x-1/2 bottom-3 z-30 flex items-center justify-center gap-1.5" aria-label="Galeria de mídia">
+          <div className="absolute left-1/2 -translate-x-1/2 bottom-3 z-30 flex items-center justify-center gap-1.5" aria-label={ui.mediaGallery}>
             {mediaItems.map((item, dotIndex) => {
               const active = dotIndex === currentIndex;
               if (item.type === 'video') {
@@ -851,7 +861,7 @@ const ProductMediaGallery: React.FC<{
                     key={item.id || dotIndex}
                     type="button"
                     onClick={(e) => { e.stopPropagation(); goToIndex(dotIndex, dotIndex > currentIndex ? 1 : -1); }}
-                    aria-label={`Ver vídeo ${dotIndex + 1}`}
+                    aria-label={formatBestSellerUiText(ui.viewVideo, { index: dotIndex + 1 })}
                     className={`flex h-[18px] w-[18px] items-center justify-center rounded-full border transition-all duration-200 ${active ? 'border-white bg-white text-black' : 'border-white/55 bg-black/35 text-white hover:bg-black/55'}`}
                   >
                     <Play size={7} fill="currentColor" strokeWidth={2.2} />
@@ -863,7 +873,7 @@ const ProductMediaGallery: React.FC<{
                   key={item.id || dotIndex}
                   type="button"
                   onClick={(e) => { e.stopPropagation(); goToIndex(dotIndex, dotIndex > currentIndex ? 1 : -1); }}
-                  aria-label={`Ver imagem ${dotIndex + 1}`}
+                  aria-label={formatBestSellerUiText(ui.viewImage, { index: dotIndex + 1 })}
                   className={`h-1.5 rounded-full transition-all duration-200 ${active ? 'w-5 bg-white' : 'w-1.5 bg-white/45 hover:bg-white/70'}`}
                 />
               );
@@ -897,14 +907,27 @@ const ProductItem: React.FC<{
   currencyLocale?: string;
   approximateConversion?: boolean;
   approximateLabel?: string | null;
-}> = ({ product, index, displayRank, isFirst, ctaText, rankColor, sizeColor, showRanking, now, listId, listTimerEnabled, listTimerLooping, listTimerDurationMinutes, listTimerEnd, currencyCode = 'BRL', currencyLocale = 'pt-BR', approximateConversion = false, approximateLabel }) => {
+  ui?: BestSellerUiText;
+  showPrices?: boolean;
+  showInstallments?: boolean;
+  showCta?: boolean;
+  showSoldQuantity?: boolean;
+  showAvailableQuantity?: boolean;
+  showSizes?: boolean;
+  showColors?: boolean;
+  showBadges?: boolean;
+  showGift?: boolean;
+  showProductTimers?: boolean;
+  buttonDestination?: 'product' | 'whatsapp' | 'custom' | 'form';
+  onOpenForm?: (product: PublicBestSellerProduct) => void;
+}> = ({ product, index, displayRank, isFirst, ctaText, rankColor, sizeColor, showRanking, now, listId, listTimerEnabled, listTimerLooping, listTimerDurationMinutes, listTimerEnd, currencyCode = 'BRL', currencyLocale = 'pt-BR', approximateConversion = false, approximateLabel, ui = getBestSellerUiText('pt-BR'), showPrices = true, showInstallments = true, showCta = true, showSoldQuantity = true, showAvailableQuantity = true, showSizes = true, showColors = true, showBadges = true, showGift = true, showProductTimers = true, buttonDestination = 'product', onOpenForm }) => {
   const formattedPos = String(displayRank || 1).padStart(2, '0');
-  const soldText = product.showSoldQuantity ? formatSoldQuantityText(product.soldQuantity) : null;
-  const availableText = formatAvailableQuantityText(product.availableQuantity);
-  const hasBadge = Boolean(product.badgeEnabled && product.badgeText && product.badgeText.trim());
-  const hasGift = Boolean(product.giftEnabled && product.giftImageUrl);
-  const sizes = useMemo(() => normalizePublicSizes(product.sizes), [product.sizes]);
-  const outOfStockSizes = useMemo(() => normalizePublicSizes(product.outOfStockSizes), [product.outOfStockSizes]);
+  const soldText = showSoldQuantity && product.showSoldQuantity ? formatSoldQuantityText(product.soldQuantity, ui) : null;
+  const availableText = showAvailableQuantity ? formatAvailableQuantityText(product.availableQuantity, ui) : null;
+  const hasBadge = Boolean(showBadges && product.badgeEnabled && product.badgeText && product.badgeText.trim());
+  const hasGift = Boolean(showGift && product.giftEnabled && product.giftImageUrl);
+  const sizes = useMemo(() => showSizes ? normalizePublicSizes(product.sizes) : [], [product.sizes, showSizes]);
+  const outOfStockSizes = useMemo(() => showSizes ? normalizePublicSizes(product.outOfStockSizes) : [], [product.outOfStockSizes, showSizes]);
 
   const galleryMedia = useMemo<PublicBestSellerMediaItem[]>(() => {
     if (Array.isArray(product.mediaItems) && product.mediaItems.length > 0) {
@@ -920,7 +943,7 @@ const ProductItem: React.FC<{
   const badgeTextColor = useMemo(() => getReadableTextColor(badgeBgColor), [badgeBgColor]);
 
   const productTimeRemaining = useMemo(() => {
-    if (!product.timerEnabled) return null;
+    if (!showProductTimers || !product.timerEnabled) return null;
 
     const usesSharedListTimer = Boolean(!product.timerSeparate && listTimerEnabled);
     const effectiveLooping = usesSharedListTimer ? Boolean(listTimerLooping) : Boolean(product.timerLooping);
@@ -937,6 +960,7 @@ const ProductItem: React.FC<{
     return calculateTimeRemaining(effectiveEnd);
   }, [
     product.id,
+    showProductTimers,
     product.timerEnabled,
     product.timerSeparate,
     product.timerLooping,
@@ -953,12 +977,12 @@ const ProductItem: React.FC<{
   const productTimerBg = product.timerColor || '#FFFFFF';
   const productTimerText = useMemo(() => getReadableTextColor(productTimerBg), [productTimerBg]);
   const productTimerElement = productTimeRemaining ? (
-    <div className="flex flex-col items-end gap-1" aria-label={`Termina em ${productTimeRemaining.formattedString}`}>
+    <div className="flex flex-col items-end gap-1" aria-label={`${ui.endsIn} ${productTimeRemaining.formattedString}`}>
       <span
         className="text-[7px] sm:text-[8px] leading-none font-bold uppercase tracking-[0.16em]"
         style={{ color: productTimerBg, textShadow: 'none', filter: 'none' }}
       >
-        TERMINA EM
+        {ui.endsIn}
       </span>
       <div
         className="px-2 py-1 rounded-[3px] text-[10px] sm:text-[11px] leading-none font-black tabular-nums tracking-[0.035em]"
@@ -1000,7 +1024,7 @@ const ProductItem: React.FC<{
   const giftElement = hasGift ? (
     <div
       className={`absolute right-3 ${hasBadge ? 'top-12' : 'top-3'} z-30 flex flex-col items-center pointer-events-none`}
-      aria-label={product.giftTitle ? `Presente: ${product.giftTitle}` : 'Presente'}
+      aria-label={product.giftTitle ? `${ui.gift}: ${product.giftTitle}` : ui.gift}
       style={{ filter: 'none', width: `${giftImageSize + 18}px` }}
     >
       {product.giftLabel && (
@@ -1013,7 +1037,7 @@ const ProductItem: React.FC<{
       )}
       <img
         src={product.giftImageUrl || ''}
-        alt={product.giftTitle || 'Presente'}
+        alt={product.giftTitle || ui.gift}
         className="object-contain rounded-[9px]"
         style={{ width: `${giftImageSize}px`, height: `${giftImageSize}px`, boxShadow: 'none', filter: 'none' }}
         loading="lazy"
@@ -1031,7 +1055,9 @@ const ProductItem: React.FC<{
   ) : undefined;
 
   const hasInstallment = Boolean(
-    product.installmentsCount &&
+    showPrices &&
+      showInstallments &&
+      product.installmentsCount &&
       product.installmentsCount > 0 &&
       product.installmentValue !== null &&
       product.installmentValue !== undefined
@@ -1063,6 +1089,7 @@ const ProductItem: React.FC<{
         timerContent={productTimerElement}
         videoAutoplay={Boolean(product.videoAutoplay)}
         onVideoStarted={handleVideoStarted}
+        ui={ui}
         onSlideSeen={(slideIndex, slideCount) => {
           Repository.trackBestSellerAnalyticsEvent({
             eventType: 'product_behavior',
@@ -1085,7 +1112,7 @@ const ProductItem: React.FC<{
           </p>
         )}
 
-        {((product.promotionalPrice !== null && product.promotionalPrice !== undefined) ||
+        {showPrices && ((product.promotionalPrice !== null && product.promotionalPrice !== undefined) ||
           (product.originalPrice !== null && product.originalPrice !== undefined)) && (
           <div className="mt-1.5 sm:mt-3 flex flex-col items-center gap-0.5">
             {product.promotionalPrice !== null && product.promotionalPrice !== undefined ? (
@@ -1111,11 +1138,14 @@ const ProductItem: React.FC<{
 
         {hasInstallment && (
           <p className="mt-1 sm:mt-2 text-[12px] leading-tight text-neutral-300 font-semibold tracking-[-0.01em]">
-            Até {product.installmentsCount}x de {formatPriceBRL(product.installmentValue, currencyCode, currencyLocale)} sem juros
+            {formatBestSellerUiText(ui.installments, {
+              count: product.installmentsCount || 0,
+              value: formatPriceBRL(product.installmentValue, currencyCode, currencyLocale) || '',
+            })}
           </p>
         )}
 
-        {approximateConversion && approximateLabel && (
+        {showPrices && approximateConversion && approximateLabel && (
           <p className="mt-1 text-[9px] sm:text-[10px] text-neutral-600 font-medium">
             {approximateLabel}
           </p>
@@ -1129,7 +1159,7 @@ const ProductItem: React.FC<{
           </div>
         )}
 
-        {product.colors && product.colors.length > 0 && (
+        {showColors && product.colors && product.colors.length > 0 && (
           <div className="mt-2 sm:mt-4 flex flex-wrap justify-center items-center gap-x-2 gap-y-0.5 sm:gap-y-1 text-[10px] sm:text-[11px] leading-tight uppercase tracking-[0.10em] text-neutral-400 font-semibold">
             {product.colors.map((color, cIdx) => (
               <React.Fragment key={`${color}-${cIdx}`}>
@@ -1140,23 +1170,207 @@ const ProductItem: React.FC<{
           </div>
         )}
 
-        {product.productUrl && (
+        {showCta && (buttonDestination === 'form' || Boolean(product.productUrl)) && (
           <div className="w-full pt-3 sm:pt-6">
-            <a
-              id={`btn-ver-produto-${product.id}`}
-              data-best-seller-native-cta={product.id}
-              href={product.productUrl}
-              target="_blank"
-              rel="noopener noreferrer"
-              onClick={handleProductClick}
-              className="inline-flex min-h-12 items-center justify-center w-full py-3.5 px-6 rounded-[2px] bg-white text-black font-black text-[11px] tracking-[0.12em] uppercase hover:bg-neutral-200 active:scale-[0.995] transition-all duration-150 text-center cursor-pointer"
-            >
-              {ctaText}
-            </a>
+            {buttonDestination === 'form' ? (
+              <button
+                id={`btn-ver-produto-${product.id}`}
+                data-best-seller-native-cta={product.id}
+                type="button"
+                onClick={() => {
+                  handleProductClick();
+                  onOpenForm?.(product);
+                }}
+                className="inline-flex min-h-12 items-center justify-center w-full py-3.5 px-6 rounded-[2px] bg-white text-black font-black text-[11px] tracking-[0.12em] uppercase hover:bg-neutral-200 active:scale-[0.995] transition-all duration-150 text-center cursor-pointer"
+              >
+                {ctaText}
+              </button>
+            ) : (
+              <a
+                id={`btn-ver-produto-${product.id}`}
+                data-best-seller-native-cta={product.id}
+                href={product.productUrl || '#'}
+                target="_blank"
+                rel="noopener noreferrer"
+                onClick={handleProductClick}
+                className="inline-flex min-h-12 items-center justify-center w-full py-3.5 px-6 rounded-[2px] bg-white text-black font-black text-[11px] tracking-[0.12em] uppercase hover:bg-neutral-200 active:scale-[0.995] transition-all duration-150 text-center cursor-pointer"
+              >
+                {ctaText}
+              </a>
+            )}
           </div>
         )}
       </div>
     </motion.article>
+  );
+};
+
+const InternationalLeadModal: React.FC<{
+  list: PublicBestSellerList;
+  product: PublicBestSellerProduct;
+  ui: BestSellerUiText;
+  onClose: () => void;
+}> = ({ list, product, ui, onClose }) => {
+  const [name, setName] = useState('');
+  const [email, setEmail] = useState('');
+  const [phone, setPhone] = useState('');
+  const [sending, setSending] = useState(false);
+  const [success, setSuccess] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    const onKey = (event: KeyboardEvent) => {
+      if (event.key === 'Escape' && !sending) onClose();
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [onClose, sending]);
+
+  const submit = async (event: React.FormEvent) => {
+    event.preventDefault();
+    if (sending) return;
+    const cleanName = name.trim();
+    const cleanEmail = email.trim();
+    const cleanPhone = phone.trim();
+    if (!cleanName || !cleanEmail || !cleanPhone) {
+      setError(ui.formRequired);
+      return;
+    }
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/i.test(cleanEmail)) {
+      setError(ui.formInvalidEmail);
+      return;
+    }
+    setSending(true);
+    setError(null);
+    const result = await Repository.submitBestSellerInternationalForm({
+      listId: list.id,
+      productId: product.id,
+      name: cleanName,
+      email: cleanEmail,
+      phone: cleanPhone,
+      locale: list.uiLocale || list.currencyLocale || ui.locale,
+    });
+    setSending(false);
+    if (!result.success) {
+      setError(ui.formError);
+      return;
+    }
+    setSuccess(true);
+  };
+
+  return (
+    <motion.div
+      className="fixed inset-0 z-[120] bg-black/75 backdrop-blur-sm flex items-end sm:items-center justify-center p-0 sm:p-4"
+      initial={{ opacity: 0 }}
+      animate={{ opacity: 1 }}
+      exit={{ opacity: 0 }}
+      onMouseDown={(event) => {
+        if (event.target === event.currentTarget && !sending) onClose();
+      }}
+    >
+      <motion.div
+        dir={ui.dir}
+        initial={{ opacity: 0, y: 24, scale: 0.99 }}
+        animate={{ opacity: 1, y: 0, scale: 1 }}
+        exit={{ opacity: 0, y: 16, scale: 0.99 }}
+        transition={{ duration: 0.18 }}
+        className="relative w-full sm:max-w-md max-h-[92vh] overflow-y-auto rounded-t-2xl sm:rounded-2xl border border-neutral-800 bg-neutral-950 text-white shadow-2xl"
+      >
+        <button
+          type="button"
+          onClick={onClose}
+          disabled={sending}
+          aria-label={ui.formClose}
+          className="absolute top-3 right-3 z-10 w-9 h-9 rounded-full border border-neutral-800 bg-black/70 text-neutral-400 hover:text-white disabled:opacity-50 cursor-pointer"
+        >
+          ×
+        </button>
+
+        <div className="p-5 sm:p-6">
+          {success ? (
+            <div className="py-8 text-center">
+              <div className="mx-auto mb-4 w-12 h-12 rounded-full bg-white text-black flex items-center justify-center text-xl font-black">✓</div>
+              <h2 className="text-xl font-black tracking-tight">{ui.formSuccessTitle}</h2>
+              <p className="mt-2 text-sm leading-relaxed text-neutral-400">{ui.formSuccessMessage}</p>
+              <button
+                type="button"
+                onClick={onClose}
+                className="mt-6 w-full min-h-12 rounded bg-white text-black text-xs font-black uppercase tracking-[0.12em] cursor-pointer"
+              >
+                {ui.formClose}
+              </button>
+            </div>
+          ) : (
+            <>
+              <div className="pr-10">
+                <p className="text-[9px] font-bold uppercase tracking-[0.22em] text-neutral-500">ZHAYA</p>
+                <h2 className="mt-2 text-xl sm:text-2xl font-black tracking-tight leading-tight">
+                  {(list.formTitle || '').trim() || ui.formDefaultTitle}
+                </h2>
+                <p className="mt-3 text-xs sm:text-sm leading-relaxed text-neutral-400 whitespace-pre-wrap">
+                  {(list.formMessage || '').trim() || ui.formDefaultMessage}
+                </p>
+              </div>
+
+              <div className="mt-5 rounded-lg border border-neutral-800 bg-black/40 p-3">
+                <span className="block text-[9px] font-bold uppercase tracking-[0.14em] text-neutral-600">{ui.formProductLabel}</span>
+                <span className="mt-1 block text-sm font-bold text-white">{product.name}</span>
+              </div>
+
+              <form onSubmit={submit} className="mt-5 space-y-3" noValidate>
+                <label className="block">
+                  <span className="mb-1.5 block text-[10px] font-bold uppercase tracking-[0.12em] text-neutral-500">{ui.formNameLabel}</span>
+                  <input
+                    value={name}
+                    onChange={(e) => setName(e.target.value)}
+                    autoComplete="name"
+                    maxLength={120}
+                    className="w-full min-h-12 rounded border border-neutral-800 bg-neutral-900 px-3 text-sm text-white outline-none focus:border-neutral-500"
+                  />
+                </label>
+                <label className="block">
+                  <span className="mb-1.5 block text-[10px] font-bold uppercase tracking-[0.12em] text-neutral-500">{ui.formEmailLabel}</span>
+                  <input
+                    type="email"
+                    value={email}
+                    onChange={(e) => setEmail(e.target.value)}
+                    autoComplete="email"
+                    inputMode="email"
+                    maxLength={180}
+                    className="w-full min-h-12 rounded border border-neutral-800 bg-neutral-900 px-3 text-sm text-white outline-none focus:border-neutral-500"
+                  />
+                </label>
+                <label className="block">
+                  <span className="mb-1.5 block text-[10px] font-bold uppercase tracking-[0.12em] text-neutral-500">{ui.formPhoneLabel}</span>
+                  <input
+                    type="tel"
+                    value={phone}
+                    onChange={(e) => setPhone(e.target.value)}
+                    autoComplete="tel"
+                    inputMode="tel"
+                    maxLength={60}
+                    className="w-full min-h-12 rounded border border-neutral-800 bg-neutral-900 px-3 text-sm text-white outline-none focus:border-neutral-500"
+                  />
+                </label>
+                <input type="text" name="website" tabIndex={-1} autoComplete="off" className="hidden" aria-hidden="true" />
+
+                {error && (
+                  <div className="rounded border border-red-900/60 bg-red-950/40 px-3 py-2 text-xs text-red-300">{error}</div>
+                )}
+
+                <button
+                  type="submit"
+                  disabled={sending}
+                  className="w-full min-h-12 rounded bg-white text-black text-xs font-black uppercase tracking-[0.12em] hover:bg-neutral-200 disabled:opacity-60 cursor-pointer"
+                >
+                  {sending ? ui.formSending : ui.formSubmit}
+                </button>
+              </form>
+            </>
+          )}
+        </div>
+      </motion.div>
+    </motion.div>
   );
 };
 
@@ -1171,7 +1385,8 @@ const VideoHighlightItem: React.FC<{
   nextProductId?: string | null;
   isHero?: boolean;
   timerContent?: React.ReactNode;
-}> = ({ item, listId, hasProductBelow = false, nextProductId = null, isHero = false, timerContent = null }) => {
+  ui?: BestSellerUiText;
+}> = ({ item, listId, hasProductBelow = false, nextProductId = null, isHero = false, timerContent = null, ui = getBestSellerUiText('pt-BR') }) => {
   const video = useMemo(
     () => (item.mediaItems || []).find((media) => media.type === 'video'),
     [item.mediaItems],
@@ -1203,12 +1418,13 @@ const VideoHighlightItem: React.FC<{
       <div className={`relative ${isHero ? 'w-[94%]' : 'w-[92%]'} max-w-[430px] aspect-[9/16] overflow-hidden rounded-[14px] bg-neutral-950 ring-1 ring-white/5`}>
         <GalleryVideo
           src={video.url}
-          label={item.videoTitle || 'Vídeo de apresentação do produto'}
+          label={item.videoTitle || ui.presentationVideo}
           onError={() => undefined}
           posterUrl={video.posterUrl || undefined}
           autoPlay={Boolean(item.videoAutoplay)}
           loop={item.videoLoop !== false}
           showControls={item.videoControls !== false}
+          ui={ui}
           onPlaybackStarted={() => {
             Repository.trackBestSellerAnalyticsEvent({ eventType: 'product_play', listId, productId: item.id });
           }}
@@ -1241,10 +1457,10 @@ const VideoHighlightItem: React.FC<{
           type="button"
           onClick={scrollToNextProduct}
           className="mt-3 sm:mt-4 inline-flex flex-col items-center justify-center text-neutral-400 hover:text-white transition-colors cursor-pointer"
-          aria-label="Ver produto abaixo"
+          aria-label={ui.seeProductBelow}
         >
           {!description && (
-            <span className="mb-1 text-[10px] sm:text-[11px] font-medium tracking-[0.08em]">Confira</span>
+            <span className="mb-1 text-[10px] sm:text-[11px] font-medium tracking-[0.08em]">{ui.checkItOut}</span>
           )}
           <motion.span
             aria-hidden="true"
@@ -1261,7 +1477,7 @@ const VideoHighlightItem: React.FC<{
 };
 
 
-const BenefitsBlockItem: React.FC<{ item: PublicBestSellerProduct }> = ({ item }) => {
+const BenefitsBlockItem: React.FC<{ item: PublicBestSellerProduct; ui?: BestSellerUiText }> = ({ item, ui = getBestSellerUiText('pt-BR') }) => {
   const benefits = (item.benefits || []).map((value) => value.trim()).filter(Boolean);
   if (benefits.length === 0) return null;
 
@@ -1276,7 +1492,7 @@ const BenefitsBlockItem: React.FC<{ item: PublicBestSellerProduct }> = ({ item }
     >
       <div className="w-full rounded-[14px] border border-white/10 bg-white/[0.035] px-4 py-4 sm:px-5 sm:py-5">
         <h2 className="text-center text-[14px] sm:text-[15px] font-semibold text-white tracking-[-0.01em]">
-          {item.name || 'Vantagens Zhaya'}
+          {item.name || ui.advantages}
         </h2>
         <div className="mt-3 pt-3 border-t border-white/8 space-y-2.5">
           {benefits.map((benefit, index) => (
@@ -1297,6 +1513,8 @@ export const MaisVendidosPage: React.FC = () => {
   const [loading, setLoading] = useState<boolean>(true);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [now, setNow] = useState<number>(Date.now());
+  const [leadProduct, setLeadProduct] = useState<PublicBestSellerProduct | null>(null);
+  const ui = useMemo(() => getBestSellerUiText(listData?.uiLocale || listData?.currencyLocale || (typeof navigator !== 'undefined' ? navigator.language : 'pt-BR')), [listData?.uiLocale, listData?.currencyLocale]);
 
   const lastDataRef = useRef<string>('');
   const isFetchingRef = useRef<boolean>(false);
@@ -1314,11 +1532,11 @@ export const MaisVendidosPage: React.FC = () => {
   // SEO e Título da Página
   useEffect(() => {
     const originalTitle = document.title;
-    document.title = 'Mais Vendidos do Dia | Zhaya';
+    document.title = ui.pageTitle;
     return () => {
       document.title = originalTitle;
     };
-  }, []);
+  }, [ui.pageTitle]);
 
   // Busca dados da lista pública com suporte a polling silencioso
   const fetchPublicList = async (options?: { silent?: boolean }) => {
@@ -1352,7 +1570,7 @@ export const MaisVendidosPage: React.FC = () => {
       console.error('[MaisVendidosPage] Erro ao carregar dados:', err);
       // Se for no primeiro carregamento falho e explícito, exibe a mensagem de erro
       if (!hasLoadedInitiallyRef.current && !isSilent) {
-        setErrorMessage('Não foi possível carregar os produtos agora.');
+        setErrorMessage('load-error');
       }
     } finally {
       isFetchingRef.current = false;
@@ -1369,6 +1587,7 @@ export const MaisVendidosPage: React.FC = () => {
     hasLoadedInitiallyRef.current = false;
     pageViewTrackedRef.current = '';
     setListData(null);
+    setLeadProduct(null);
     setErrorMessage(null);
 
     // 1. Carregamento inicial explícito
@@ -1421,8 +1640,8 @@ export const MaisVendidosPage: React.FC = () => {
 
   const formattedDate = useMemo(() => {
     if (!listData?.listDate) return '';
-    return formatBestSellerDate(listData.listDate, listData.timezone);
-  }, [listData]);
+    return formatBestSellerDate(listData.listDate, listData.timezone, ui.locale);
+  }, [listData, ui.locale]);
 
   // Registra uma entrada por carregamento da lista. O visitorId fica persistente
   // no navegador para permitir uma estimativa simples de visitantes únicos.
@@ -1689,7 +1908,7 @@ export const MaisVendidosPage: React.FC = () => {
       aria-live="polite"
     >
       <span className="text-[8px] sm:text-[9px] tracking-[0.28em] text-neutral-500 uppercase font-bold leading-none mb-1.5">
-        {timeRemaining.isExpired ? 'ENCERRADO' : 'TERMINA EM'}
+        {timeRemaining.isExpired ? ui.closed : ui.endsIn}
       </span>
       <div
         className="flex items-baseline justify-center text-[35px] sm:text-[42px] leading-none font-black text-white tracking-[-0.045em] tabular-nums"
@@ -1710,6 +1929,8 @@ export const MaisVendidosPage: React.FC = () => {
   return (
     <div
       id="mais-vendidos-page-container"
+      lang={ui.locale}
+      dir={ui.dir}
       className="min-h-screen w-full bg-black text-white selection:bg-neutral-800 selection:text-white flex flex-col items-center antialiased"
       style={{
         backgroundColor: '#000000',
@@ -1763,7 +1984,7 @@ export const MaisVendidosPage: React.FC = () => {
           <div className="w-full min-h-[60vh] flex flex-col items-center justify-center space-y-4">
             <div className="w-6 h-6 border-2 border-neutral-800 border-t-white rounded-full animate-spin" />
             <p className="text-xs text-neutral-400 tracking-widest uppercase font-light">
-              Carregando seleção...
+              {ui.loadingSelection}
             </p>
           </div>
         )}
@@ -1774,14 +1995,14 @@ export const MaisVendidosPage: React.FC = () => {
         {!loading && errorMessage && (
           <div className="w-full min-h-[50vh] flex flex-col items-center justify-center text-center space-y-5 px-4">
             <p className="text-sm text-neutral-300 font-light tracking-wide max-w-xs">
-              {errorMessage}
+              {errorMessage === 'load-error' ? ui.loadError : errorMessage}
             </p>
             <button
               type="button"
               onClick={() => fetchPublicList({ silent: false })}
               className="py-2.5 px-6 bg-neutral-900 hover:bg-neutral-800 text-white rounded-[4px] text-xs font-semibold tracking-wider uppercase border border-neutral-800 transition-colors cursor-pointer"
             >
-              Tentar novamente
+              {ui.retry}
             </button>
           </div>
         )}
@@ -1795,10 +2016,10 @@ export const MaisVendidosPage: React.FC = () => {
               ZHAYA
             </span>
             <h1 className="text-2xl font-light tracking-tight text-white">
-              Mais Vendidos
+              {ui.bestSellers}
             </h1>
             <p className="text-xs text-neutral-300 font-light tracking-wide max-w-xs">
-              Nossa seleção de hoje ainda não está disponível.
+              {ui.selectionUnavailable}
             </p>
           </div>
         )}
@@ -1827,7 +2048,7 @@ export const MaisVendidosPage: React.FC = () => {
               ) : (
                 <div>
                   <h1 className="text-2xl sm:text-3xl font-black tracking-[-0.035em] text-white uppercase leading-tight">
-                    {listData.title || 'Mais Vendidos do Dia'}
+                    {listData.title || ui.bestSellersToday}
                   </h1>
                 </div>
               )}
@@ -1850,7 +2071,7 @@ export const MaisVendidosPage: React.FC = () => {
               <div className="w-full flex flex-col space-y-4 sm:space-y-10">
                 {listData.products.map((prod, idx) => {
                   if (prod.itemType === 'benefits') {
-                    return <BenefitsBlockItem key={prod.id} item={prod} />;
+                    return <BenefitsBlockItem key={prod.id} item={prod} ui={ui} />;
                   }
                   if (prod.itemType === 'video') {
                     const nextProduct = listData.products
@@ -1866,6 +2087,7 @@ export const MaisVendidosPage: React.FC = () => {
                         hasProductBelow={Boolean(nextProduct)}
                         nextProductId={nextProduct?.id || null}
                         timerContent={isHeroVideo ? listTimerElement : null}
+                        ui={ui}
                       />
                     );
                   }
@@ -1880,7 +2102,7 @@ export const MaisVendidosPage: React.FC = () => {
                       index={idx}
                       displayRank={displayRank}
                       isFirst={idx === firstProductIndex}
-                      ctaText={(listData.ctaText || '').trim() || 'GARANTIR MEU PAR'}
+                      ctaText={(listData.ctaText || '').trim() || ui.defaultCta}
                       rankColor={listData.rankColor || '#FFFFFF'}
                       sizeColor={listData.sizeColor || '#FFFFFF'}
                       showRanking={listData.showRanking !== false}
@@ -1893,20 +2115,43 @@ export const MaisVendidosPage: React.FC = () => {
                       currencyCode={listData.currencyCode || 'BRL'}
                       currencyLocale={listData.currencyLocale || 'pt-BR'}
                       approximateConversion={Boolean(listData.approximateConversion)}
-                      approximateLabel={listData.approximateLabel || null}
+                      approximateLabel={listData.approximateLabel || (listData.approximateConversion ? ui.approximateConversion : null)}
+                      ui={ui}
+                      showPrices={listData.showPrices !== false}
+                      showInstallments={listData.showInstallments !== false}
+                      showCta={listData.showCta !== false}
+                      showSoldQuantity={listData.showSoldQuantity !== false}
+                      showAvailableQuantity={listData.showAvailableQuantity !== false}
+                      showSizes={listData.showSizes !== false}
+                      showColors={listData.showColors !== false}
+                      showBadges={listData.showBadges !== false}
+                      showGift={listData.showGift !== false}
+                      showProductTimers={listData.showProductTimers !== false}
+                      buttonDestination={listData.buttonDestination || 'product'}
+                      onOpenForm={setLeadProduct}
                     />
                   );
                 })}
               </div>
             ) : (
               <div className="w-full py-12 text-center text-xs text-neutral-400 font-light">
-                Nenhum produto cadastrado para esta seleção.
+                {ui.noProducts}
               </div>
             )}
           </div>
         )}
       </main>
 
+      <AnimatePresence>
+        {listData && leadProduct && listData.buttonDestination === 'form' && (
+          <InternationalLeadModal
+            list={listData}
+            product={leadProduct}
+            ui={ui}
+            onClose={() => setLeadProduct(null)}
+          />
+        )}
+      </AnimatePresence>
 
     </div>
   );

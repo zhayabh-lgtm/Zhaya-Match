@@ -469,11 +469,20 @@ export interface PublicBestSellerMediaItem {
 }
 
 
-export type BestSellerButtonDestination = 'product' | 'whatsapp' | 'custom';
+export type BestSellerButtonDestination = 'product' | 'whatsapp' | 'custom' | 'form';
 
 export interface BestSellerInternationalProductTranslation {
+  /** Conteúdo editorial digitado manualmente no painel. */
   name?: string | null;
   description?: string | null;
+  videoTitle?: string | null;
+  benefits?: string[];
+  badgeText?: string | null;
+  giftTitle?: string | null;
+  giftLabel?: string | null;
+  colors?: string[];
+  sizes?: string[];
+  outOfStockSizes?: string[];
 }
 
 export interface BestSellerInternationalCountryRule {
@@ -492,6 +501,21 @@ export interface BestSellerInternationalCountryRule {
   whatsappNumber?: string | null;
   whatsappMessage?: string | null;
   customUrl?: string | null;
+  /** Texto editorial do formulário internacional. Se vazio, a interface usa tradução automática. */
+  formTitle?: string | null;
+  formMessage?: string | null;
+  /** Controles de exibição específicos por mercado. */
+  showPrices?: boolean;
+  showInstallments?: boolean;
+  showCta?: boolean;
+  showBenefits?: boolean;
+  showSoldQuantity?: boolean;
+  showAvailableQuantity?: boolean;
+  showSizes?: boolean;
+  showColors?: boolean;
+  showBadges?: boolean;
+  showGift?: boolean;
+  showProductTimers?: boolean;
   productTranslations?: Record<string, BestSellerInternationalProductTranslation>;
 }
 
@@ -774,6 +798,25 @@ export interface BestSellerAnalyticsSummary {
   products: BestSellerAnalyticsProductItem[];
 }
 
+export type BestSellerInternationalLeadStatus = 'new' | 'contacted';
+
+export interface BestSellerInternationalLead {
+  id: string;
+  listId: string;
+  listTitle?: string | null;
+  productId?: string | null;
+  productName: string;
+  countryCode?: string | null;
+  locale?: string | null;
+  name: string;
+  email: string;
+  phone: string;
+  status: BestSellerInternationalLeadStatus;
+  referrer?: string | null;
+  createdAt: string;
+  contactedAt?: string | null;
+}
+
 export interface PublicBestSellerList {
   id: string;
   slug?: string;
@@ -805,10 +848,29 @@ export interface PublicBestSellerList {
   timezone: string;
   /** País detectado pelo edge/IP da Vercel. */
   detectedCountryCode?: string | null;
+  /** Idioma usado pelos textos automáticos da interface pública. */
+  uiLocale?: string;
+  /** Controles de exibição resolvidos para o mercado atual. */
+  showPrices?: boolean;
+  showInstallments?: boolean;
+  showCta?: boolean;
+  showBenefits?: boolean;
+  showSoldQuantity?: boolean;
+  showAvailableQuantity?: boolean;
+  showSizes?: boolean;
+  showColors?: boolean;
+  showBadges?: boolean;
+  showGift?: boolean;
+  showProductTimers?: boolean;
   currencyCode?: string;
   currencyLocale?: string;
   approximateConversion?: boolean;
   approximateLabel?: string | null;
+  /** Destino de CTA resolvido para o país atual. */
+  buttonDestination?: BestSellerButtonDestination;
+  /** Texto editorial opcional do formulário internacional. */
+  formTitle?: string | null;
+  formMessage?: string | null;
   products: PublicBestSellerProduct[];
 }
 

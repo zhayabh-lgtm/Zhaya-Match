@@ -1,0 +1,30 @@
+ZHAYA MATCH — FORMULÁRIOS INTERNACIONAIS
+Atualização: 28/08/2026
+
+O QUE FOI ADICIONADO
+- Novo destino de CTA: "Formulário internacional" por país.
+- O produto é identificado automaticamente pelo card clicado.
+- O formulário coleta nome, e-mail e telefone.
+- País é obtido pelo servidor (Vercel/Cloudflare/proxy compatível), não digitado pelo visitante.
+- Título, mensagem, campos, erros, sucesso e CTA possuem tradução automática nos idiomas já pré-configurados.
+- Título, mensagem e CTA também podem ser sobrescritos manualmente em cada país.
+- Nova área administrativa "Formulários" com contatos novos/contatados, produto, vitrine, país e data.
+- Ações de copiar contato, marcar como contatado, voltar para novo e excluir.
+- Acesso a "Formulários" pelo menu principal e pela vitrine selecionada.
+- Proteção: RLS no banco, leitura/alteração somente via API administrativa autenticada, validação do produto no servidor, honeypot e redução de duplicatas acidentais.
+
+COMO ATIVAR EM UM PAÍS
+1. Abra Vitrine Personalizada > Internacional.
+2. No país desejado, em "Destino dos botões neste país", selecione "Formulário internacional".
+3. Título e mensagem podem ficar vazios para usar a tradução automática.
+4. O campo "CTA traduzido" também pode ficar vazio: no modo formulário ele usa automaticamente um CTA de contato no idioma configurado.
+5. Salve a configuração.
+
+BANCO DE DADOS — ETAPA NECESSÁRIA
+Antes de receber formulários em produção, execute no Supabase a migration:
+  supabase/migrations/20260828163000_best_seller_international_forms.sql
+
+Se a tabela ainda não existir, a própria página Admin > Formulários mostrará um aviso e disponibilizará o mesmo SQL para copiar.
+
+OBSERVAÇÃO
+A migration está incluída também em supabase/schema_full.sql para instalações completas novas.

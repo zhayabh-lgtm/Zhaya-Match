@@ -1,6 +1,7 @@
 import { createClient } from '@supabase/supabase-js';
 import { isValidServiceRoleKey } from '../../src/lib/supabaseKeyValidator.js';
 import type { PublicBestSellerList, PublicBestSellerProduct } from '../../src/types/zhaya.js';
+import { getBestSellerUiText } from '../../src/lib/bestSellerI18n.js';
 
 function getSupabaseClient() {
   const supabaseUrl = process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL || '';
@@ -26,6 +27,19 @@ function isTableMissingError(error: any): boolean {
     msg.includes('could not find the table') ||
     msg.includes('schema cache')
   );
+}
+
+
+function readDetectedCountryCode(req: any): string | null {
+  // Vercel é a fonte principal. Os fallbacks mantêm a mesma experiência caso
+  // o domínio passe por Cloudflare/proxy compatível no futuro.
+  const raw =
+    req?.headers?.['x-vercel-ip-country'] ||
+    req?.headers?.['cf-ipcountry'] ||
+    req?.headers?.['x-country-code'] ||
+    '';
+  const code = String(Array.isArray(raw) ? raw[0] : raw).trim().toUpperCase();
+  return /^[A-Z]{2}$/.test(code) ? code : null;
 }
 
 function normalizeSizeList(input: any): string[] {
@@ -303,7 +317,7 @@ export default async function handler(req: any, res: any) {
 
     // Internacionalização manual por país. O país vem dos headers da Vercel;
     // nenhuma taxa de câmbio externa é consultada em tempo real.
-    const detectedCountryCode = String(req.headers?.['x-vercel-ip-country'] || '').trim().toUpperCase() || null;
+    const detectedCountryCode = readDetectedCountryCode(req);
     const internationalConfig = activeList.international_config && typeof activeList.international_config === 'object'
       ? activeList.international_config
       : null;
@@ -312,67 +326,139 @@ export default async function handler(req: any, res: any) {
       ? rules.find((rule: any) => Boolean(rule?.enabled) && String(rule?.countryCode || '').trim().toUpperCase() === detectedCountryCode)
       : null;
 
-    // Benefícios comerciais (Pix, frete Brasil, cashback etc.) são exclusivos do Brasil.
-    // Quando o modo Internacional estiver ligado, visitantes detectados fora do BR
-    // nunca recebem esse bloco, mesmo que ele exista na ordem da vitrine.
-    const hideBrazilBenefits = Boolean(internationalConfig?.enabled && detectedCountryCode && detectedCountryCode !== 'BR');
-    if (hideBrazilBenefits) {
-      formattedProducts = formattedProducts.filter((product) => product.itemType !== 'benefits');
-    }
-
+    // Regras comerciais e de conteúdo resolvidas por mercado.
+    // Conteúdo editorial continua sendo traduzido manualmente no painel;
+    // textos nativos da interface são traduzidos no front pelo uiLocale.
     let publicTitle = activeList.title;
     let publicSubtitle = activeList.subtitle || null;
     let publicCtaText = activeList.cta_text || null;
     let currencyCode = 'BRL';
     let currencyLocale = 'pt-BR';
+    let uiLocale = 'pt-BR';
     let approximateConversion = false;
     let approximateLabel: string | null = null;
+    let showPrices = true;
+    let showInstallments = true;
+    let showCta = true;
+    let showBenefits = true;
+    let showSoldQuantity = true;
+    let showAvailableQuantity = true;
+    let showSizes = true;
+    let showColors = true;
+    let showBadges = true;
+    let showGift = true;
+    let showProductTimers = true;
+    let buttonDestination: 'product' | 'whatsapp' | 'custom' | 'form' = 'product';
+    let formTitle: string | null = null;
+    let formMessage: string | null = null;
+
+    // Mantém o comportamento anterior: com Internacional ligado, benefícios
+    // brasileiros nunca vazam para um país estrangeiro sem regra própria.
+    if (internationalConfig?.enabled && detectedCountryCode && detectedCountryCode !== 'BR') {
+      showBenefits = false;
+    }
 
     if (countryRule) {
       const rate = Number(countryRule.currencyRate);
       const safeRate = Number.isFinite(rate) && rate > 0 ? rate : 1;
       currencyCode = String(countryRule.currencyCode || 'BRL').trim().toUpperCase().slice(0, 8) || 'BRL';
       currencyLocale = String(countryRule.locale || 'pt-BR').trim().slice(0, 32) || 'pt-BR';
+      uiLocale = currencyLocale;
       approximateConversion = Boolean(countryRule.approximateConversion);
       approximateLabel = approximateConversion
-        ? String(countryRule.approximateLabel || 'Conversão aproximada').trim().slice(0, 80)
+        ? (String(countryRule.approximateLabel || '').trim().slice(0, 80) || null)
         : null;
       publicTitle = String(countryRule.title || '').trim() || publicTitle;
       publicSubtitle = String(countryRule.subtitle || '').trim() || publicSubtitle;
       publicCtaText = String(countryRule.ctaText || '').trim() || publicCtaText;
 
+      // Parcelamento e benefícios são brasileiros por padrão. Podem ser
+      // reativados manualmente para um mercado específico quando fizer sentido.
+      showPrices = countryRule.showPrices !== false;
+      showInstallments = countryRule.showInstallments !== undefined
+        ? Boolean(countryRule.showInstallments)
+        : detectedCountryCode === 'BR';
+      showCta = countryRule.showCta !== false;
+      showBenefits = countryRule.showBenefits !== undefined
+        ? Boolean(countryRule.showBenefits)
+        : detectedCountryCode === 'BR';
+      showSoldQuantity = countryRule.showSoldQuantity !== false;
+      showAvailableQuantity = countryRule.showAvailableQuantity !== false;
+      showSizes = countryRule.showSizes !== false;
+      showColors = countryRule.showColors !== false;
+      showBadges = countryRule.showBadges !== false;
+      showGift = countryRule.showGift !== false;
+      showProductTimers = countryRule.showProductTimers !== false;
+
       const translations = countryRule.productTranslations && typeof countryRule.productTranslations === 'object'
         ? countryRule.productTranslations
         : {};
-      const destination = ['product', 'whatsapp', 'custom'].includes(String(countryRule.buttonDestination))
-        ? String(countryRule.buttonDestination)
+      const destination = ['product', 'whatsapp', 'custom', 'form'].includes(String(countryRule.buttonDestination))
+        ? String(countryRule.buttonDestination) as 'product' | 'whatsapp' | 'custom' | 'form'
         : 'product';
+      buttonDestination = destination;
+      formTitle = String(countryRule.formTitle || '').trim().slice(0, 160) || null;
+      formMessage = String(countryRule.formMessage || '').trim().slice(0, 900) || null;
+      if (destination === 'form' && !String(countryRule.ctaText || '').trim()) {
+        publicCtaText = getBestSellerUiText(uiLocale).formOpenCta;
+      }
       const whatsappNumber = String(countryRule.whatsappNumber || '').replace(/\D+/g, '');
       const whatsappMessage = String(countryRule.whatsappMessage || '').trim().slice(0, 400);
       const customUrl = isSafeUrl(countryRule.customUrl) ? String(countryRule.customUrl).trim() : null;
 
       formattedProducts = formattedProducts.map((product) => {
-        const translation = translations[product.id] || {};
+        const translation: any = translations[product.id] || {};
         const converted = (value: number | null | undefined) => value === null || value === undefined ? value : Math.round(value * safeRate * 100) / 100;
+        const has = (key: string) => Object.prototype.hasOwnProperty.call(translation, key);
+        const translatedList = (key: string, fallback: string[] | undefined): string[] | undefined => {
+          if (!has(key)) return fallback;
+          if (!Array.isArray(translation[key])) return [];
+          return translation[key].map((value: any) => String(value || '').trim()).filter(Boolean).slice(0, 30);
+        };
+
         let productUrl = product.productUrl;
         if (destination === 'whatsapp' && whatsappNumber) {
-          const msg = whatsappMessage || `${product.name} - ${product.productUrl || ''}`.trim();
+          const translatedName = String(translation.name || product.name).trim() || product.name;
+          const msg = whatsappMessage || `${translatedName} - ${product.productUrl || ''}`.trim();
           productUrl = `https://wa.me/${whatsappNumber}?text=${encodeURIComponent(msg)}`;
         } else if (destination === 'custom' && customUrl) {
           productUrl = customUrl;
+        } else if (destination === 'form') {
+          // No fluxo internacional por formulário, a página do produto não é exposta
+          // como destino do CTA. O produto é identificado pelo ID do card clicado.
+          productUrl = null;
         }
+
+        const translatedDescription = has('description')
+          ? (String(translation.description || '').trim() || null)
+          : product.description;
+        const translatedVideoDescription = product.itemType === 'video' && has('description')
+          ? (String(translation.description || '').trim() || product.category)
+          : product.category;
+
         return {
           ...product,
           name: String(translation.name || product.name).trim() || product.name,
-          description: translation.description !== undefined && translation.description !== null
-            ? (String(translation.description).trim() || null)
-            : product.description,
+          category: translatedVideoDescription,
+          description: product.itemType === 'video' ? product.description : translatedDescription,
+          videoTitle: has('videoTitle') ? (String(translation.videoTitle || '').trim() || null) : product.videoTitle,
+          benefits: translatedList('benefits', product.benefits),
+          badgeText: has('badgeText') ? (String(translation.badgeText || '').trim() || null) : product.badgeText,
+          giftTitle: has('giftTitle') ? (String(translation.giftTitle || '').trim() || null) : product.giftTitle,
+          giftLabel: has('giftLabel') ? (String(translation.giftLabel || '').trim() || null) : product.giftLabel,
+          colors: translatedList('colors', product.colors) || [],
+          sizes: translatedList('sizes', product.sizes) || [],
+          outOfStockSizes: translatedList('outOfStockSizes', product.outOfStockSizes) || [],
           productUrl,
           originalPrice: converted(product.originalPrice) as number | null | undefined,
           promotionalPrice: converted(product.promotionalPrice) as number | null | undefined,
           installmentValue: converted(product.installmentValue) as number | null | undefined,
         };
       });
+    }
+
+    if (!showBenefits) {
+      formattedProducts = formattedProducts.filter((product) => product.itemType !== 'benefits');
     }
 
     const responseList: PublicBestSellerList = {
@@ -408,10 +494,25 @@ export default async function handler(req: any, res: any) {
           : null,
       timezone: activeList.timezone || 'America/Sao_Paulo',
       detectedCountryCode,
+      uiLocale,
+      showPrices,
+      showInstallments,
+      showCta,
+      showBenefits,
+      showSoldQuantity,
+      showAvailableQuantity,
+      showSizes,
+      showColors,
+      showBadges,
+      showGift,
+      showProductTimers,
       currencyCode,
       currencyLocale,
       approximateConversion,
       approximateLabel,
+      buttonDestination,
+      formTitle,
+      formMessage,
       products: formattedProducts,
     };
 

@@ -16,6 +16,7 @@ import { MaisVendidos } from './pages/admin/MaisVendidos';
 import { Configuracoes } from './pages/admin/Configuracoes';
 import { ZhayaMatchHub } from './pages/admin/ZhayaMatchHub';
 import { Biblioteca } from './pages/admin/Biblioteca';
+import { Formularios } from './pages/admin/Formularios';
 import { Preview } from './pages/Preview';
 import { MaisVendidosPage } from './pages/public/MaisVendidosPage';
 
@@ -139,6 +140,18 @@ export default function App() {
                   <ProtectedRoute>
                     <AdminLayout>
                       <MaisVendidos />
+                    </AdminLayout>
+                  </ProtectedRoute>
+                </VisitorLockGuard>
+              }
+            />
+            <Route
+              path="/admin/formularios"
+              element={
+                <VisitorLockGuard>
+                  <ProtectedRoute>
+                    <AdminLayout>
+                      <Formularios />
                     </AdminLayout>
                   </ProtectedRoute>
                 </VisitorLockGuard>

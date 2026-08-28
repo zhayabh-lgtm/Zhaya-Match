@@ -47,13 +47,14 @@ import {
   Square,
   FileDown,
   Sparkles,
+  ClipboardList,
 } from 'lucide-react';
 import { Repository } from '../../lib/repository';
 import { getReadableTextColor } from '../../lib/contrast';
 import { supabase, isSupabaseConfigured } from '../../lib/supabase';
 import { uploadFileToCloudinary } from '../../lib/cloudinaryMedia';
 import { CloudinaryMediaPicker } from '../../components/admin/CloudinaryMediaPicker';
-import type { BestSellerList, BestSellerProduct, BestSellerMediaItem, BestSellerLibraryProduct, BestSellerGiftPreset, BestSellerAnalyticsSummary, BestSellerAnalyticsHourItem, BestSellerOverallHoursSummary, BestSellerLiveSession, BestSellerInternationalConfig, BestSellerInternationalCountryRule } from '../../types/zhaya';
+import type { BestSellerList, BestSellerProduct, BestSellerMediaItem, BestSellerLibraryProduct, BestSellerGiftPreset, BestSellerAnalyticsSummary, BestSellerAnalyticsHourItem, BestSellerOverallHoursSummary, BestSellerLiveSession, BestSellerInternationalConfig, BestSellerInternationalCountryRule, BestSellerInternationalProductTranslation } from '../../types/zhaya';
 
 const BEST_SELLERS_SQL = `-- ==============================================================================
 -- ZHAYA MATCH - SETUP DE MAIS VENDIDOS DO DIA (100% COMPLETO E IDEMPOTENTE)
@@ -882,6 +883,30 @@ function normalizeInternationalLocale(locale?: string | null): string {
 
 function getInternationalCountryPreset(code?: string | null) {
   return INTERNATIONAL_COUNTRY_PRESETS.find((item) => item.code === String(code || '').toUpperCase());
+}
+
+function getInternationalVisibilityDefaults(countryCode?: string | null) {
+  const isBrazil = String(countryCode || '').toUpperCase() === 'BR';
+  return {
+    showPrices: true,
+    showInstallments: isBrazil,
+    showCta: true,
+    showBenefits: isBrazil,
+    showSoldQuantity: true,
+    showAvailableQuantity: true,
+    showSizes: true,
+    showColors: true,
+    showBadges: true,
+    showGift: true,
+    showProductTimers: true,
+  };
+}
+
+function parseInternationalListInput(value: string): string[] {
+  return String(value || '')
+    .split(/[,;\n]+/g)
+    .map((item) => item.trim())
+    .filter(Boolean);
 }
 
 const DEFAULT_BENEFITS = [
@@ -2921,7 +2946,9 @@ export const MaisVendidos: React.FC = () => {
     const rules = Array.isArray(config?.rules) ? config!.rules : [];
     const normalizedRules = rules.map((rule) => {
       const preset = getInternationalCountryPreset(rule.countryCode);
+      const visibilityDefaults = getInternationalVisibilityDefaults(rule.countryCode);
       return {
+        ...visibilityDefaults,
         ...rule,
         locale: normalizeInternationalLocale(rule.locale || preset?.locale),
       };
@@ -2951,6 +2978,9 @@ export const MaisVendidos: React.FC = () => {
       whatsappNumber: '',
       whatsappMessage: '',
       customUrl: '',
+      formTitle: '',
+      formMessage: '',
+      ...getInternationalVisibilityDefaults(preset.code),
       productTranslations: {},
     };
   };
@@ -2974,6 +3004,25 @@ export const MaisVendidos: React.FC = () => {
     setInternationalRules((current) => current.map((rule, i) => i === index ? { ...rule, ...patch } : rule));
   };
 
+  const updateInternationalProductTranslation = (
+    ruleIndex: number,
+    productId: string,
+    patch: Partial<BestSellerInternationalProductTranslation>,
+  ) => {
+    setInternationalRules((current) => current.map((rule, index) => {
+      if (index !== ruleIndex) return rule;
+      const existing: BestSellerInternationalProductTranslation = { ...(rule.productTranslations?.[productId] || {}) };
+      Object.entries(patch).forEach(([key, value]) => {
+        if (value === undefined) delete (existing as Record<string, unknown>)[key];
+        else (existing as Record<string, unknown>)[key] = value;
+      });
+      const nextTranslations: Record<string, BestSellerInternationalProductTranslation> = { ...(rule.productTranslations || {}) };
+      if (Object.keys(existing).length > 0) nextTranslations[productId] = existing;
+      else delete nextTranslations[productId];
+      return { ...rule, productTranslations: nextTranslations };
+    }));
+  };
+
   const changeInternationalRuleCountry = (index: number, countryCode: string) => {
     const code = String(countryCode || '').toUpperCase();
     const preset = getInternationalCountryPreset(code);
@@ -2986,6 +3035,10 @@ export const MaisVendidos: React.FC = () => {
       if (i !== index) return rule;
       const previousPreset = getInternationalCountryPreset(rule.countryCode);
       const shouldReplaceCta = !rule.ctaText || rule.ctaText === previousPreset?.ctaText || rule.ctaText === selectedList?.ctaText;
+      const previousVisibility = getInternationalVisibilityDefaults(rule.countryCode);
+      const nextVisibility = getInternationalVisibilityDefaults(preset.code);
+      const preserveOrReplace = (key: keyof ReturnType<typeof getInternationalVisibilityDefaults>) =>
+        rule[key] === undefined || rule[key] === previousVisibility[key] ? nextVisibility[key] : rule[key];
       return {
         ...rule,
         countryCode: preset.code,
@@ -2994,6 +3047,17 @@ export const MaisVendidos: React.FC = () => {
         approximateConversion: preset.currency !== 'BRL',
         approximateLabel: preset.approximateLabel,
         ctaText: shouldReplaceCta ? preset.ctaText : rule.ctaText,
+        showPrices: preserveOrReplace('showPrices'),
+        showInstallments: preserveOrReplace('showInstallments'),
+        showCta: preserveOrReplace('showCta'),
+        showBenefits: preserveOrReplace('showBenefits'),
+        showSoldQuantity: preserveOrReplace('showSoldQuantity'),
+        showAvailableQuantity: preserveOrReplace('showAvailableQuantity'),
+        showSizes: preserveOrReplace('showSizes'),
+        showColors: preserveOrReplace('showColors'),
+        showBadges: preserveOrReplace('showBadges'),
+        showGift: preserveOrReplace('showGift'),
+        showProductTimers: preserveOrReplace('showProductTimers'),
       };
     }));
     setInternationalError(null);
@@ -3395,6 +3459,14 @@ export const MaisVendidos: React.FC = () => {
                   <Globe2 className="w-3.5 h-3.5" />
                   Internacional
                 </button>
+                <a
+                  href={`/admin/formularios?listId=${encodeURIComponent(selectedList.id)}`}
+                  className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold text-neutral-700 bg-white border border-neutral-300 rounded hover:bg-neutral-50 transition-colors cursor-pointer"
+                  title="Ver pessoas interessadas nesta vitrine"
+                >
+                  <ClipboardList className="w-3.5 h-3.5" />
+                  Formulários
+                </a>
                 <button
                   type="button"
                   onClick={() => setReportModalOpen(true)}
@@ -6275,7 +6347,7 @@ export const MaisVendidos: React.FC = () => {
               </label>
 
               <div className="rounded-lg border border-blue-100 bg-blue-50/60 px-3 py-2 text-[10px] text-blue-800">
-                O país é detectado automaticamente pelo acesso. País e idioma vêm pré-configurados; você só ajusta a taxa manual da moeda quando quiser converter preços. Assim a Vitrine nunca depende de uma cotação externa inesperada.
+                O país é detectado automaticamente pelo acesso. Os textos do sistema da página (timer, estoque, vendas, vídeo, botões auxiliares, mensagens e estados) acompanham o idioma escolhido automaticamente. Você traduz manualmente apenas o conteúdo que foi digitado por vocês, como títulos, descrições, selos e benefícios. A taxa da moeda continua manual para evitar cotações externas inesperadas.
               </div>
 
               <div className="space-y-3">
@@ -6345,6 +6417,37 @@ export const MaisVendidos: React.FC = () => {
                         />
                       </div>
 
+                      <div className="rounded-lg border border-neutral-200 bg-neutral-50 p-3">
+                        <div className="mb-2">
+                          <p className="text-[10px] font-bold text-neutral-700">O que aparece neste país</p>
+                          <p className="text-[9px] text-neutral-500 mt-0.5">Parcelamento e benefícios começam desligados fora do Brasil. Os demais itens podem ser ocultados por mercado sem alterar a vitrine original.</p>
+                        </div>
+                        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2">
+                          {[
+                            ['showPrices', 'Preços'],
+                            ['showInstallments', 'Parcelamento sem juros'],
+                            ['showCta', 'Botão de compra'],
+                            ['showBenefits', 'Bloco de benefícios'],
+                            ['showSoldQuantity', 'Quantidade vendida'],
+                            ['showAvailableQuantity', 'Estoque disponível'],
+                            ['showSizes', 'Tamanhos'],
+                            ['showColors', 'Cores'],
+                            ['showBadges', 'Selos / badges'],
+                            ['showGift', 'Presente'],
+                            ['showProductTimers', 'Timer nos produtos'],
+                          ].map(([key, label]) => (
+                            <label key={key} className="flex items-center gap-2 rounded border border-neutral-200 bg-white px-3 py-2 cursor-pointer">
+                              <input
+                                type="checkbox"
+                                checked={Boolean(rule[key as keyof BestSellerInternationalCountryRule])}
+                                onChange={(e) => updateInternationalRule(ruleIndex, { [key]: e.target.checked } as Partial<BestSellerInternationalCountryRule>)}
+                              />
+                              <span className="text-[10px] font-semibold text-neutral-700">{label}</span>
+                            </label>
+                          ))}
+                        </div>
+                      </div>
+
                       <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
                         <div className="space-y-1">
                           <label className="text-[10px] font-bold text-neutral-600">Título traduzido</label>
@@ -6364,12 +6467,13 @@ export const MaisVendidos: React.FC = () => {
                         <label className="text-[10px] font-bold text-neutral-600">Destino dos botões neste país</label>
                         <select
                           value={rule.buttonDestination || 'product'}
-                          onChange={(e) => updateInternationalRule(ruleIndex, { buttonDestination: e.target.value as 'product' | 'whatsapp' | 'custom' })}
+                          onChange={(e) => updateInternationalRule(ruleIndex, { buttonDestination: e.target.value as 'product' | 'whatsapp' | 'custom' | 'form' })}
                           className="w-full min-w-0 px-3 py-2 rounded border border-neutral-300 bg-white text-xs"
                         >
                           <option value="product">Página original do produto</option>
                           <option value="whatsapp">WhatsApp</option>
                           <option value="custom">URL personalizada</option>
+                          <option value="form">Formulário internacional</option>
                         </select>
 
                         {(rule.buttonDestination || 'product') === 'whatsapp' && (
@@ -6381,41 +6485,155 @@ export const MaisVendidos: React.FC = () => {
                         {rule.buttonDestination === 'custom' && (
                           <input type="url" value={rule.customUrl || ''} onChange={(e) => updateInternationalRule(ruleIndex, { customUrl: e.target.value })} placeholder="https://..." className="w-full min-w-0 px-3 py-2 rounded border border-neutral-300 bg-white text-xs" />
                         )}
+                        {rule.buttonDestination === 'form' && (
+                          <div className="space-y-2">
+                            <div className="rounded border border-blue-100 bg-blue-50 px-3 py-2 text-[9px] leading-relaxed text-blue-800">
+                              O botão abre um formulário dentro da própria vitrine e identifica automaticamente qual produto a pessoa clicou. Nome, e-mail, telefone, país e produto aparecem depois em <strong>Formulários</strong>.
+                            </div>
+                            <div className="grid grid-cols-1 gap-2">
+                              <input
+                                value={rule.formTitle || ''}
+                                onChange={(e) => updateInternationalRule(ruleIndex, { formTitle: e.target.value })}
+                                placeholder="Título do formulário — vazio = tradução automática"
+                                className="w-full min-w-0 px-3 py-2 rounded border border-neutral-300 bg-white text-xs"
+                              />
+                              <textarea
+                                value={rule.formMessage || ''}
+                                onChange={(e) => updateInternationalRule(ruleIndex, { formMessage: e.target.value })}
+                                rows={3}
+                                placeholder="Mensagem explicativa — vazio = texto automático informando que a compra online ainda não está adaptada ao país, mas a Zhaya vende e envia internacionalmente."
+                                className="w-full min-w-0 px-3 py-2 rounded border border-neutral-300 bg-white text-xs resize-y"
+                              />
+                            </div>
+                            <p className="text-[9px] text-neutral-500">
+                              Se deixar os campos vazios, título e mensagem acompanham automaticamente o idioma configurado deste país. Preencha manualmente apenas quando quiser uma mensagem específica.
+                            </p>
+                          </div>
+                        )}
                       </div>
 
-                      {productItemsForMetrics.length > 0 && (
+                      {products.length > 0 && (
                         <details className="rounded-lg border border-neutral-200 overflow-hidden">
                           <summary className="px-3 py-2.5 bg-neutral-50 text-[10px] font-bold text-neutral-700 cursor-pointer select-none">
-                            Tradução dos produtos ({productItemsForMetrics.length})
+                            Tradução do conteúdo digitado ({products.length})
                           </summary>
                           <div className="p-3 space-y-3">
-                            {productItemsForMetrics.map((product) => {
+                            <p className="text-[9px] leading-relaxed text-neutral-500">
+                              Os textos fixos da interface são automáticos. Aqui entram somente informações criadas manualmente por vocês. Campos vazios herdam o conteúdo original em português.
+                            </p>
+                            {products.map((product) => {
                               const translated = rule.productTranslations?.[product.id] || {};
+                              const itemLabel = product.itemType === 'video' ? 'Vídeo' : product.itemType === 'benefits' ? 'Benefícios' : 'Produto';
+                              const effectiveBadgeEnabled = product.badgeUseListDefault ? Boolean(selectedList?.defaultBadgeEnabled) : Boolean(product.badgeEnabled);
+                              const effectiveBadgeText = product.badgeUseListDefault ? (selectedList?.defaultBadgeText || '') : (product.badgeText || '');
+                              const usesListGift = (product.giftMode || 'inherit') === 'inherit';
+                              const effectiveGiftEnabled = (product.giftMode || 'inherit') === 'off' ? false : usesListGift ? Boolean(selectedList?.giftEnabled) : Boolean(product.giftImageUrl);
+                              const effectiveGiftLabel = usesListGift ? (selectedList?.giftLabel || '') : (product.giftLabel || '');
+                              const effectiveGiftTitle = usesListGift ? (selectedList?.giftTitle || '') : (product.giftTitle || '');
+                              const clearableText = (value: string) => value.trim() ? value : undefined;
+                              const clearableList = (value: string) => value.trim() ? parseInternationalListInput(value) : undefined;
                               return (
-                                <div key={product.id} className="grid grid-cols-1 sm:grid-cols-2 gap-2 rounded border border-neutral-100 p-2.5">
-                                  <div className="sm:col-span-2 text-[10px] font-bold text-neutral-800 truncate" title={product.name}>{product.name}</div>
-                                  <input
-                                    value={translated.name || ''}
-                                    onChange={(e) => updateInternationalRule(ruleIndex, {
-                                      productTranslations: {
-                                        ...(rule.productTranslations || {}),
-                                        [product.id]: { ...translated, name: e.target.value },
-                                      },
-                                    })}
-                                    placeholder="Nome traduzido"
-                                    className="w-full min-w-0 px-3 py-2 rounded border border-neutral-300 text-xs"
-                                  />
-                                  <input
-                                    value={translated.description || ''}
-                                    onChange={(e) => updateInternationalRule(ruleIndex, {
-                                      productTranslations: {
-                                        ...(rule.productTranslations || {}),
-                                        [product.id]: { ...translated, description: e.target.value },
-                                      },
-                                    })}
-                                    placeholder="Descrição breve traduzida"
-                                    className="w-full min-w-0 px-3 py-2 rounded border border-neutral-300 text-xs"
-                                  />
+                                <div key={product.id} className="rounded border border-neutral-100 p-2.5 space-y-2.5">
+                                  <div className="flex items-center justify-between gap-2">
+                                    <div className="min-w-0 text-[10px] font-bold text-neutral-800 truncate" title={product.name}>{product.name}</div>
+                                    <span className="shrink-0 text-[8px] font-bold uppercase tracking-wider text-neutral-400">{itemLabel}</span>
+                                  </div>
+
+                                  {product.itemType === 'benefits' ? (
+                                    <div className="grid grid-cols-1 gap-2">
+                                      <input
+                                        value={translated.name || ''}
+                                        onChange={(e) => updateInternationalProductTranslation(ruleIndex, product.id, { name: clearableText(e.target.value) })}
+                                        placeholder={`Título · ${product.name || 'Vantagens Zhaya'}`}
+                                        className="w-full min-w-0 px-3 py-2 rounded border border-neutral-300 text-xs"
+                                      />
+                                      <textarea
+                                        value={(translated.benefits || []).join('\n')}
+                                        onChange={(e) => updateInternationalProductTranslation(ruleIndex, product.id, { benefits: clearableList(e.target.value) })}
+                                        placeholder={(product.benefits || []).join('\n') || 'Um benefício por linha'}
+                                        rows={Math.max(3, Math.min(7, product.benefits?.length || 4))}
+                                        className="w-full min-w-0 px-3 py-2 rounded border border-neutral-300 text-xs resize-y"
+                                      />
+                                    </div>
+                                  ) : product.itemType === 'video' ? (
+                                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                                      <input
+                                        value={translated.videoTitle || ''}
+                                        onChange={(e) => updateInternationalProductTranslation(ruleIndex, product.id, { videoTitle: clearableText(e.target.value) })}
+                                        placeholder={`Título do vídeo · ${product.videoTitle || product.name || 'sem título'}`}
+                                        className="w-full min-w-0 px-3 py-2 rounded border border-neutral-300 text-xs"
+                                      />
+                                      <input
+                                        value={translated.description || ''}
+                                        onChange={(e) => updateInternationalProductTranslation(ruleIndex, product.id, { description: clearableText(e.target.value) })}
+                                        placeholder={`Descrição · ${product.category || 'sem descrição'}`}
+                                        className="w-full min-w-0 px-3 py-2 rounded border border-neutral-300 text-xs"
+                                      />
+                                    </div>
+                                  ) : (
+                                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                                      <input
+                                        value={translated.name || ''}
+                                        onChange={(e) => updateInternationalProductTranslation(ruleIndex, product.id, { name: clearableText(e.target.value) })}
+                                        placeholder={`Nome · ${product.name}`}
+                                        className="w-full min-w-0 px-3 py-2 rounded border border-neutral-300 text-xs"
+                                      />
+                                      <input
+                                        value={translated.description || ''}
+                                        onChange={(e) => updateInternationalProductTranslation(ruleIndex, product.id, { description: clearableText(e.target.value) })}
+                                        placeholder={`Descrição · ${product.description || product.category || 'sem descrição'}`}
+                                        className="w-full min-w-0 px-3 py-2 rounded border border-neutral-300 text-xs"
+                                      />
+                                      {effectiveBadgeEnabled && (
+                                        <input
+                                          value={translated.badgeText || ''}
+                                          onChange={(e) => updateInternationalProductTranslation(ruleIndex, product.id, { badgeText: clearableText(e.target.value) })}
+                                          placeholder={`Selo · ${effectiveBadgeText || 'sem texto'}`}
+                                          className="w-full min-w-0 px-3 py-2 rounded border border-neutral-300 text-xs"
+                                        />
+                                      )}
+                                      {effectiveGiftEnabled && (
+                                        <>
+                                          <input
+                                            value={translated.giftLabel || ''}
+                                            onChange={(e) => updateInternationalProductTranslation(ruleIndex, product.id, { giftLabel: clearableText(e.target.value) })}
+                                            placeholder={`Chamada do presente · ${effectiveGiftLabel || 'sem chamada'}`}
+                                            className="w-full min-w-0 px-3 py-2 rounded border border-neutral-300 text-xs"
+                                          />
+                                          <input
+                                            value={translated.giftTitle || ''}
+                                            onChange={(e) => updateInternationalProductTranslation(ruleIndex, product.id, { giftTitle: clearableText(e.target.value) })}
+                                            placeholder={`Nome do presente · ${effectiveGiftTitle || 'sem nome'}`}
+                                            className="w-full min-w-0 px-3 py-2 rounded border border-neutral-300 text-xs"
+                                          />
+                                        </>
+                                      )}
+                                      {product.colors?.length > 0 && (
+                                        <input
+                                          value={(translated.colors || []).join(', ')}
+                                          onChange={(e) => updateInternationalProductTranslation(ruleIndex, product.id, { colors: clearableList(e.target.value) })}
+                                          placeholder={`Cores · ${product.colors.join(', ')}`}
+                                          className="w-full min-w-0 px-3 py-2 rounded border border-neutral-300 text-xs"
+                                        />
+                                      )}
+                                      {product.sizes?.length > 0 && (
+                                        <input
+                                          value={(translated.sizes || []).join(', ')}
+                                          onChange={(e) => updateInternationalProductTranslation(ruleIndex, product.id, { sizes: clearableList(e.target.value) })}
+                                          placeholder={`Tamanhos locais · ${product.sizes.join(', ')}`}
+                                          className="w-full min-w-0 px-3 py-2 rounded border border-neutral-300 text-xs"
+                                        />
+                                      )}
+                                      {product.outOfStockSizes && product.outOfStockSizes.length > 0 && (
+                                        <input
+                                          value={(translated.outOfStockSizes || []).join(', ')}
+                                          onChange={(e) => updateInternationalProductTranslation(ruleIndex, product.id, { outOfStockSizes: clearableList(e.target.value) })}
+                                          placeholder={`Tamanhos sem estoque · ${product.outOfStockSizes.join(', ')}`}
+                                          className="w-full min-w-0 px-3 py-2 rounded border border-neutral-300 text-xs"
+                                        />
+                                      )}
+                                    </div>
+                                  )}
                                 </div>
                               );
                             })}

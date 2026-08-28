@@ -20,6 +20,7 @@ import {
   BestSellerAnalyticsSummary,
   BestSellerOverallHoursSummary,
   BestSellerLiveSession,
+  BestSellerInternationalLead,
   PublicBestSellerList,
 } from '../types/zhaya.js';
 import { supabase, isSupabaseConfigured } from './supabase.js';
@@ -2281,6 +2282,82 @@ export const Repository = {
       console.warn('[Repository] Erro ao consultar mais vendidos públicos:', e);
     }
     return null;
+  },
+
+
+  async submitBestSellerInternationalForm(input: {
+    listId: string;
+    productId: string;
+    name: string;
+    email: string;
+    phone: string;
+    locale?: string | null;
+  }): Promise<{ success: boolean; error?: string }> {
+    try {
+      const res = await fetch('/api/best-sellers?mode=forms', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          ...input,
+          referrer: getBestSellerReferrer(),
+          website: '',
+        }),
+      });
+      const json = await res.json().catch(() => ({}));
+      return res.ok && json?.success
+        ? { success: true }
+        : { success: false, error: json?.error || json?.message || 'FORM_SUBMIT_FAILED' };
+    } catch (e: any) {
+      return { success: false, error: e?.message || 'FORM_SUBMIT_FAILED' };
+    }
+  },
+
+  async getBestSellerInternationalForms(filters?: { listId?: string; status?: 'new' | 'contacted' }): Promise<{ leads: BestSellerInternationalLead[]; configured: boolean; error?: string }> {
+    try {
+      const token = isSupabaseConfigured && supabase ? (await supabase.auth.getSession())?.data?.session?.access_token : undefined;
+      const headers: Record<string, string> = {};
+      if (token) headers.Authorization = `Bearer ${token}`;
+      const params = new URLSearchParams({ mode: 'forms', _: String(Date.now()) });
+      if (filters?.listId) params.set('listId', filters.listId);
+      if (filters?.status) params.set('status', filters.status);
+      const res = await fetch(`/api/best-sellers?${params.toString()}`, { headers, cache: 'no-store' });
+      const json = await res.json().catch(() => ({}));
+      if (res.ok && json?.success) {
+        return { leads: Array.isArray(json.leads) ? json.leads : [], configured: json.configured !== false };
+      }
+      return { leads: [], configured: json?.configured !== false, error: json?.message || json?.error || 'FORMS_LOAD_FAILED' };
+    } catch (e: any) {
+      return { leads: [], configured: false, error: e?.message || 'FORMS_LOAD_FAILED' };
+    }
+  },
+
+  async updateBestSellerInternationalFormStatus(id: string, status: 'new' | 'contacted'): Promise<{ success: boolean; lead?: BestSellerInternationalLead; error?: string }> {
+    try {
+      const token = isSupabaseConfigured && supabase ? (await supabase.auth.getSession())?.data?.session?.access_token : undefined;
+      const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+      if (token) headers.Authorization = `Bearer ${token}`;
+      const res = await fetch('/api/best-sellers?mode=forms', {
+        method: 'PATCH', headers, body: JSON.stringify({ id, status }),
+      });
+      const json = await res.json().catch(() => ({}));
+      return res.ok && json?.success
+        ? { success: true, lead: json.lead || undefined }
+        : { success: false, error: json?.message || json?.error || 'FORM_UPDATE_FAILED' };
+    } catch (e: any) {
+      return { success: false, error: e?.message || 'FORM_UPDATE_FAILED' };
+    }
+  },
+
+  async deleteBestSellerInternationalForm(id: string): Promise<boolean> {
+    try {
+      const token = isSupabaseConfigured && supabase ? (await supabase.auth.getSession())?.data?.session?.access_token : undefined;
+      const headers: Record<string, string> = {};
+      if (token) headers.Authorization = `Bearer ${token}`;
+      const res = await fetch(`/api/best-sellers?mode=forms&id=${encodeURIComponent(id)}`, { method: 'DELETE', headers });
+      return res.ok;
+    } catch {
+      return false;
+    }
   },
 
   async getBestSellerAnalytics(listId: string): Promise<BestSellerAnalyticsSummary | null> {
