@@ -898,6 +898,23 @@ function getInternationalCountryPreset(code?: string | null) {
   return INTERNATIONAL_COUNTRY_PRESETS.find((item) => item.code === String(code || '').toUpperCase());
 }
 
+
+const INTERNATIONAL_SHARED_TRANSLATION_KEYS = new Set<keyof BestSellerInternationalCountryRule>([
+  'title', 'subtitle', 'ctaText', 'footerCtaText', 'formTitle', 'formMessage',
+  'organizedTitle', 'organizedSubtitle', 'categoryTranslations', 'whatsappMessage',
+]);
+
+function internationalTranslationRuleScore(rule: BestSellerInternationalCountryRule): number {
+  let score = 0;
+  INTERNATIONAL_SHARED_TRANSLATION_KEYS.forEach((key) => {
+    const value = (rule as any)[key];
+    if (typeof value === 'string' && value.trim()) score += 4;
+    else if (value && typeof value === 'object') score += Object.keys(value).length;
+  });
+  score += Object.keys(rule.productTranslations || {}).length * 3;
+  return score;
+}
+
 function getInternationalVisibilityDefaults(countryCode?: string | null) {
   const isBrazil = String(countryCode || '').toUpperCase() === 'BR';
   return {
@@ -3364,7 +3381,25 @@ export const MaisVendidos: React.FC = () => {
   };
 
   const updateInternationalRule = (index: number, patch: Partial<BestSellerInternationalCountryRule>) => {
-    setInternationalRules((current) => current.map((rule, i) => i === index ? { ...rule, ...patch } : rule));
+    setInternationalRules((current) => {
+      const source = current[index];
+      if (!source) return current;
+      const sourceLocale = normalizeInternationalLocale(source.locale || 'en');
+      const sharedPatch = Object.fromEntries(
+        Object.entries(patch).filter(([key]) => INTERNATIONAL_SHARED_TRANSLATION_KEYS.has(key as keyof BestSellerInternationalCountryRule)),
+      ) as Partial<BestSellerInternationalCountryRule>;
+      const hasSharedPatch = Object.keys(sharedPatch).length > 0;
+
+      return current.map((rule, i) => {
+        if (i === index) return { ...rule, ...patch };
+        // Texto é um pacote de idioma, não de país. Ao editar uma tradução,
+        // mantemos as regras já configuradas no mesmo idioma sincronizadas.
+        if (hasSharedPatch && normalizeInternationalLocale(rule.locale || 'en') === sourceLocale) {
+          return { ...rule, ...sharedPatch };
+        }
+        return rule;
+      });
+    });
   };
 
   const updateInternationalProductTranslation = (
@@ -3372,18 +3407,23 @@ export const MaisVendidos: React.FC = () => {
     productId: string,
     patch: Partial<BestSellerInternationalProductTranslation>,
   ) => {
-    setInternationalRules((current) => current.map((rule, index) => {
-      if (index !== ruleIndex) return rule;
-      const existing: BestSellerInternationalProductTranslation = { ...(rule.productTranslations?.[productId] || {}) };
-      Object.entries(patch).forEach(([key, value]) => {
-        if (value === undefined) delete (existing as Record<string, unknown>)[key];
-        else (existing as Record<string, unknown>)[key] = value;
+    setInternationalRules((current) => {
+      const source = current[ruleIndex];
+      if (!source) return current;
+      const sourceLocale = normalizeInternationalLocale(source.locale || 'en');
+      return current.map((rule) => {
+        if (normalizeInternationalLocale(rule.locale || 'en') !== sourceLocale) return rule;
+        const existing: BestSellerInternationalProductTranslation = { ...(rule.productTranslations?.[productId] || {}) };
+        Object.entries(patch).forEach(([key, value]) => {
+          if (value === undefined) delete (existing as Record<string, unknown>)[key];
+          else (existing as Record<string, unknown>)[key] = value;
+        });
+        const nextTranslations: Record<string, BestSellerInternationalProductTranslation> = { ...(rule.productTranslations || {}) };
+        if (Object.keys(existing).length > 0) nextTranslations[productId] = existing;
+        else delete nextTranslations[productId];
+        return { ...rule, productTranslations: nextTranslations };
       });
-      const nextTranslations: Record<string, BestSellerInternationalProductTranslation> = { ...(rule.productTranslations || {}) };
-      if (Object.keys(existing).length > 0) nextTranslations[productId] = existing;
-      else delete nextTranslations[productId];
-      return { ...rule, productTranslations: nextTranslations };
-    }));
+    });
   };
 
   const getAutomaticCategoryEntries = (locale = 'pt-BR') => {
@@ -3402,6 +3442,40 @@ export const MaisVendidos: React.FC = () => {
         sourceLabel: getBestSellerCategoryBaseLabel(key),
         automaticLabel: getBestSellerCategoryLabel(locale, key),
       }));
+  };
+
+  const getSharedInternationalTranslationSnapshot = (ruleIndex: number): BestSellerInternationalCountryRule | null => {
+    const target = internationalRules[ruleIndex];
+    if (!target) return null;
+    const locale = normalizeInternationalLocale(target.locale || 'en');
+    const sameLanguage = internationalRules
+      .filter((rule) => normalizeInternationalLocale(rule.locale || 'en') === locale)
+      .sort((a, b) => internationalTranslationRuleScore(a) - internationalTranslationRuleScore(b));
+    const ordered = [...sameLanguage.filter((rule) => rule !== target), target];
+    const snapshot: BestSellerInternationalCountryRule = {
+      ...target,
+      categoryTranslations: {},
+      productTranslations: {},
+    };
+
+    ordered.forEach((rule) => {
+      INTERNATIONAL_SHARED_TRANSLATION_KEYS.forEach((key) => {
+        if (key === 'categoryTranslations') return;
+        const value = (rule as any)[key];
+        if (typeof value === 'string' && value.trim()) (snapshot as any)[key] = value;
+      });
+      if (rule.categoryTranslations && typeof rule.categoryTranslations === 'object') {
+        snapshot.categoryTranslations = { ...(snapshot.categoryTranslations || {}), ...rule.categoryTranslations };
+      }
+      Object.entries(rule.productTranslations || {}).forEach(([productId, translation]) => {
+        snapshot.productTranslations = snapshot.productTranslations || {};
+        snapshot.productTranslations[productId] = {
+          ...(snapshot.productTranslations[productId] || {}),
+          ...(translation || {}),
+        };
+      });
+    });
+    return snapshot;
   };
 
   const downloadJsonFile = (filename: string, payload: unknown) => {
@@ -3425,11 +3499,13 @@ export const MaisVendidos: React.FC = () => {
     const targetUi = getBestSellerUiText(locale);
     const preset = getInternationalCountryPreset(rule.countryCode);
     const categories = getAutomaticCategoryEntries(locale);
-    const translations = rule.productTranslations || {};
+    const sharedRule = getSharedInternationalTranslationSnapshot(ruleIndex) || rule;
+    const translations = sharedRule.productTranslations || {};
 
     const payload = {
       schemaVersion: 'zhaya-match-translations@1',
-      instructions: 'Traduza apenas os campos dentro de translation. Não altere schemaVersion, country, product.id, product.type, product.displayGroup nem os campos source.',
+      instructions: 'Traduza apenas os campos dentro de translation. A tradução é compartilhada por idioma entre regiões. Não altere schemaVersion, country, product.id, product.type, product.displayGroup nem os campos source.',
+      language: { locale, sharedAcrossRegions: true, englishIsGlobalFallback: locale === 'en' },
       listId: selectedList.id,
       country: {
         code: String(rule.countryCode || '').toUpperCase(),
@@ -3451,24 +3527,24 @@ export const MaisVendidos: React.FC = () => {
           whatsappMessage: '',
         },
         translation: {
-          title: rule.title || '',
-          subtitle: rule.subtitle || '',
-          ctaText: rule.ctaText || '',
-          footerCtaText: rule.footerCtaText || '',
-          formTitle: rule.formTitle || targetUi.formDefaultTitle,
-          formMessage: rule.formMessage || targetUi.formDefaultMessage,
+          title: sharedRule.title || '',
+          subtitle: sharedRule.subtitle || '',
+          ctaText: sharedRule.ctaText || '',
+          footerCtaText: sharedRule.footerCtaText || '',
+          formTitle: sharedRule.formTitle || targetUi.formDefaultTitle,
+          formMessage: sharedRule.formMessage || targetUi.formDefaultMessage,
           redirectMessage: rule.redirectMessage || '',
-          organizedTitle: rule.organizedTitle || targetUi.organizedTitle,
-          organizedSubtitle: rule.organizedSubtitle || targetUi.organizedSubtitle,
+          organizedTitle: sharedRule.organizedTitle || targetUi.organizedTitle,
+          organizedSubtitle: sharedRule.organizedSubtitle || targetUi.organizedSubtitle,
           approximateLabel: rule.approximateLabel || targetUi.approximateConversion,
-          whatsappMessage: rule.whatsappMessage || '',
+          whatsappMessage: sharedRule.whatsappMessage || '',
         },
       },
       categories: categories.map((category) => ({
         key: category.key,
         count: category.count,
         source: category.sourceLabel,
-        translation: rule.categoryTranslations?.[category.key] || category.automaticLabel,
+        translation: sharedRule.categoryTranslations?.[category.key] || category.automaticLabel,
       })),
       products: products.map((product) => {
         const translated = translations[product.id] || {};
@@ -3511,9 +3587,10 @@ export const MaisVendidos: React.FC = () => {
     };
 
     const safeCountry = String(rule.countryCode || 'INT').toUpperCase();
+    const safeLanguage = locale.toUpperCase().replace(/[^A-Z0-9]+/g, '-');
     const safeSlug = String(selectedList.slug || selectedList.title || 'vitrine').toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 50) || 'vitrine';
-    downloadJsonFile(`zhaya-match-traducoes-${safeSlug}-${safeCountry}.json`, payload);
-    setInternationalJsonMessage(`JSON de ${safeCountry} exportado com ${products.length} item(ns) e ${categories.length} categoria(s).`);
+    downloadJsonFile(`zhaya-match-traducoes-${safeSlug}-${safeLanguage}.json`, payload);
+    setInternationalJsonMessage(`JSON do idioma ${locale} exportado com ${products.length} item(ns). Essa tradução será reutilizada nas regiões compatíveis.`);
     setInternationalError(null);
   };
 
@@ -3522,11 +3599,15 @@ export const MaisVendidos: React.FC = () => {
     if (parsed?.schemaVersion !== 'zhaya-match-translations@1') throw new Error('Formato inválido. Use um JSON de traduções exportado pelo Zhaya Match.');
     const targetRule = internationalRules[ruleIndex];
     if (!targetRule) throw new Error('País de destino não encontrado.');
-    const fileCountry = String(parsed?.country?.code || '').toUpperCase();
+
     const targetCountry = String(targetRule.countryCode || '').toUpperCase();
-    if (fileCountry && fileCountry !== targetCountry) {
-      throw new Error(`Este arquivo foi exportado para ${fileCountry}, mas você está importando em ${targetCountry}.`);
+    const fileCountry = String(parsed?.country?.code || '').toUpperCase();
+    const targetLocale = normalizeInternationalLocale(targetRule.locale || 'en');
+    const fileLocale = normalizeInternationalLocale(parsed?.language?.locale || parsed?.country?.locale || targetLocale);
+    if (fileLocale !== targetLocale) {
+      throw new Error(`Este JSON está em ${fileLocale}, mas a região selecionada usa ${targetLocale}. Importe em uma região do mesmo idioma.`);
     }
+    const sameCountryFile = !fileCountry || fileCountry === targetCountry;
 
     const textOrNull = (value: unknown): string | null => {
       const text = String(value ?? '').trim();
@@ -3539,19 +3620,33 @@ export const MaisVendidos: React.FC = () => {
     const categories = Array.isArray(parsed?.categories) ? parsed.categories : [];
     const productRows = Array.isArray(parsed?.products) ? parsed.products : [];
     const validProductIds = new Set(products.map((product) => product.id));
+    const sharedListFields: Array<keyof BestSellerInternationalCountryRule> = [
+      'title', 'subtitle', 'ctaText', 'footerCtaText', 'formTitle', 'formMessage',
+      'organizedTitle', 'organizedSubtitle', 'whatsappMessage',
+    ];
 
     setInternationalRules((current) => current.map((rule, index) => {
-      if (index !== ruleIndex) return rule;
+      if (normalizeInternationalLocale(rule.locale || 'en') !== targetLocale) return rule;
       const nextRule: BestSellerInternationalCountryRule = { ...rule };
-      const listFields: Array<keyof BestSellerInternationalCountryRule> = [
-        'title', 'subtitle', 'ctaText', 'footerCtaText', 'formTitle', 'formMessage', 'redirectMessage',
-        'organizedTitle', 'organizedSubtitle', 'approximateLabel', 'whatsappMessage',
-      ];
-      listFields.forEach((key) => {
+
+      // Tradução geral pertence ao idioma e é replicada para todas as regiões
+      // já configuradas nesse idioma.
+      sharedListFields.forEach((key) => {
         if (Object.prototype.hasOwnProperty.call(listTranslation, key)) {
           (nextRule as any)[key] = textOrNull(listTranslation[key]);
         }
       });
+
+      // Mensagem de redirecionamento e aviso de conversão são de mercado/país.
+      // Ao reaproveitar um JSON em outro país do mesmo idioma, não copiamos esses campos.
+      if (index === ruleIndex && sameCountryFile) {
+        if (Object.prototype.hasOwnProperty.call(listTranslation, 'redirectMessage')) {
+          nextRule.redirectMessage = textOrNull(listTranslation.redirectMessage);
+        }
+        if (Object.prototype.hasOwnProperty.call(listTranslation, 'approximateLabel')) {
+          nextRule.approximateLabel = textOrNull(listTranslation.approximateLabel);
+        }
+      }
 
       const nextCategories: Record<string, string> = { ...(rule.categoryTranslations || {}) };
       categories.forEach((category: any) => {
@@ -3591,7 +3686,8 @@ export const MaisVendidos: React.FC = () => {
       return nextRule;
     }));
 
-    setInternationalJsonMessage(`Traduções importadas para ${targetCountry}: ${productRows.length} item(ns) processado(s). Revise e clique em “Salvar internacional”.`);
+    const coverage = INTERNATIONAL_LOCALE_OPTIONS.find((item) => item.value === targetLocale)?.label || targetLocale;
+    setInternationalJsonMessage(`Traduções de ${coverage} importadas: ${productRows.length} item(ns). Elas serão reutilizadas em todas as regiões compatíveis; redirecionamento continua específico por país.`);
     setInternationalError(null);
   };
 
@@ -7295,7 +7391,7 @@ export const MaisVendidos: React.FC = () => {
                   Internacional
                 </h3>
                 <p className="text-[10px] text-neutral-500 mt-0.5">
-                  Configure por país sem digitar códigos: idioma, moeda, textos e destino dos botões já partem de presets seguros.
+                  Configure o comportamento por país e traduza por idioma. Uma tradução é reaproveitada automaticamente nas regiões compatíveis.
                 </p>
               </div>
               <button type="button" onClick={() => setInternationalModalOpen(false)} className="p-1 text-neutral-400 hover:text-neutral-700 cursor-pointer shrink-0">
@@ -7323,13 +7419,13 @@ export const MaisVendidos: React.FC = () => {
                 <span>
                   <span className="block text-xs font-bold text-neutral-900">Ativar experiência internacional</span>
                   <span className="block text-[10px] text-neutral-500 mt-0.5">
-                    O país é detectado automaticamente. Países sem regra continuam vendo a configuração brasileira original.
+                    O país é detectado automaticamente. A tradução segue o idioma da região; inglês funciona como fallback para mercados internacionais sem tradução específica.
                   </span>
                 </span>
               </label>
 
               <div className="rounded-lg border border-blue-100 bg-blue-50/60 px-3 py-2 text-[10px] text-blue-800">
-                O país é detectado automaticamente pelo acesso. Os textos do sistema da página (timer, estoque, vendas, vídeo, botões auxiliares, mensagens e estados) acompanham o idioma escolhido automaticamente. Você traduz manualmente apenas o conteúdo que foi digitado por vocês, como títulos, descrições, selos e benefícios. A taxa da moeda continua manual para evitar cotações externas inesperadas.
+                Região e idioma agora são separados: moeda, redirecionamento e destino do CTA continuam específicos do país; já títulos, descrições, produtos, categorias e demais traduções são compartilhados por idioma. Ex.: um Inglês configurado atende Reino Unido, EUA, Canadá, Austrália e também serve como fallback para qualquer mercado internacional sem idioma próprio. Se houver Árabe, Espanhol, Francês etc., esses idiomas prevalecem nas regiões correspondentes.
               </div>
 
               <div className="space-y-3">
@@ -7346,10 +7442,10 @@ export const MaisVendidos: React.FC = () => {
                         </div>
                       </div>
                       <div className="flex flex-wrap items-center justify-end gap-1.5">
-                        <button type="button" onClick={() => handleExportInternationalTranslations(ruleIndex)} className="inline-flex items-center gap-1 px-2 py-1.5 rounded border border-neutral-200 bg-white text-[9px] font-bold text-neutral-700 hover:bg-neutral-50 cursor-pointer" title="Extrair todos os textos desta vitrine para tradução em massa">
+                        <button type="button" onClick={() => handleExportInternationalTranslations(ruleIndex)} className="inline-flex items-center gap-1 px-2 py-1.5 rounded border border-neutral-200 bg-white text-[9px] font-bold text-neutral-700 hover:bg-neutral-50 cursor-pointer" title="Exportar o pacote de tradução deste idioma">
                           <FileDown className="w-3 h-3" /> Exportar traduções
                         </button>
-                        <button type="button" onClick={() => { setInternationalJsonRuleIndex(ruleIndex); setInternationalJsonMessage(null); setInternationalError(null); setTimeout(() => internationalJsonFileInputRef.current?.click(), 0); }} className="inline-flex items-center gap-1 px-2 py-1.5 rounded border border-neutral-200 bg-white text-[9px] font-bold text-neutral-700 hover:bg-neutral-50 cursor-pointer" title="Aplicar um JSON já traduzido neste país">
+                        <button type="button" onClick={() => { setInternationalJsonRuleIndex(ruleIndex); setInternationalJsonMessage(null); setInternationalError(null); setTimeout(() => internationalJsonFileInputRef.current?.click(), 0); }} className="inline-flex items-center gap-1 px-2 py-1.5 rounded border border-neutral-200 bg-white text-[9px] font-bold text-neutral-700 hover:bg-neutral-50 cursor-pointer" title="Importar um pacote deste idioma; regiões compatíveis reutilizam a tradução">
                           <Upload className="w-3 h-3" /> Importar traduções
                         </button>
                         <label className="inline-flex items-center gap-1.5 text-[10px] font-semibold text-neutral-600">
@@ -7412,7 +7508,7 @@ export const MaisVendidos: React.FC = () => {
                           <div className="rounded-lg border border-violet-200 bg-violet-50/50 p-3 space-y-3">
                             <div>
                               <p className="text-[10px] font-bold text-violet-900">Imersiva organizada · tradução</p>
-                              <p className="text-[9px] text-violet-700 mt-0.5">Os textos e nomes das categorias já têm tradução automática. Preencha apenas se quiser substituir a versão deste país.</p>
+                              <p className="text-[9px] text-violet-700 mt-0.5">Os textos e nomes das categorias já têm tradução automática. O que você preencher aqui é compartilhado com as regiões que usam este mesmo idioma.</p>
                             </div>
                             <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
                               <input value={rule.organizedTitle || ''} onChange={(e) => updateInternationalRule(ruleIndex, { organizedTitle: e.target.value })} placeholder={automaticUi.organizedTitle} className="w-full min-w-0 px-3 py-2 rounded border border-violet-200 bg-white text-xs" />

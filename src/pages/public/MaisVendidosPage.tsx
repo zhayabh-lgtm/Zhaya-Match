@@ -1516,6 +1516,7 @@ export const MaisVendidosPage: React.FC = () => {
   const [now, setNow] = useState<number>(Date.now());
   const [leadProduct, setLeadProduct] = useState<PublicBestSellerProduct | null>(null);
   const [organizedCategory, setOrganizedCategory] = useState<string | null>(null);
+  const [showOrganizedFloatingSelector, setShowOrganizedFloatingSelector] = useState<boolean>(false);
   const ui = useMemo(() => getBestSellerUiText(listData?.uiLocale || listData?.currencyLocale || (typeof navigator !== 'undefined' ? navigator.language : 'pt-BR')), [listData?.uiLocale, listData?.currencyLocale]);
 
   const lastDataRef = useRef<string>('');
@@ -1988,6 +1989,120 @@ export const MaisVendidosPage: React.FC = () => {
     );
   }, [organizedModel, organizedCategory]);
 
+  const scrollToOrganizedProducts = () => {
+    requestAnimationFrame(() => {
+      requestAnimationFrame(() => {
+        document.querySelector('[data-organized-products]')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+      });
+    });
+  };
+
+  const handleOrganizedCategorySelect = (category: string, source: 'initial' | 'floating' | 'bottom' = 'initial') => {
+    setOrganizedCategory(category);
+    if (source !== 'initial') scrollToOrganizedProducts();
+  };
+
+  useEffect(() => {
+    if (!organizedModel.showSelector || !organizedCategory) {
+      setShowOrganizedFloatingSelector(false);
+      return;
+    }
+
+    const updateFloatingSelector = () => {
+      const initialSelector = document.querySelector('[data-organized-selector=\"initial\"]') as HTMLElement | null;
+      const bottomSelector = document.querySelector('[data-organized-selector=\"bottom\"]') as HTMLElement | null;
+      if (!initialSelector) {
+        setShowOrganizedFloatingSelector(false);
+        return;
+      }
+
+      const initialRect = initialSelector.getBoundingClientRect();
+      const viewportHeight = window.innerHeight || document.documentElement.clientHeight;
+      const hasPassedInitialSelector = initialRect.bottom < 8;
+      const bottomRect = bottomSelector?.getBoundingClientRect();
+      const bottomSelectorVisible = Boolean(
+        bottomRect &&
+        bottomRect.top < viewportHeight - 8 &&
+        bottomRect.bottom > 8
+      );
+
+      setShowOrganizedFloatingSelector(hasPassedInitialSelector && !bottomSelectorVisible);
+    };
+
+    updateFloatingSelector();
+    window.addEventListener('scroll', updateFloatingSelector, { passive: true });
+    window.addEventListener('resize', updateFloatingSelector);
+    return () => {
+      window.removeEventListener('scroll', updateFloatingSelector);
+      window.removeEventListener('resize', updateFloatingSelector);
+    };
+  }, [organizedModel.showSelector, organizedCategory, organizedSelectedItems.length]);
+
+  const renderOrganizedCategoryButtons = (source: 'initial' | 'floating' | 'bottom') => {
+    const compact = source === 'floating';
+    const buttonClass = (selected: boolean, isCompact = false) =>
+      `${isCompact ? 'shrink-0 min-h-[36px] px-3 py-2' : 'w-full min-h-[46px] px-3 py-2.5'} rounded-[6px] inline-flex items-center justify-center text-center border transition-[transform,background-color,color,border-color] active:scale-[0.985] ${selected ? 'bg-black text-white border-white outline outline-1 outline-white/80' : 'bg-white text-black border-white hover:bg-neutral-100'}`;
+
+    if (compact) {
+      return (
+        <div className="w-full flex items-center gap-2 overflow-x-auto overscroll-x-contain py-1 px-1 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
+          <button
+            type="button"
+            onClick={() => handleOrganizedCategorySelect('all', source)}
+            aria-pressed={organizedCategory === 'all'}
+            className={buttonClass(organizedCategory === 'all', true)}
+          >
+            <span className="text-[11px] leading-none font-semibold whitespace-nowrap">{ui.organizedAll}</span>
+          </button>
+          {organizedModel.categories.map((category) => {
+            const isSelected = organizedCategory === category.key;
+            return (
+              <button
+                key={`floating-${category.key}`}
+                type="button"
+                aria-pressed={isSelected}
+                onClick={() => handleOrganizedCategorySelect(category.key, source)}
+                className={buttonClass(isSelected, true)}
+              >
+                <span className="text-[11px] leading-none font-semibold whitespace-nowrap">{category.label}</span>
+              </button>
+            );
+          })}
+        </div>
+      );
+    }
+
+    return (
+      <div className="space-y-2">
+        <button
+          type="button"
+          onClick={() => handleOrganizedCategorySelect('all', source)}
+          aria-pressed={organizedCategory === 'all'}
+          className={buttonClass(organizedCategory === 'all')}
+        >
+          <span className="text-[13px] leading-none font-semibold">{ui.organizedAll}</span>
+        </button>
+
+        <div className="grid grid-cols-2 gap-2">
+          {organizedModel.categories.map((category) => {
+            const isSelected = organizedCategory === category.key;
+            return (
+              <button
+                key={`${source}-${category.key}`}
+                type="button"
+                aria-pressed={isSelected}
+                onClick={() => handleOrganizedCategorySelect(category.key, source)}
+                className={buttonClass(isSelected)}
+              >
+                <span className="text-[12px] leading-none font-semibold truncate">{category.label}</span>
+              </button>
+            );
+          })}
+        </div>
+      </div>
+    );
+  };
+
   const renderStoreItem = (prod: PublicBestSellerProduct, idx: number) => {
     if (!listData) return null;
     const originalIndex = listData.products.findIndex((item) => item.id === prod.id);
@@ -2099,6 +2214,22 @@ export const MaisVendidosPage: React.FC = () => {
           />
         </div>
       )}
+      <AnimatePresence>
+        {showOrganizedFloatingSelector && organizedCategory && organizedModel.showSelector && (
+          <motion.nav
+            initial={{ opacity: 0, y: -12, scale: 0.985 }}
+            animate={{ opacity: 1, y: 0, scale: 1 }}
+            exit={{ opacity: 0, y: -10, scale: 0.985 }}
+            transition={{ duration: 0.18, ease: 'easeOut' }}
+            aria-label={listData?.organizedTitle?.trim() || ui.organizedTitle}
+            className="fixed left-1/2 z-[70] w-[calc(100%_-_20px)] max-w-[430px] -translate-x-1/2 rounded-[10px] border border-white/15 bg-black/90 px-2 py-1.5 shadow-[0_10px_32px_rgba(0,0,0,0.38)] backdrop-blur-md"
+            style={{ top: 'calc(env(safe-area-inset-top, 0px) + 8px)', fontFamily: '"Neue Einstellung", "Helvetica Neue", Helvetica, Arial, sans-serif' }}
+          >
+            {renderOrganizedCategoryButtons('floating')}
+          </motion.nav>
+        )}
+      </AnimatePresence>
+
       <main className="relative z-10 w-full max-w-[540px] px-4 sm:px-6 pt-6 pb-28 sm:py-10 flex flex-col items-center">
         {/* ========================================================================= */}
         {/* ESTADO 1: LOADING                                                         */}
@@ -2211,7 +2342,7 @@ export const MaisVendidosPage: React.FC = () => {
 
                 {organizedModel.showSelector && (
                   <section
-                    data-organized-selector
+                    data-organized-selector="initial"
                     className="w-full max-w-[430px] mx-auto py-7 sm:py-9 px-4"
                     style={{ fontFamily: '"Neue Einstellung", "Helvetica Neue", Helvetica, Arial, sans-serif' }}
                   >
@@ -2226,49 +2357,23 @@ export const MaisVendidosPage: React.FC = () => {
                       )}
                     </div>
 
-                    <div className="space-y-2">
-                      <button
-                        type="button"
-                        onClick={() => setOrganizedCategory('all')}
-                        aria-pressed={organizedCategory === 'all'}
-                        className={`w-full min-h-[46px] rounded-[6px] px-4 py-2.5 inline-flex items-center justify-center text-center border transition-[transform,background-color,color,border-color] active:scale-[0.985] ${organizedCategory === 'all' ? 'bg-black text-white border-white outline outline-1 outline-white/80' : 'bg-white text-black border-white hover:bg-neutral-100'}`}
-                      >
-                        <span className="text-[13px] leading-none font-semibold">{ui.organizedAll}</span>
-                      </button>
+                    {renderOrganizedCategoryButtons('initial')}
 
-                      <div className="grid grid-cols-2 gap-2">
-                        {organizedModel.categories.map((category) => {
-                          const isSelected = organizedCategory === category.key;
-                          return (
-                            <button
-                              key={category.key}
-                              type="button"
-                              aria-pressed={isSelected}
-                              onClick={() => setOrganizedCategory(category.key)}
-                              className={`w-full min-h-[46px] rounded-[6px] px-2.5 py-2.5 inline-flex items-center justify-center text-center border transition-[transform,background-color,color,border-color] active:scale-[0.985] ${isSelected ? 'bg-black text-white border-white outline outline-1 outline-white/80' : 'bg-white text-black border-white hover:bg-neutral-100'}`}
-                            >
-                              <span className="text-[12px] leading-none font-semibold truncate">{category.label}</span>
-                            </button>
-                          );
-                        })}
-                      </div>
-
-                      <AnimatePresence initial={false}>
-                        {organizedCategory && organizedSelectedItems.length > 0 && (
-                          <motion.div
-                            initial={{ opacity: 0, y: -3 }}
-                            animate={{ opacity: 1, y: 0 }}
-                            exit={{ opacity: 0, y: -3 }}
-                            className="pt-3 flex justify-center"
-                            aria-hidden="true"
-                          >
-                            <motion.div animate={{ y: [0, 5, 0] }} transition={{ duration: 1.35, repeat: Infinity, ease: 'easeInOut' }}>
-                              <ChevronDown className="w-5 h-5 text-white/80" strokeWidth={1.35} />
-                            </motion.div>
+                    <AnimatePresence initial={false}>
+                      {organizedCategory && organizedSelectedItems.length > 0 && (
+                        <motion.div
+                          initial={{ opacity: 0, y: -3 }}
+                          animate={{ opacity: 1, y: 0 }}
+                          exit={{ opacity: 0, y: -3 }}
+                          className="pt-4 flex justify-center"
+                          aria-hidden="true"
+                        >
+                          <motion.div animate={{ y: [0, 5, 0] }} transition={{ duration: 1.35, repeat: Infinity, ease: 'easeInOut' }}>
+                            <ChevronDown className="w-5 h-5 text-white/80" strokeWidth={1.35} />
                           </motion.div>
-                        )}
-                      </AnimatePresence>
-                    </div>
+                        </motion.div>
+                      )}
+                    </AnimatePresence>
                   </section>
                 )}
 
@@ -2279,17 +2384,20 @@ export const MaisVendidosPage: React.FC = () => {
                 )}
 
                 {organizedModel.showSelector && organizedCategory && organizedSelectedItems.length > 0 && (
-                  <div className="w-full flex flex-col space-y-4 sm:space-y-10">
+                  <div data-organized-products className="w-full flex flex-col space-y-4 sm:space-y-10 scroll-mt-20">
                     {organizedSelectedItems.map((prod, idx) => renderStoreItem(prod, idx))}
-                    <div className="w-full flex justify-center pt-3 px-4">
-                      <button
-                        type="button"
-                        onClick={() => { setOrganizedCategory(null); document.querySelector('[data-organized-selector]')?.scrollIntoView({ behavior: 'smooth', block: 'center' }); }}
-                        className="min-h-[42px] px-5 rounded-[6px] bg-white text-black inline-flex items-center justify-center text-center text-[12px] font-semibold hover:bg-neutral-100 active:scale-[0.985] transition-[transform,background-color] cursor-pointer"
-                      >
-                        {ui.organizedBack}
-                      </button>
-                    </div>
+                    <section
+                      data-organized-selector="bottom"
+                      className="w-full max-w-[430px] mx-auto pt-5 pb-2 px-4"
+                      style={{ fontFamily: '"Neue Einstellung", "Helvetica Neue", Helvetica, Arial, sans-serif' }}
+                    >
+                      <div className="text-center mb-4">
+                        <h3 className="text-[18px] leading-[1.08] font-semibold tracking-[-0.02em] text-white">
+                          {listData.organizedTitle?.trim() || ui.organizedTitle}
+                        </h3>
+                      </div>
+                      {renderOrganizedCategoryButtons('bottom')}
+                    </section>
                   </div>
                 )}
               </div>

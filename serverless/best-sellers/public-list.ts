@@ -3,6 +3,7 @@ import { isValidServiceRoleKey } from '../../src/lib/supabaseKeyValidator.js';
 import type { PublicBestSellerList, PublicBestSellerProduct } from '../../src/types/zhaya.js';
 import { getBestSellerUiText } from '../../src/lib/bestSellerI18n.js';
 import { detectBestSellerCategoryKey } from '../../src/lib/bestSellerCategories.js';
+import { isBestSellerForeignCountry, normalizeBestSellerRegionLocale, resolveBestSellerCountryLocale } from '../../src/lib/bestSellerRegions.js';
 
 function getSupabaseClient() {
   const supabaseUrl = process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL || '';
@@ -37,7 +38,12 @@ function readDetectedCountryCode(req: any): string | null {
   const raw =
     req?.headers?.['x-vercel-ip-country'] ||
     req?.headers?.['cf-ipcountry'] ||
+    req?.headers?.['cloudfront-viewer-country'] ||
+    req?.headers?.['x-nf-country'] ||
+    req?.headers?.['x-geo-country'] ||
+    req?.headers?.['x-appengine-country'] ||
     req?.headers?.['x-country-code'] ||
+    req?.geo?.country ||
     '';
   const code = String(Array.isArray(raw) ? raw[0] : raw).trim().toUpperCase();
   return /^[A-Z]{2}$/.test(code) ? code : null;
@@ -171,6 +177,77 @@ function normalizeGiftImageSize(value: unknown, fallback = 48): number {
   const parsed = Number(value);
   if (!Number.isFinite(parsed)) return fallback;
   return Math.min(80, Math.max(36, Math.round(parsed)));
+}
+
+
+const LANGUAGE_SHARED_TEXT_KEYS = [
+  'title', 'subtitle', 'ctaText', 'footerCtaText', 'formTitle', 'formMessage',
+  'organizedTitle', 'organizedSubtitle', 'whatsappMessage',
+] as const;
+
+function translationRuleScore(rule: any): number {
+  if (!rule || typeof rule !== 'object') return -1;
+  let score = 0;
+  LANGUAGE_SHARED_TEXT_KEYS.forEach((key) => {
+    if (String(rule?.[key] || '').trim()) score += 4;
+  });
+  const categories = rule.categoryTranslations && typeof rule.categoryTranslations === 'object'
+    ? Object.values(rule.categoryTranslations).filter((value: any) => String(value || '').trim()).length
+    : 0;
+  score += categories * 2;
+  const products = rule.productTranslations && typeof rule.productTranslations === 'object'
+    ? Object.values(rule.productTranslations)
+    : [];
+  products.forEach((translation: any) => {
+    if (!translation || typeof translation !== 'object') return;
+    score += Object.values(translation).filter((value: any) => Array.isArray(value) ? value.length > 0 : String(value || '').trim()).length;
+  });
+  return score;
+}
+
+function pickBestLanguageRule(rules: any[], locale: string): any | null {
+  const normalizedLocale = normalizeBestSellerRegionLocale(locale);
+  const candidates = rules.filter((rule: any) => normalizeBestSellerRegionLocale(rule?.locale) === normalizedLocale);
+  if (!candidates.length) return null;
+  return [...candidates].sort((a, b) => translationRuleScore(b) - translationRuleScore(a))[0] || null;
+}
+
+function mergeLanguageContentRules(...sources: Array<any | null | undefined>): any | null {
+  const output: any = { categoryTranslations: {}, productTranslations: {} };
+  let used = false;
+
+  for (const source of sources) {
+    if (!source || typeof source !== 'object') continue;
+    LANGUAGE_SHARED_TEXT_KEYS.forEach((key) => {
+      const value = String(source?.[key] || '').trim();
+      if (value) {
+        output[key] = value;
+        used = true;
+      }
+    });
+
+    if (source.categoryTranslations && typeof source.categoryTranslations === 'object') {
+      for (const [key, value] of Object.entries(source.categoryTranslations)) {
+        const clean = String(value || '').trim();
+        if (!clean) continue;
+        output.categoryTranslations[String(key)] = clean;
+        used = true;
+      }
+    }
+
+    if (source.productTranslations && typeof source.productTranslations === 'object') {
+      for (const [productId, translation] of Object.entries(source.productTranslations)) {
+        if (!translation || typeof translation !== 'object') continue;
+        output.productTranslations[String(productId)] = {
+          ...(output.productTranslations[String(productId)] || {}),
+          ...(translation as Record<string, unknown>),
+        };
+        used = true;
+      }
+    }
+  }
+
+  return used ? output : null;
 }
 
 export default async function handler(req: any, res: any) {
@@ -338,20 +415,36 @@ export default async function handler(req: any, res: any) {
     });
 
 
-    // Internacionalização manual por país. O país vem dos headers da Vercel;
-    // nenhuma taxa de câmbio externa é consultada em tempo real.
+    // Internacional: país define comportamento comercial; idioma define conteúdo.
+    // Uma tradução em inglês é fallback para qualquer país estrangeiro. Quando existe
+    // um pacote no idioma da região (árabe, espanhol, francês etc.), ele prevalece.
+    // Redirecionamento, moeda, destino do CTA e visibilidades continuam específicos do país.
     const detectedCountryCode = readDetectedCountryCode(req);
     const internationalConfig = activeList.international_config && typeof activeList.international_config === 'object'
       ? activeList.international_config
       : null;
     const rules = internationalConfig && Array.isArray(internationalConfig.rules) ? internationalConfig.rules : [];
+    const enabledRules = rules.filter((rule: any) => Boolean(rule?.enabled));
+    const isForeignMarket = Boolean(internationalConfig?.enabled && isBestSellerForeignCountry(detectedCountryCode));
     const countryRule = internationalConfig?.enabled && detectedCountryCode
-      ? rules.find((rule: any) => Boolean(rule?.enabled) && String(rule?.countryCode || '').trim().toUpperCase() === detectedCountryCode)
+      ? enabledRules.find((rule: any) => String(rule?.countryCode || '').trim().toUpperCase() === detectedCountryCode)
       : null;
 
-    // Regras comerciais e de conteúdo resolvidas por mercado.
-    // Conteúdo editorial continua sendo traduzido manualmente no painel;
-    // textos nativos da interface são traduzidos no front pelo uiLocale.
+    const regionLocale = isForeignMarket
+      ? normalizeBestSellerRegionLocale(countryRule?.locale || resolveBestSellerCountryLocale(detectedCountryCode))
+      : 'pt';
+    const englishLanguageRule = isForeignMarket ? pickBestLanguageRule(enabledRules, 'en') : null;
+    const regionLanguageRule = isForeignMarket ? pickBestLanguageRule(enabledRules, regionLocale) : null;
+    const languageContentRule = isForeignMarket
+      ? mergeLanguageContentRules(
+          // Português internacional usa o conteúdo original como base; nos demais
+          // idiomas, inglês funciona como fallback mundial quando configurado.
+          regionLocale === 'pt' ? null : englishLanguageRule,
+          regionLanguageRule,
+          countryRule && normalizeBestSellerRegionLocale(countryRule.locale) === regionLocale ? countryRule : null,
+        )
+      : null;
+
     let publicTitle = activeList.title;
     let publicSubtitle = activeList.subtitle || null;
     let publicCtaText = activeList.cta_text || null;
@@ -362,7 +455,8 @@ export default async function handler(req: any, res: any) {
       : null;
     let currencyCode = 'BRL';
     let currencyLocale = 'pt-BR';
-    let uiLocale = 'pt-BR';
+    let uiLocale = isForeignMarket ? regionLocale : 'pt-BR';
+    let priceRate = 1;
     let approximateConversion = false;
     let approximateLabel: string | null = null;
     let showPrices = true;
@@ -388,34 +482,29 @@ export default async function handler(req: any, res: any) {
     let organizedTitle: string | null = null;
     let organizedSubtitle: string | null = null;
     let categoryTranslations: Record<string, string> = {};
+    let whatsappNumber = '';
+    let whatsappMessage = '';
+    let customUrl: string | null = null;
 
-    // Mantém o comportamento anterior: com Internacional ligado, benefícios
-    // brasileiros nunca vazam para um país estrangeiro sem regra própria.
-    if (internationalConfig?.enabled && detectedCountryCode && detectedCountryCode !== 'BR') {
-      showBenefits = false;
-    }
+    // Benefícios brasileiros não vazam para mercados estrangeiros sem configuração.
+    if (isForeignMarket) showBenefits = false;
 
+    // Regras comerciais permanecem estritamente ligadas ao país detectado.
     if (countryRule) {
       const rate = Number(countryRule.currencyRate);
-      const safeRate = Number.isFinite(rate) && rate > 0 ? rate : 1;
+      priceRate = Number.isFinite(rate) && rate > 0 ? rate : 1;
       currencyCode = String(countryRule.currencyCode || 'BRL').trim().toUpperCase().slice(0, 8) || 'BRL';
-      currencyLocale = String(countryRule.locale || 'pt-BR').trim().slice(0, 32) || 'pt-BR';
-      uiLocale = currencyLocale;
+      currencyLocale = String(countryRule.locale || regionLocale).trim().slice(0, 32) || regionLocale;
       approximateConversion = Boolean(countryRule.approximateConversion);
       approximateLabel = approximateConversion
         ? (String(countryRule.approximateLabel || '').trim().slice(0, 80) || null)
         : null;
-      publicTitle = String(countryRule.title || '').trim() || publicTitle;
-      publicSubtitle = String(countryRule.subtitle || '').trim() || publicSubtitle;
-      publicCtaText = String(countryRule.ctaText || '').trim() || publicCtaText;
-      footerCtaText = String(countryRule.footerCtaText || '').trim().slice(0, 80) || footerCtaText;
+
       if (String(countryRule.footerCtaUrl || '').trim()) {
         const countryFooterUrl = String(countryRule.footerCtaUrl || '').trim().slice(0, 2000);
         if (isSafeUrl(countryFooterUrl) && /^https?:\/\//i.test(countryFooterUrl)) footerCtaUrl = countryFooterUrl;
       }
 
-      // Parcelamento e benefícios são brasileiros por padrão. Podem ser
-      // reativados manualmente para um mercado específico quando fizer sentido.
       showPrices = countryRule.showPrices !== false;
       showInstallments = countryRule.showInstallments !== undefined
         ? Boolean(countryRule.showInstallments)
@@ -433,15 +522,9 @@ export default async function handler(req: any, res: any) {
       showGift = countryRule.showGift !== false;
       showProductTimers = countryRule.showProductTimers !== false;
 
-      const translations = countryRule.productTranslations && typeof countryRule.productTranslations === 'object'
-        ? countryRule.productTranslations
-        : {};
-      const destination = ['product', 'whatsapp', 'custom', 'form'].includes(String(countryRule.buttonDestination))
+      buttonDestination = ['product', 'whatsapp', 'custom', 'form'].includes(String(countryRule.buttonDestination))
         ? String(countryRule.buttonDestination) as 'product' | 'whatsapp' | 'custom' | 'form'
         : 'product';
-      buttonDestination = destination;
-      formTitle = String(countryRule.formTitle || '').trim().slice(0, 160) || null;
-      formMessage = String(countryRule.formMessage || '').trim().slice(0, 900) || null;
       redirectMode = Boolean(countryRule.redirectProducts && detectedCountryCode && detectedCountryCode !== 'BR');
       redirectMessage = redirectMode
         ? (String(countryRule.redirectMessage || '').trim().slice(0, 1200) || null)
@@ -449,26 +532,44 @@ export default async function handler(req: any, res: any) {
       redirectShowPromotions = Boolean(countryRule.redirectShowPromotions);
       redirectShowTimers = redirectShowPromotions && Boolean(countryRule.redirectShowTimers);
       redirectAutoDiscountBadge = countryRule.redirectAutoDiscountBadge !== false;
-      organizedTitle = String(countryRule.organizedTitle || '').trim().slice(0, 160) || null;
-      organizedSubtitle = String(countryRule.organizedSubtitle || '').trim().slice(0, 300) || null;
-      if (countryRule.categoryTranslations && typeof countryRule.categoryTranslations === 'object') {
+      whatsappNumber = String(countryRule.whatsappNumber || '').replace(/\D+/g, '');
+      customUrl = isSafeUrl(countryRule.customUrl) ? String(countryRule.customUrl).trim() : null;
+    }
+
+    // Conteúdo textual é compartilhado por idioma, independentemente de o país ter
+    // uma regra comercial própria. Isso faz, por exemplo, a tradução EN dos EUA
+    // aparecer também no Reino Unido e em qualquer outro mercado internacional.
+    const translations = languageContentRule?.productTranslations && typeof languageContentRule.productTranslations === 'object'
+      ? languageContentRule.productTranslations
+      : {};
+    if (languageContentRule) {
+      publicTitle = String(languageContentRule.title || '').trim() || publicTitle;
+      publicSubtitle = String(languageContentRule.subtitle || '').trim() || publicSubtitle;
+      publicCtaText = String(languageContentRule.ctaText || '').trim() || publicCtaText;
+      footerCtaText = String(languageContentRule.footerCtaText || '').trim().slice(0, 80) || footerCtaText;
+      formTitle = String(languageContentRule.formTitle || '').trim().slice(0, 160) || null;
+      formMessage = String(languageContentRule.formMessage || '').trim().slice(0, 900) || null;
+      organizedTitle = String(languageContentRule.organizedTitle || '').trim().slice(0, 160) || null;
+      organizedSubtitle = String(languageContentRule.organizedSubtitle || '').trim().slice(0, 300) || null;
+      whatsappMessage = String(languageContentRule.whatsappMessage || '').trim().slice(0, 400);
+      if (languageContentRule.categoryTranslations && typeof languageContentRule.categoryTranslations === 'object') {
         categoryTranslations = Object.fromEntries(
-          Object.entries(countryRule.categoryTranslations)
+          Object.entries(languageContentRule.categoryTranslations)
             .map(([key, value]) => [String(key).slice(0, 60), String(value || '').trim().slice(0, 80)] as const)
             .filter(([, value]) => Boolean(value))
         );
       }
-      if (destination === 'form' && !String(countryRule.ctaText || '').trim()) {
-        publicCtaText = getBestSellerUiText(uiLocale).formOpenCta;
-      }
-      const whatsappNumber = String(countryRule.whatsappNumber || '').replace(/\D+/g, '');
-      const whatsappMessage = String(countryRule.whatsappMessage || '').trim().slice(0, 400);
-      const customUrl = isSafeUrl(countryRule.customUrl) ? String(countryRule.customUrl).trim() : null;
+    }
 
+    if (buttonDestination === 'form' && !String(languageContentRule?.ctaText || '').trim()) {
+      publicCtaText = getBestSellerUiText(uiLocale).formOpenCta;
+    }
+
+    if (isForeignMarket) {
       formattedProducts = formattedProducts.map((product) => {
         const stableCategoryKey = product.autoCategoryKey || detectBestSellerCategoryKey(product);
         const translation: any = translations[product.id] || {};
-        const converted = (value: number | null | undefined) => value === null || value === undefined ? value : Math.round(value * safeRate * 100) / 100;
+        const converted = (value: number | null | undefined) => value === null || value === undefined ? value : Math.round(value * priceRate * 100) / 100;
         const has = (key: string) => Object.prototype.hasOwnProperty.call(translation, key);
         const translatedList = (key: string, fallback: string[] | undefined): string[] | undefined => {
           if (!has(key)) return fallback;
@@ -477,15 +578,13 @@ export default async function handler(req: any, res: any) {
         };
 
         let productUrl = product.productUrl;
-        if (destination === 'whatsapp' && whatsappNumber) {
+        if (buttonDestination === 'whatsapp' && whatsappNumber) {
           const translatedName = String(translation.name || product.name).trim() || product.name;
           const msg = whatsappMessage || `${translatedName} - ${product.productUrl || ''}`.trim();
           productUrl = `https://wa.me/${whatsappNumber}?text=${encodeURIComponent(msg)}`;
-        } else if (destination === 'custom' && customUrl) {
+        } else if (buttonDestination === 'custom' && customUrl) {
           productUrl = customUrl;
-        } else if (destination === 'form') {
-          // No fluxo internacional por formulário, a página do produto não é exposta
-          // como destino do CTA. O produto é identificado pelo ID do card clicado.
+        } else if (buttonDestination === 'form') {
           productUrl = null;
         }
 

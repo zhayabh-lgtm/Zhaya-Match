@@ -602,7 +602,7 @@ export interface BestSellerList {
   timerColorForAll?: string;
   /** Habilita os controles de sessão de live para esta vitrine. */
   liveEnabled?: boolean;
-  /** Configuração internacional manual por país. */
+  /** Internacional: regras comerciais por país; conteúdo traduzido é reaproveitado por idioma/região. */
   internationalConfig?: BestSellerInternationalConfig | null;
   listDate: string; // YYYY-MM-DD
   active: boolean;
