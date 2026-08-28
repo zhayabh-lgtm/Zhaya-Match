@@ -486,6 +486,17 @@ export interface BestSellerInternationalProductTranslation {
   outOfStockSizes?: string[];
 }
 
+export interface BestSellerInternationalAdditionalCountry {
+  /** País adicional que reutiliza idioma, textos e comportamento da regra principal. */
+  countryCode: string;
+  /** Moeda específica exibida para este país adicional. */
+  currencyCode: string;
+  /** Multiplicador manual aplicado ao preço em BRL para este país. */
+  currencyRate: number;
+  approximateConversion?: boolean;
+  approximateLabel?: string | null;
+}
+
 export interface BestSellerInternationalCountryRule {
   countryCode: string;
   enabled: boolean;
@@ -493,6 +504,8 @@ export interface BestSellerInternationalCountryRule {
   currencyCode: string;
   /** Multiplicador manual aplicado ao preço em BRL. Ex.: USD 0.18. */
   currencyRate: number;
+  /** Países extras que herdam esta tradução/configuração, mas podem ter moeda e taxa próprias. */
+  additionalCountries?: BestSellerInternationalAdditionalCountry[];
   approximateConversion?: boolean;
   approximateLabel?: string | null;
   title?: string | null;

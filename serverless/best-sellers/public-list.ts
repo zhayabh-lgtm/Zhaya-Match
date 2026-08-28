@@ -43,6 +43,83 @@ function readDetectedCountryCode(req: any): string | null {
   return /^[A-Z]{2}$/.test(code) ? code : null;
 }
 
+/**
+ * Família linguística mínima por país.
+ * Não tenta adivinhar dialetos: serve apenas para reaproveitar uma regra já
+ * configurada quando o país exato ainda não foi cadastrado.
+ */
+const COUNTRY_LOCALE_FAMILY: Record<string, string> = {
+  // Inglês
+  US: 'en', GB: 'en', CA: 'en', AU: 'en', NZ: 'en', IE: 'en', ZA: 'en', SG: 'en',
+  PH: 'en', NG: 'en', KE: 'en', GH: 'en', JM: 'en', TT: 'en', MT: 'en', BB: 'en', BS: 'en', BZ: 'en',
+  // Árabe
+  SA: 'ar', AE: 'ar', BH: 'ar', KW: 'ar', OM: 'ar', QA: 'ar', EG: 'ar', JO: 'ar', LB: 'ar',
+  MA: 'ar', DZ: 'ar', TN: 'ar', IQ: 'ar', LY: 'ar', YE: 'ar', SD: 'ar', SY: 'ar', PS: 'ar',
+  // Espanhol
+  ES: 'es', MX: 'es', AR: 'es', CL: 'es', CO: 'es', UY: 'es', PE: 'es', EC: 'es', VE: 'es',
+  BO: 'es', PY: 'es', CR: 'es', PA: 'es', DO: 'es', GT: 'es', HN: 'es', SV: 'es', NI: 'es', CU: 'es', PR: 'es',
+  // Português
+  BR: 'pt', PT: 'pt', AO: 'pt', MZ: 'pt', CV: 'pt', GW: 'pt', ST: 'pt', TL: 'pt',
+  // Francês
+  FR: 'fr', BE: 'fr', LU: 'fr', MC: 'fr', SN: 'fr', CI: 'fr', CM: 'fr',
+  // Alemão
+  DE: 'de', AT: 'de', CH: 'de', LI: 'de',
+  // Demais famílias já suportadas pela interface
+  CN: 'zh-Hans',
+  HK: 'zh-Hant', TW: 'zh-Hant', MO: 'zh-Hant',
+  KR: 'ko', DK: 'da', FI: 'fi', IN: 'hi', NL: 'nl', ID: 'id', IT: 'it', JP: 'ja',
+  MY: 'ms', BN: 'ms', NO: 'no', PL: 'pl', SE: 'sv', TH: 'th', TR: 'tr', VN: 'vi',
+};
+
+function normalizeLocaleFamily(locale: any): string {
+  const raw = String(locale || '').trim().replace('_', '-').toLowerCase();
+  if (!raw) return '';
+  if (raw.startsWith('zh')) return /hant|tw|hk|mo/.test(raw) ? 'zh-Hant' : 'zh-Hans';
+  return raw.split('-')[0];
+}
+
+function resolveInternationalRule(rules: any[], detectedCountryCode: string | null) {
+  if (!detectedCountryCode) return { rule: null as any, countryOverride: null as any, matchType: 'none' as const };
+  const enabledRules = rules.filter((rule: any) => Boolean(rule?.enabled));
+  const exact = enabledRules.find((rule: any) =>
+    String(rule?.countryCode || '').trim().toUpperCase() === detectedCountryCode
+  );
+  if (exact) return { rule: exact, countryOverride: null, matchType: 'exact' as const };
+
+  const aliasOwner = enabledRules.find((rule: any) =>
+    Array.isArray(rule?.additionalCountries) &&
+    rule.additionalCountries.some((item: any) => String(item?.countryCode || '').trim().toUpperCase() === detectedCountryCode)
+  );
+  if (aliasOwner) {
+    const countryOverride = aliasOwner.additionalCountries.find((item: any) =>
+      String(item?.countryCode || '').trim().toUpperCase() === detectedCountryCode
+    );
+    return { rule: aliasOwner, countryOverride: countryOverride || null, matchType: 'additional' as const };
+  }
+
+  // O Brasil mantém a experiência brasileira original quando não foi
+  // configurado explicitamente. O fallback regional é só para o exterior.
+  if (detectedCountryCode === 'BR') {
+    return { rule: null as any, countryOverride: null as any, matchType: 'none' as const };
+  }
+
+  const family = COUNTRY_LOCALE_FAMILY[detectedCountryCode] || '';
+  if (family) {
+    const regional = enabledRules.find((rule: any) => normalizeLocaleFamily(rule?.locale) === family);
+    if (regional) return { rule: regional, countryOverride: null, matchType: 'regional' as const };
+  }
+
+  // Fallback geral: se o mercado específico não existe, uma configuração
+  // em inglês é preferível a deixar o visitante cair na experiência brasileira.
+  const us = enabledRules.find((rule: any) => String(rule?.countryCode || '').trim().toUpperCase() === 'US');
+  if (us) return { rule: us, countryOverride: null, matchType: 'english' as const };
+  const english = enabledRules.find((rule: any) => normalizeLocaleFamily(rule?.locale) === 'en');
+  if (english) return { rule: english, countryOverride: null, matchType: 'english' as const };
+
+  const first = enabledRules[0] || null;
+  return { rule: first, countryOverride: null, matchType: first ? 'fallback' as const : 'none' as const };
+}
+
 function normalizeSizeList(input: any): string[] {
   const source = Array.isArray(input) ? input : input === undefined || input === null ? [] : [input];
   const items = source
@@ -330,9 +407,11 @@ export default async function handler(req: any, res: any) {
       ? activeList.international_config
       : null;
     const rules = internationalConfig && Array.isArray(internationalConfig.rules) ? internationalConfig.rules : [];
-    const countryRule = internationalConfig?.enabled && detectedCountryCode
-      ? rules.find((rule: any) => Boolean(rule?.enabled) && String(rule?.countryCode || '').trim().toUpperCase() === detectedCountryCode)
-      : null;
+    const resolvedInternational = internationalConfig?.enabled
+      ? resolveInternationalRule(rules, detectedCountryCode)
+      : { rule: null as any, countryOverride: null as any, matchType: 'none' as const };
+    const countryRule = resolvedInternational.rule;
+    const countryCurrencyOverride = resolvedInternational.countryOverride;
 
     // Regras comerciais e de conteúdo resolvidas por mercado.
     // Conteúdo editorial continua sendo traduzido manualmente no painel;
@@ -378,14 +457,16 @@ export default async function handler(req: any, res: any) {
     }
 
     if (countryRule) {
-      const rate = Number(countryRule.currencyRate);
+      const rate = Number(countryCurrencyOverride?.currencyRate ?? countryRule.currencyRate);
       const safeRate = Number.isFinite(rate) && rate > 0 ? rate : 1;
-      currencyCode = String(countryRule.currencyCode || 'BRL').trim().toUpperCase().slice(0, 8) || 'BRL';
+      currencyCode = String(countryCurrencyOverride?.currencyCode || countryRule.currencyCode || 'BRL').trim().toUpperCase().slice(0, 8) || 'BRL';
       currencyLocale = String(countryRule.locale || 'pt-BR').trim().slice(0, 32) || 'pt-BR';
       uiLocale = currencyLocale;
-      approximateConversion = Boolean(countryRule.approximateConversion);
+      approximateConversion = countryCurrencyOverride
+        ? countryCurrencyOverride.approximateConversion !== false
+        : Boolean(countryRule.approximateConversion);
       approximateLabel = approximateConversion
-        ? (String(countryRule.approximateLabel || '').trim().slice(0, 80) || null)
+        ? (String(countryCurrencyOverride?.approximateLabel || countryRule.approximateLabel || '').trim().slice(0, 80) || null)
         : null;
       publicTitle = String(countryRule.title || '').trim() || publicTitle;
       publicSubtitle = String(countryRule.subtitle || '').trim() || publicSubtitle;
