@@ -86,6 +86,28 @@ function normalizeGiftImageSize(value: unknown, fallback = 48): number {
   return Math.min(80, Math.max(36, Math.round(parsed)));
 }
 
+function readOrganizedDefaults(config: any): { title: string | null; fallbackHighlights: boolean } {
+  const defaults = config && typeof config === 'object' && config.organizedDefaults && typeof config.organizedDefaults === 'object'
+    ? config.organizedDefaults
+    : {};
+  return {
+    title: String(defaults.title || '').trim().slice(0, 160) || null,
+    fallbackHighlights: defaults.fallbackHighlights !== false,
+  };
+}
+
+function mergeOrganizedDefaults(config: any, title: unknown, fallbackHighlights: unknown): any {
+  const base = config && typeof config === 'object' ? { ...config } : { enabled: false, rules: [] };
+  if (!Array.isArray(base.rules)) base.rules = [];
+  if (typeof base.enabled !== 'boolean') base.enabled = false;
+  const current = readOrganizedDefaults(base);
+  base.organizedDefaults = {
+    title: title !== undefined ? (String(title || '').trim().slice(0, 160) || null) : current.title,
+    fallbackHighlights: fallbackHighlights !== undefined ? Boolean(fallbackHighlights) : current.fallbackHighlights,
+  };
+  return base;
+}
+
 function isValidSafeUrl(urlStr: unknown): boolean {
   if (!urlStr || typeof urlStr !== 'string') return false;
   const trimmed = urlStr.trim();
@@ -214,6 +236,8 @@ export default async function handler(req: any, res: any) {
           footerCtaUrl: listData.footer_cta_url || null,
           experienceMode: listData.experience_mode === 'organized' ? 'organized' : 'traditional',
           organizedIntroCount: Math.min(12, Math.max(1, Number(listData.organized_intro_count) || 3)),
+          organizedTitle: readOrganizedDefaults(listData.international_config).title,
+          organizedFallbackHighlights: readOrganizedDefaults(listData.international_config).fallbackHighlights,
           showDate: listData.show_date !== false,
           showRanking: listData.show_ranking !== false,
           rankColor: listData.rank_color || '#FFFFFF',
@@ -305,6 +329,8 @@ export default async function handler(req: any, res: any) {
           footerCtaUrl: row.footer_cta_url || null,
           experienceMode: row.experience_mode === 'organized' ? 'organized' : 'traditional',
           organizedIntroCount: Math.min(12, Math.max(1, Number(row.organized_intro_count) || 3)),
+          organizedTitle: readOrganizedDefaults(row.international_config).title,
+          organizedFallbackHighlights: readOrganizedDefaults(row.international_config).fallbackHighlights,
           showDate: row.show_date !== false,
           showRanking: row.show_ranking !== false,
           rankColor: row.rank_color || '#FFFFFF',
@@ -499,6 +525,8 @@ export default async function handler(req: any, res: any) {
           footerCtaUrl: newListData.footer_cta_url || null,
           experienceMode: newListData.experience_mode === 'organized' ? 'organized' : 'traditional',
           organizedIntroCount: Math.min(12, Math.max(1, Number(newListData.organized_intro_count) || 3)),
+          organizedTitle: readOrganizedDefaults(newListData.international_config).title,
+          organizedFallbackHighlights: readOrganizedDefaults(newListData.international_config).fallbackHighlights,
           showDate: newListData.show_date !== false,
           showRanking: newListData.show_ranking !== false,
           rankColor: newListData.rank_color || '#FFFFFF',
@@ -579,9 +607,14 @@ export default async function handler(req: any, res: any) {
       const timerEnd = timerEnabled && !timerLooping && body.timerEnd ? body.timerEnd : null;
       const timezone = body.timezone || 'America/Sao_Paulo';
       const liveEnabled = Boolean(body.liveEnabled);
-      const internationalConfig = body.internationalConfig && typeof body.internationalConfig === 'object'
+      const incomingInternationalConfig = body.internationalConfig && typeof body.internationalConfig === 'object'
         ? body.internationalConfig
         : null;
+      const internationalConfig = mergeOrganizedDefaults(
+        incomingInternationalConfig,
+        body.organizedTitle,
+        body.organizedFallbackHighlights,
+      );
 
       if (footerCtaEnabled && (!footerCtaText || !footerCtaUrl)) {
         return res.status(400).json({ success: false, message: 'Preencha o texto e o link do botão final da página.' });
@@ -693,6 +726,8 @@ export default async function handler(req: any, res: any) {
         footerCtaUrl: data.footer_cta_url || null,
         experienceMode: data.experience_mode === 'organized' ? 'organized' : 'traditional',
         organizedIntroCount: Math.min(12, Math.max(1, Number(data.organized_intro_count) || 3)),
+        organizedTitle: readOrganizedDefaults(data.international_config).title,
+        organizedFallbackHighlights: readOrganizedDefaults(data.international_config).fallbackHighlights,
         showDate: data.show_date !== false,
         showRanking: data.show_ranking !== false,
         rankColor: data.rank_color || '#FFFFFF',
@@ -831,6 +866,22 @@ export default async function handler(req: any, res: any) {
         updates.international_config = body.internationalConfig && typeof body.internationalConfig === 'object'
           ? body.internationalConfig
           : null;
+      }
+      if (body.organizedTitle !== undefined || body.organizedFallbackHighlights !== undefined) {
+        let baseInternationalConfig = updates.international_config;
+        if (baseInternationalConfig === undefined) {
+          const { data: currentConfigRow } = await supabase
+            .from('best_seller_lists')
+            .select('international_config')
+            .eq('id', id)
+            .maybeSingle();
+          baseInternationalConfig = currentConfigRow?.international_config || null;
+        }
+        updates.international_config = mergeOrganizedDefaults(
+          baseInternationalConfig,
+          body.organizedTitle,
+          body.organizedFallbackHighlights,
+        );
       }
       if (
         body.timerEnabled !== undefined ||
@@ -979,6 +1030,8 @@ export default async function handler(req: any, res: any) {
         footerCtaUrl: data.footer_cta_url || null,
         experienceMode: data.experience_mode === 'organized' ? 'organized' : 'traditional',
         organizedIntroCount: Math.min(12, Math.max(1, Number(data.organized_intro_count) || 3)),
+        organizedTitle: readOrganizedDefaults(data.international_config).title,
+        organizedFallbackHighlights: readOrganizedDefaults(data.international_config).fallbackHighlights,
         showDate: data.show_date !== false,
         showRanking: data.show_ranking !== false,
         rankColor: data.rank_color || '#FFFFFF',

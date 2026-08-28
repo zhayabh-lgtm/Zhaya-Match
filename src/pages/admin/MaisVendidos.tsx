@@ -1059,6 +1059,8 @@ export const MaisVendidos: React.FC = () => {
   const [listFormFooterCtaUrl, setListFormFooterCtaUrl] = useState('');
   const [listFormExperienceMode, setListFormExperienceMode] = useState<'traditional' | 'organized'>('traditional');
   const [listFormOrganizedIntroCount, setListFormOrganizedIntroCount] = useState('3');
+  const [listFormOrganizedTitle, setListFormOrganizedTitle] = useState('O que você quer encontrar?');
+  const [listFormOrganizedFallbackHighlights, setListFormOrganizedFallbackHighlights] = useState<boolean>(true);
   const [listFormShowDate, setListFormShowDate] = useState<boolean>(true);
   const [listFormShowRanking, setListFormShowRanking] = useState<boolean>(true);
   const [listFormRankColor, setListFormRankColor] = useState('#FFFFFF');
@@ -1480,6 +1482,8 @@ export const MaisVendidos: React.FC = () => {
     setListFormFooterCtaUrl('');
     setListFormExperienceMode('traditional');
     setListFormOrganizedIntroCount('3');
+    setListFormOrganizedTitle('O que você quer encontrar?');
+    setListFormOrganizedFallbackHighlights(true);
     setListFormShowDate(true);
     setListFormShowRanking(true);
     setListFormRankColor('#FFFFFF');
@@ -1534,6 +1538,8 @@ export const MaisVendidos: React.FC = () => {
     setListFormFooterCtaUrl(list.footerCtaUrl || '');
     setListFormExperienceMode(list.experienceMode === 'organized' ? 'organized' : 'traditional');
     setListFormOrganizedIntroCount(String(list.organizedIntroCount || 3));
+    setListFormOrganizedTitle(list.organizedTitle || 'O que você quer encontrar?');
+    setListFormOrganizedFallbackHighlights(list.organizedFallbackHighlights !== false);
     setListFormShowDate(list.showDate !== false);
     setListFormShowRanking(list.showRanking !== false);
     setListFormRankColor(list.rankColor || '#FFFFFF');
@@ -2209,6 +2215,8 @@ export const MaisVendidos: React.FC = () => {
           footerCtaUrl: listFormFooterCtaEnabled ? listFormFooterCtaUrl.trim() || null : null,
           experienceMode: listFormExperienceMode,
           organizedIntroCount: Math.min(12, Math.max(1, Math.round(Number(listFormOrganizedIntroCount) || 3))),
+          organizedTitle: listFormOrganizedTitle.trim() || null,
+          organizedFallbackHighlights: listFormOrganizedFallbackHighlights,
           showDate: listFormShowDate,
           showRanking: listFormShowRanking,
           rankColor: listFormRankColor || '#FFFFFF',
@@ -2261,6 +2269,8 @@ export const MaisVendidos: React.FC = () => {
           footerCtaUrl: listFormFooterCtaEnabled ? listFormFooterCtaUrl.trim() || null : null,
           experienceMode: listFormExperienceMode,
           organizedIntroCount: Math.min(12, Math.max(1, Math.round(Number(listFormOrganizedIntroCount) || 3))),
+          organizedTitle: listFormOrganizedTitle.trim() || null,
+          organizedFallbackHighlights: listFormOrganizedFallbackHighlights,
           showDate: listFormShowDate,
           showRanking: listFormShowRanking,
           rankColor: listFormRankColor || '#FFFFFF',
@@ -3571,7 +3581,7 @@ export const MaisVendidos: React.FC = () => {
           formTitle: sourceUi.formDefaultTitle,
           formMessage: sourceUi.formDefaultMessage,
           redirectMessage: rule.redirectProducts ? 'Infelizmente os produtos acima não possuem envio internacional. Explore abaixo os produtos disponíveis para o seu país.' : '',
-          organizedTitle: sourceUi.organizedTitle,
+          organizedTitle: selectedList.organizedTitle || sourceUi.organizedTitle,
           organizedSubtitle: sourceUi.organizedSubtitle,
           approximateLabel: 'Conversão aproximada',
           whatsappMessage: '',
@@ -3829,7 +3839,14 @@ export const MaisVendidos: React.FC = () => {
       // Evita duplicar o mesmo JSON de produtos em vários países do mesmo idioma.
       // Em vitrines grandes isso reduz bastante o tamanho de international_config.
       const storageRules = compactInternationalLanguageRules(normalizedRules);
-      const config: BestSellerInternationalConfig = { enabled: internationalEnabled, rules: storageRules };
+      const config: BestSellerInternationalConfig = {
+        enabled: internationalEnabled,
+        rules: storageRules,
+        organizedDefaults: selectedList.internationalConfig?.organizedDefaults || {
+          title: selectedList.organizedTitle || null,
+          fallbackHighlights: selectedList.organizedFallbackHighlights !== false,
+        },
+      };
       const result = await Repository.updateBestSellerList(selectedList.id, { internationalConfig: config });
       if (!result.success) {
         setInternationalError(result.error || 'Não foi possível salvar a configuração internacional.');
@@ -5204,14 +5221,43 @@ export const MaisVendidos: React.FC = () => {
                   </button>
                 </div>
                 {listFormExperienceMode === 'organized' && (
-                  <div className="flex items-center justify-between gap-3 rounded border border-neutral-200 bg-white px-3 py-2.5">
-                    <div>
-                      <div className="text-[10px] font-semibold text-neutral-700">Produtos antes das categorias</div>
-                      <div className="text-[9px] text-neutral-500">Recomendado: 3, baseado no ponto em que a rolagem começa a cansar.</div>
+                  <div className="space-y-2.5">
+                    <div className="rounded border border-neutral-200 bg-white px-3 py-2.5 space-y-1.5">
+                      <label className="block text-[10px] font-semibold text-neutral-700">Frase das categorias</label>
+                      <input
+                        value={listFormOrganizedTitle}
+                        onChange={(e) => setListFormOrganizedTitle(e.target.value)}
+                        maxLength={160}
+                        placeholder="O que você quer encontrar?"
+                        className="w-full px-3 py-2 border border-neutral-300 rounded bg-white text-xs"
+                      />
+                      <p className="text-[9px] text-neutral-500">A mesma frase reaparece nos seletores seguintes, inclusive se a pessoa escolher a mesma categoria novamente.</p>
                     </div>
-                    <select value={listFormOrganizedIntroCount} onChange={(e) => setListFormOrganizedIntroCount(e.target.value)} className="w-20 px-2 py-2 border border-neutral-300 rounded bg-white text-xs font-bold">
-                      {[1,2,3,4,5,6,8,10,12].map((value) => <option key={value} value={value}>{value}</option>)}
-                    </select>
+
+                    <label className="flex items-start gap-2.5 rounded border border-neutral-200 bg-white px-3 py-2.5 cursor-pointer">
+                      <input
+                        type="checkbox"
+                        checked={listFormOrganizedFallbackHighlights}
+                        onChange={(e) => setListFormOrganizedFallbackHighlights(e.target.checked)}
+                        className="mt-0.5"
+                      />
+                      <span>
+                        <span className="block text-[10px] font-semibold text-neutral-700">Sem favoritos, usar os primeiros produtos como destaque</span>
+                        <span className="block text-[9px] text-neutral-500 mt-0.5">Desative para, quando não houver nenhum favorito, abrir diretamente nas categorias.</span>
+                      </span>
+                    </label>
+
+                    {listFormOrganizedFallbackHighlights && (
+                      <div className="flex items-center justify-between gap-3 rounded border border-neutral-200 bg-white px-3 py-2.5">
+                        <div>
+                          <div className="text-[10px] font-semibold text-neutral-700">Produtos padrão antes das categorias</div>
+                          <div className="text-[9px] text-neutral-500">Só é usado quando nenhum produto estiver favoritado. Favoritos sempre definem os destaques manualmente.</div>
+                        </div>
+                        <select value={listFormOrganizedIntroCount} onChange={(e) => setListFormOrganizedIntroCount(e.target.value)} className="w-20 px-2 py-2 border border-neutral-300 rounded bg-white text-xs font-bold">
+                          {[1,2,3,4,5,6,8,10,12].map((value) => <option key={value} value={value}>{value}</option>)}
+                        </select>
+                      </div>
+                    )}
                   </div>
                 )}
               </div>
@@ -5482,7 +5528,12 @@ export const MaisVendidos: React.FC = () => {
                     onChange={(e) => setListFormShowRanking(e.target.checked)}
                     className="rounded border-neutral-300 text-neutral-900 focus:ring-neutral-900"
                   />
-                  <span className="font-semibold text-neutral-700">Mostrar #01, #02, #03...</span>
+                  <span>
+                    <span className="block font-semibold text-neutral-700">Mostrar #01, #02, #03...</span>
+                    {listFormExperienceMode === 'organized' && (
+                      <span className="block text-[9px] text-neutral-500 mt-0.5">No modo organizado, o ranking aparece somente nos destaques antes das categorias.</span>
+                    )}
+                  </span>
                 </label>
               </div>
 

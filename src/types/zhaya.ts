@@ -542,6 +542,11 @@ export interface BestSellerInternationalCountryRule {
 export interface BestSellerInternationalConfig {
   enabled: boolean;
   rules: BestSellerInternationalCountryRule[];
+  /** Preferências globais do modo organizado; ficam neste JSON para evitar nova migração de banco. */
+  organizedDefaults?: {
+    title?: string | null;
+    fallbackHighlights?: boolean;
+  };
 }
 
 export interface BestSellerLiveSession {
@@ -570,6 +575,10 @@ export interface BestSellerList {
   experienceMode?: BestSellerExperienceMode;
   /** Quantos produtos imersivos aparecem antes do seletor automático de categorias. */
   organizedIntroCount?: number;
+  /** Frase principal exibida acima dos seletores de categoria no modo organizado. */
+  organizedTitle?: string | null;
+  /** Sem favoritos, usa os primeiros produtos como destaques. False = categorias aparecem de cara. */
+  organizedFallbackHighlights?: boolean;
   footerCtaText?: string | null;
   footerCtaUrl?: string | null;
   showDate?: boolean;
@@ -868,6 +877,7 @@ export interface PublicBestSellerList {
   footerCtaEnabled?: boolean;
   experienceMode?: BestSellerExperienceMode;
   organizedIntroCount?: number;
+  organizedFallbackHighlights?: boolean;
   /** Textos resolvidos do modo organizado para o mercado atual. */
   organizedTitle?: string | null;
   organizedSubtitle?: string | null;

@@ -1964,6 +1964,11 @@ export const MaisVendidosPage: React.FC = () => {
       introItems = favoriteProducts;
       const introIds = new Set(introItems.map((item) => item.id));
       remainingItems = items.filter((item) => !introIds.has(item.id));
+    } else if (listData?.organizedFallbackHighlights === false) {
+      // Opção editorial: sem nenhum favorito, não inventa destaques.
+      // As categorias passam a ser a primeira interação da experiência organizada.
+      introItems = [];
+      remainingItems = items;
     } else {
       // Sem curadoria manual, usa os primeiros produtos. O padrão da vitrine é 3.
       // Mantemos blocos de vídeo/benefícios que estejam antes do corte para não
@@ -1975,6 +1980,15 @@ export const MaisVendidosPage: React.FC = () => {
       introItems = cutoff >= 0 ? items.slice(0, cutoff + 1) : [];
       remainingItems = cutoff >= 0 ? items.slice(cutoff + 1) : items;
     }
+
+    const introRankById = new Map<string, number>();
+    let introRank = 0;
+    introItems.forEach((item) => {
+      if (item.itemType === 'product' || !item.itemType) {
+        introRank += 1;
+        introRankById.set(item.id, introRank);
+      }
+    });
 
     const remainingProducts = remainingItems.filter((item) => item.itemType !== 'video' && item.itemType !== 'benefits');
     const categoryKeys = new Set<string>();
@@ -1993,7 +2007,7 @@ export const MaisVendidosPage: React.FC = () => {
     // Uma única categoria não oferece escolha real. Nesse caso a etapa é pulada
     // e os produtos restantes continuam normalmente abaixo da abertura.
     const showSelector = enabled && categories.length >= 2;
-    return { enabled, showSelector, introItems, remainingItems, remainingProducts, categories };
+    return { enabled, showSelector, introItems, introRankById, remainingItems, remainingProducts, categories };
   }, [listData, ui.locale]);
 
   const getOrganizedItemsForCategory = (category: string) => {
@@ -2078,7 +2092,7 @@ export const MaisVendidosPage: React.FC = () => {
 
     if (source === 'history' && sourceBlockId) {
       const sourceBlock = organizedCategoryBlocks.find((block) => block.id === sourceBlockId);
-      if (!sourceBlock || sourceBlock.category === category) return;
+      if (!sourceBlock) return;
       const anchorNode = document.querySelector(`[data-organized-block-selector-id="${sourceBlockId}"]`) as HTMLElement | null;
       const anchorTop = anchorNode?.getBoundingClientRect().top ?? null;
       const nextBlock = createOrganizedBlock(category);
@@ -2096,7 +2110,6 @@ export const MaisVendidosPage: React.FC = () => {
     // No seletor do fim, o próximo bloco nasce exatamente onde o usuário está.
     // Não usamos scrollIntoView: isso era o que competia com a remoção do bloco
     // antigo e provocava saltos aleatórios para cima no mobile.
-    if (currentOrganizedCategory === category) return;
     const anchorNode = document.querySelector('[data-organized-selector="current"]') as HTMLElement | null;
     const anchorTop = anchorNode?.getBoundingClientRect().top ?? null;
     const nextBlock = createOrganizedBlock(category);
@@ -2194,7 +2207,11 @@ export const MaisVendidosPage: React.FC = () => {
     return { indexById, rankById, firstProductIndex };
   }, [listData?.products]);
 
-  const renderStoreItem = (prod: PublicBestSellerProduct, idx: number) => {
+  const renderStoreItem = (
+    prod: PublicBestSellerProduct,
+    idx: number,
+    options?: { organizedHighlight?: boolean; displayRank?: number },
+  ) => {
     if (!listData) return null;
     const originalIndex = productRenderMeta.indexById.get(prod.id);
     const safeIndex = originalIndex !== undefined ? originalIndex : idx;
@@ -2215,7 +2232,10 @@ export const MaisVendidosPage: React.FC = () => {
         />
       );
     }
-    const displayRank = productRenderMeta.rankById.get(prod.id) || 1;
+    const displayRank = options?.displayRank || productRenderMeta.rankById.get(prod.id) || 1;
+    const showRankingForItem = listData.experienceMode === 'organized'
+      ? Boolean(options?.organizedHighlight) && listData.showRanking !== false
+      : listData.showRanking !== false;
     const firstProductIndex = productRenderMeta.firstProductIndex;
     return (
       <ProductItem
@@ -2227,7 +2247,7 @@ export const MaisVendidosPage: React.FC = () => {
         ctaText={(listData.ctaText || '').trim() || ui.defaultCta}
         rankColor={listData.rankColor || '#FFFFFF'}
         sizeColor={listData.sizeColor || '#FFFFFF'}
-        showRanking={listData.showRanking !== false}
+        showRanking={showRankingForItem}
         now={now}
         listId={listData.id}
         listTimerEnabled={listData.timerEnabled}
@@ -2430,7 +2450,15 @@ export const MaisVendidosPage: React.FC = () => {
             {/* Vitrine de Produtos */}
             {listData.products && listData.products.length > 0 ? (
               <div className="w-full flex flex-col space-y-4 sm:space-y-10">
-                {(organizedModel.enabled ? organizedModel.introItems : listData.products).map((prod, idx) => renderStoreItem(prod, idx))}
+                {(organizedModel.enabled ? organizedModel.introItems : listData.products).map((prod, idx) =>
+                  renderStoreItem(
+                    prod,
+                    idx,
+                    organizedModel.enabled
+                      ? { organizedHighlight: true, displayRank: organizedModel.introRankById.get(prod.id) }
+                      : undefined,
+                  )
+                )}
 
                 {organizedModel.showSelector && organizedCategoryBlocks.length === 0 && (
                   <section

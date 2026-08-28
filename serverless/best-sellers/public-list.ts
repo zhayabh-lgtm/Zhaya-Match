@@ -448,6 +448,11 @@ export default async function handler(req: any, res: any) {
       ? activeList.international_config
       : null;
     const rules = internationalConfig && Array.isArray(internationalConfig.rules) ? internationalConfig.rules : [];
+    const organizedDefaults = internationalConfig?.organizedDefaults && typeof internationalConfig.organizedDefaults === 'object'
+      ? internationalConfig.organizedDefaults
+      : {};
+    const baseOrganizedTitle = String(organizedDefaults.title || '').trim().slice(0, 160) || null;
+    const organizedFallbackHighlights = organizedDefaults.fallbackHighlights !== false;
     const enabledRules = rules.filter((rule: any) => Boolean(rule?.enabled));
     const isForeignMarket = Boolean(internationalConfig?.enabled && isBestSellerForeignCountry(detectedCountryCode));
     const countryRule = internationalConfig?.enabled && detectedCountryCode
@@ -517,7 +522,7 @@ export default async function handler(req: any, res: any) {
     let redirectShowPromotions = false;
     let redirectShowTimers = false;
     let redirectAutoDiscountBadge = true;
-    let organizedTitle: string | null = null;
+    let organizedTitle: string | null = isForeignMarket ? null : baseOrganizedTitle;
     let organizedSubtitle: string | null = null;
     let categoryTranslations: Record<string, string> = {};
     let whatsappNumber = '';
@@ -708,6 +713,7 @@ export default async function handler(req: any, res: any) {
       footerCtaEnabled: redirectMode ? false : Boolean(footerCtaEnabled && showFooterCta && footerCtaText && footerCtaUrl),
       experienceMode: activeList.experience_mode === 'organized' ? 'organized' : 'traditional',
       organizedIntroCount: Math.min(12, Math.max(1, Number(activeList.organized_intro_count) || 3)),
+      organizedFallbackHighlights,
       organizedTitle: organizedTitle || null,
       organizedSubtitle: organizedSubtitle || null,
       categoryTranslations,
