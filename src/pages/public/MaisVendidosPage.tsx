@@ -1515,7 +1515,7 @@ export const MaisVendidosPage: React.FC = () => {
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [now, setNow] = useState<number>(Date.now());
   const [leadProduct, setLeadProduct] = useState<PublicBestSellerProduct | null>(null);
-  const [organizedCategory, setOrganizedCategory] = useState<string | null>(null);
+  const [organizedCategoryBlocks, setOrganizedCategoryBlocks] = useState<string[]>([]);
   const [showOrganizedFloatingSelector, setShowOrganizedFloatingSelector] = useState<boolean>(false);
   const ui = useMemo(() => getBestSellerUiText(listData?.uiLocale || listData?.currencyLocale || (typeof navigator !== 'undefined' ? navigator.language : 'pt-BR')), [listData?.uiLocale, listData?.currencyLocale]);
 
@@ -1591,7 +1591,7 @@ export const MaisVendidosPage: React.FC = () => {
     pageViewTrackedRef.current = '';
     setListData(null);
     setLeadProduct(null);
-    setOrganizedCategory(null);
+    setOrganizedCategoryBlocks([]);
     setErrorMessage(null);
 
     // 1. Carregamento inicial explícito
@@ -1898,7 +1898,7 @@ export const MaisVendidosPage: React.FC = () => {
       window.removeEventListener('pagehide', flush);
       flush();
     };
-  }, [listData?.id, listData?.products?.length, organizedCategory]);
+  }, [listData?.id, listData?.products?.length, organizedCategoryBlocks]);
 
   const firstItemIsHeroVideo = Boolean(
     listData?.products?.[0]?.itemType === 'video' &&
@@ -1981,52 +1981,84 @@ export const MaisVendidosPage: React.FC = () => {
     return { enabled, showSelector, introItems, remainingItems, remainingProducts, categories };
   }, [listData, ui.locale]);
 
-  const organizedSelectedItems = useMemo(() => {
-    if (!organizedModel.showSelector || !organizedCategory) return [] as PublicBestSellerProduct[];
-    if (organizedCategory === 'all') return organizedModel.remainingItems;
+  const getOrganizedItemsForCategory = (category: string) => {
+    if (category === 'all') return organizedModel.remainingItems;
     return organizedModel.remainingItems.filter((item) =>
-      item.itemType !== 'video' && item.itemType !== 'benefits' && (item.autoCategoryKey || detectBestSellerCategoryKey(item)) === organizedCategory
+      item.itemType !== 'video' &&
+      item.itemType !== 'benefits' &&
+      (item.autoCategoryKey || detectBestSellerCategoryKey(item)) === category
     );
-  }, [organizedModel, organizedCategory]);
+  };
 
-  const scrollToOrganizedProducts = () => {
+  const organizedVisibleBlocks = useMemo(() => {
+    // Mantemos no máximo duas categorias na árvore. Ao entrar a terceira,
+    // a mais antiga sai do DOM para a página não crescer indefinidamente.
+    return organizedCategoryBlocks.slice(-2).map((category, index, visible) => ({
+      id: `${category}-${organizedCategoryBlocks.length - visible.length + index}`,
+      category,
+      items: getOrganizedItemsForCategory(category),
+    }));
+  }, [organizedCategoryBlocks, organizedModel]);
+
+  const currentOrganizedCategory = organizedCategoryBlocks.length > 0
+    ? organizedCategoryBlocks[organizedCategoryBlocks.length - 1]
+    : null;
+
+  const scrollToCurrentOrganizedSelector = () => {
     requestAnimationFrame(() => {
       requestAnimationFrame(() => {
-        document.querySelector('[data-organized-products]')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+        document.querySelector('[data-organized-selector="current"]')?.scrollIntoView({ behavior: 'smooth', block: 'center' });
       });
     });
   };
 
-  const handleOrganizedCategorySelect = (category: string, source: 'initial' | 'floating' | 'bottom' = 'initial') => {
-    setOrganizedCategory(category);
-    if (source !== 'initial') scrollToOrganizedProducts();
+  const scrollToNewestOrganizedBlock = () => {
+    requestAnimationFrame(() => {
+      requestAnimationFrame(() => {
+        document.querySelector('[data-organized-block="latest"]')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+      });
+    });
+  };
+
+  const handleOrganizedCategorySelect = (category: string, source: 'initial' | 'history' | 'current' = 'initial') => {
+    if (source === 'initial') {
+      setOrganizedCategoryBlocks([category]);
+      requestAnimationFrame(scrollToNewestOrganizedBlock);
+      return;
+    }
+
+    // O seletor do fim cria um novo bloco abaixo. Se a mesma categoria já é a
+    // atual, não duplicamos conteúdo sem necessidade.
+    if (currentOrganizedCategory === category) return;
+    setOrganizedCategoryBlocks((previous) => [...previous, category].slice(-2));
+    requestAnimationFrame(scrollToNewestOrganizedBlock);
   };
 
   useEffect(() => {
-    if (!organizedModel.showSelector || !organizedCategory) {
+    if (!organizedModel.showSelector || organizedCategoryBlocks.length === 0) {
       setShowOrganizedFloatingSelector(false);
       return;
     }
 
     const updateFloatingSelector = () => {
-      const initialSelector = document.querySelector('[data-organized-selector=\"initial\"]') as HTMLElement | null;
-      const bottomSelector = document.querySelector('[data-organized-selector=\"bottom\"]') as HTMLElement | null;
-      if (!initialSelector) {
+      // O botão aparece quando a navegação já entrou nos produtos categorizados.
+      // Ele é apenas um atalho para o seletor atual no fim da sequência.
+      const visibleBlocks = Array.from(document.querySelectorAll('[data-organized-block]')) as HTMLElement[];
+      const currentSelector = document.querySelector('[data-organized-selector="current"]') as HTMLElement | null;
+      if (visibleBlocks.length === 0 || !currentSelector) {
         setShowOrganizedFloatingSelector(false);
         return;
       }
 
-      const initialRect = initialSelector.getBoundingClientRect();
-      const viewportHeight = window.innerHeight || document.documentElement.clientHeight;
-      const hasPassedInitialSelector = initialRect.bottom < 8;
-      const bottomRect = bottomSelector?.getBoundingClientRect();
-      const bottomSelectorVisible = Boolean(
-        bottomRect &&
-        bottomRect.top < viewportHeight - 8 &&
-        bottomRect.bottom > 8
-      );
+      const selectorRect = currentSelector.getBoundingClientRect();
+      const firstBlockRect = visibleBlocks[0].getBoundingClientRect();
+      const hasEnteredCategoryProducts = firstBlockRect.top < 72;
+      const organizedChainStillAhead = selectorRect.bottom > 72;
 
-      setShowOrganizedFloatingSelector(hasPassedInitialSelector && !bottomSelectorVisible);
+      // Depois que entrou nos produtos categorizados, o atalho permanece no topo
+      // inclusive quando o seletor do fim entra na tela. Ele só some quando toda
+      // a sequência organizada já ficou para cima.
+      setShowOrganizedFloatingSelector(hasEnteredCategoryProducts && organizedChainStillAhead);
     };
 
     updateFloatingSelector();
@@ -2036,59 +2068,32 @@ export const MaisVendidosPage: React.FC = () => {
       window.removeEventListener('scroll', updateFloatingSelector);
       window.removeEventListener('resize', updateFloatingSelector);
     };
-  }, [organizedModel.showSelector, organizedCategory, organizedSelectedItems.length]);
+  }, [organizedModel.showSelector, organizedCategoryBlocks]);
 
-  const renderOrganizedCategoryButtons = (source: 'initial' | 'floating' | 'bottom') => {
-    const compact = source === 'floating';
-    const buttonClass = (selected: boolean, isCompact = false) =>
-      `${isCompact ? 'shrink-0 min-h-[36px] px-3 py-2' : 'w-full min-h-[46px] px-3 py-2.5'} rounded-[6px] inline-flex items-center justify-center text-center border transition-[transform,background-color,color,border-color] active:scale-[0.985] ${selected ? 'bg-black text-white border-white outline outline-1 outline-white/80' : 'bg-white text-black border-white hover:bg-neutral-100'}`;
-
-    if (compact) {
-      return (
-        <div className="w-full flex items-center gap-2 overflow-x-auto overscroll-x-contain py-1 px-1 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
-          <button
-            type="button"
-            onClick={() => handleOrganizedCategorySelect('all', source)}
-            aria-pressed={organizedCategory === 'all'}
-            className={buttonClass(organizedCategory === 'all', true)}
-          >
-            <span className="text-[11px] leading-none font-semibold whitespace-nowrap">{ui.organizedAll}</span>
-          </button>
-          {organizedModel.categories.map((category) => {
-            const isSelected = organizedCategory === category.key;
-            return (
-              <button
-                key={`floating-${category.key}`}
-                type="button"
-                aria-pressed={isSelected}
-                onClick={() => handleOrganizedCategorySelect(category.key, source)}
-                className={buttonClass(isSelected, true)}
-              >
-                <span className="text-[11px] leading-none font-semibold whitespace-nowrap">{category.label}</span>
-              </button>
-            );
-          })}
-        </div>
-      );
-    }
+  const renderOrganizedCategoryButtons = (
+    source: 'initial' | 'history' | 'current',
+    selectedCategory: string | null = null,
+  ) => {
+    const buttonClass = (selected: boolean) =>
+      `w-full min-h-[46px] px-3 py-2.5 rounded-[6px] inline-flex items-center justify-center text-center border transition-[transform,background-color,color,border-color] active:scale-[0.985] ${selected ? 'bg-black text-white border-white outline outline-1 outline-white/80' : 'bg-white text-black border-white hover:bg-neutral-100'}`;
 
     return (
       <div className="space-y-2">
         <button
           type="button"
           onClick={() => handleOrganizedCategorySelect('all', source)}
-          aria-pressed={organizedCategory === 'all'}
-          className={buttonClass(organizedCategory === 'all')}
+          aria-pressed={selectedCategory === 'all'}
+          className={buttonClass(selectedCategory === 'all')}
         >
           <span className="text-[13px] leading-none font-semibold">{ui.organizedAll}</span>
         </button>
 
         <div className="grid grid-cols-2 gap-2">
           {organizedModel.categories.map((category) => {
-            const isSelected = organizedCategory === category.key;
+            const isSelected = selectedCategory === category.key;
             return (
               <button
-                key={`${source}-${category.key}`}
+                key={`${source}-${selectedCategory || 'empty'}-${category.key}`}
                 type="button"
                 aria-pressed={isSelected}
                 onClick={() => handleOrganizedCategorySelect(category.key, source)}
@@ -2215,18 +2220,19 @@ export const MaisVendidosPage: React.FC = () => {
         </div>
       )}
       <AnimatePresence>
-        {showOrganizedFloatingSelector && organizedCategory && organizedModel.showSelector && (
-          <motion.nav
-            initial={{ opacity: 0, y: -12, scale: 0.985 }}
+        {showOrganizedFloatingSelector && currentOrganizedCategory && organizedModel.showSelector && (
+          <motion.button
+            type="button"
+            initial={{ opacity: 0, y: -10, scale: 0.985 }}
             animate={{ opacity: 1, y: 0, scale: 1 }}
-            exit={{ opacity: 0, y: -10, scale: 0.985 }}
+            exit={{ opacity: 0, y: -8, scale: 0.985 }}
             transition={{ duration: 0.18, ease: 'easeOut' }}
-            aria-label={listData?.organizedTitle?.trim() || ui.organizedTitle}
-            className="fixed left-1/2 z-[70] w-[calc(100%_-_20px)] max-w-[430px] -translate-x-1/2 rounded-[10px] border border-white/15 bg-black/90 px-2 py-1.5 shadow-[0_10px_32px_rgba(0,0,0,0.38)] backdrop-blur-md"
+            onClick={scrollToCurrentOrganizedSelector}
+            className="fixed left-1/2 z-[70] -translate-x-1/2 rounded-full border border-white/20 bg-black/92 px-4 py-2.5 text-[12px] font-semibold text-white shadow-[0_10px_30px_rgba(0,0,0,0.35)] backdrop-blur-md active:scale-[0.98]"
             style={{ top: 'calc(env(safe-area-inset-top, 0px) + 8px)', fontFamily: '"Neue Einstellung", "Helvetica Neue", Helvetica, Arial, sans-serif' }}
           >
-            {renderOrganizedCategoryButtons('floating')}
-          </motion.nav>
+            {ui.organizedBack}
+          </motion.button>
         )}
       </AnimatePresence>
 
@@ -2340,7 +2346,7 @@ export const MaisVendidosPage: React.FC = () => {
               <div className="w-full flex flex-col space-y-4 sm:space-y-10">
                 {(organizedModel.enabled ? organizedModel.introItems : listData.products).map((prod, idx) => renderStoreItem(prod, idx))}
 
-                {organizedModel.showSelector && (
+                {organizedModel.showSelector && organizedCategoryBlocks.length === 0 && (
                   <section
                     data-organized-selector="initial"
                     className="w-full max-w-[430px] mx-auto py-7 sm:py-9 px-4"
@@ -2357,23 +2363,7 @@ export const MaisVendidosPage: React.FC = () => {
                       )}
                     </div>
 
-                    {renderOrganizedCategoryButtons('initial')}
-
-                    <AnimatePresence initial={false}>
-                      {organizedCategory && organizedSelectedItems.length > 0 && (
-                        <motion.div
-                          initial={{ opacity: 0, y: -3 }}
-                          animate={{ opacity: 1, y: 0 }}
-                          exit={{ opacity: 0, y: -3 }}
-                          className="pt-4 flex justify-center"
-                          aria-hidden="true"
-                        >
-                          <motion.div animate={{ y: [0, 5, 0] }} transition={{ duration: 1.35, repeat: Infinity, ease: 'easeInOut' }}>
-                            <ChevronDown className="w-5 h-5 text-white/80" strokeWidth={1.35} />
-                          </motion.div>
-                        </motion.div>
-                      )}
-                    </AnimatePresence>
+                    {renderOrganizedCategoryButtons('initial', null)}
                   </section>
                 )}
 
@@ -2383,11 +2373,47 @@ export const MaisVendidosPage: React.FC = () => {
                   </div>
                 )}
 
-                {organizedModel.showSelector && organizedCategory && organizedSelectedItems.length > 0 && (
-                  <div data-organized-products className="w-full flex flex-col space-y-4 sm:space-y-10 scroll-mt-20">
-                    {organizedSelectedItems.map((prod, idx) => renderStoreItem(prod, idx))}
+                {organizedModel.showSelector && organizedVisibleBlocks.length > 0 && (
+                  <div className="w-full flex flex-col space-y-4 sm:space-y-10">
+                    {organizedVisibleBlocks.map((block, blockIndex) => {
+                      const isLatest = blockIndex === organizedVisibleBlocks.length - 1;
+                      return (
+                        <React.Fragment key={block.id}>
+                          <section
+                            data-organized-selector="selected"
+                            className="w-full max-w-[430px] mx-auto py-6 px-4"
+                            style={{ fontFamily: '"Neue Einstellung", "Helvetica Neue", Helvetica, Arial, sans-serif' }}
+                          >
+                            <div className="text-center mb-4">
+                              <h3 className="text-[18px] leading-[1.08] font-semibold tracking-[-0.02em] text-white">
+                                {listData.organizedTitle?.trim() || ui.organizedTitle}
+                              </h3>
+                            </div>
+                            {renderOrganizedCategoryButtons('history', block.category)}
+                            {block.items.length > 0 && (
+                              <div className="pt-4 flex justify-center" aria-hidden="true">
+                                <motion.div
+                                  animate={{ y: [0, 5, 0] }}
+                                  transition={{ duration: 1.35, repeat: Infinity, ease: 'easeInOut' }}
+                                >
+                                  <ChevronDown className="w-5 h-5 text-white/80" strokeWidth={1.35} />
+                                </motion.div>
+                              </div>
+                            )}
+                          </section>
+
+                          <div
+                            data-organized-block={isLatest ? 'latest' : 'history'}
+                            className="w-full flex flex-col space-y-4 sm:space-y-10 scroll-mt-20"
+                          >
+                            {block.items.map((prod, idx) => renderStoreItem(prod, idx))}
+                          </div>
+                        </React.Fragment>
+                      );
+                    })}
+
                     <section
-                      data-organized-selector="bottom"
+                      data-organized-selector="current"
                       className="w-full max-w-[430px] mx-auto pt-5 pb-2 px-4"
                       style={{ fontFamily: '"Neue Einstellung", "Helvetica Neue", Helvetica, Arial, sans-serif' }}
                     >
@@ -2396,7 +2422,7 @@ export const MaisVendidosPage: React.FC = () => {
                           {listData.organizedTitle?.trim() || ui.organizedTitle}
                         </h3>
                       </div>
-                      {renderOrganizedCategoryButtons('bottom')}
+                      {renderOrganizedCategoryButtons('current', null)}
                     </section>
                   </div>
                 )}
