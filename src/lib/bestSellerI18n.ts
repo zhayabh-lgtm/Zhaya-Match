@@ -59,6 +59,7 @@ export interface BestSellerUiText {
   organizedProducts: string;
   organizedContinue: string;
   organizedBack: string;
+  organizedCategoryEnd: string;
 }
 
 
@@ -85,7 +86,8 @@ type BestSellerOrganizedUiTextKeys =
   | 'organizedAll'
   | 'organizedProducts'
   | 'organizedContinue'
-  | 'organizedBack';
+  | 'organizedBack'
+  | 'organizedCategoryEnd';
 
 type BestSellerBaseUiText = Omit<BestSellerUiText, BestSellerFormUiTextKeys | BestSellerOrganizedUiTextKeys>;
 
@@ -376,29 +378,29 @@ const FORM_PACKS: Record<string, Pick<BestSellerUiText, BestSellerFormUiTextKeys
 type BestSellerOrganizedUiText = Pick<BestSellerUiText, BestSellerOrganizedUiTextKeys>;
 
 const ORGANIZED_PACKS: Record<string, BestSellerOrganizedUiText> = {
-  pt: { organizedTitle: 'O que você quer encontrar?', organizedSubtitle: '', organizedAll: 'Ver tudo', organizedProducts: '{count} produtos', organizedContinue: 'Continuar explorando', organizedBack: 'Trocar categoria' },
-  en: { organizedTitle: 'What are you looking for?', organizedSubtitle: '', organizedAll: 'View all', organizedProducts: '{count} products', organizedContinue: 'Keep exploring', organizedBack: 'Change category' },
-  es: { organizedTitle: '¿Qué estás buscando?', organizedSubtitle: '', organizedAll: 'Ver todo', organizedProducts: '{count} productos', organizedContinue: 'Seguir explorando', organizedBack: 'Cambiar categoría' },
-  de: { organizedTitle: 'Was suchen Sie?', organizedSubtitle: '', organizedAll: 'Alle anzeigen', organizedProducts: '{count} Produkte', organizedContinue: 'Weiter entdecken', organizedBack: 'Kategorie wechseln' },
-  ar: { organizedTitle: 'عمّ تبحث؟', organizedSubtitle: '', organizedAll: 'عرض الكل', organizedProducts: '{count} منتجات', organizedContinue: 'متابعة الاستكشاف', organizedBack: 'تغيير الفئة' },
-  fr: { organizedTitle: 'Que recherchez-vous ?', organizedSubtitle: '', organizedAll: 'Tout voir', organizedProducts: '{count} produits', organizedContinue: 'Continuer à explorer', organizedBack: 'Changer de catégorie' },
-  'zh-Hans': { organizedTitle: '你在寻找什么？', organizedSubtitle: '', organizedAll: '查看全部', organizedProducts: '{count} 件商品', organizedContinue: '继续浏览', organizedBack: '更换类别' },
-  'zh-Hant': { organizedTitle: '你在找什麼？', organizedSubtitle: '', organizedAll: '查看全部', organizedProducts: '{count} 件商品', organizedContinue: '繼續瀏覽', organizedBack: '更換類別' },
-  ko: { organizedTitle: '무엇을 찾고 계신가요?', organizedSubtitle: '', organizedAll: '전체 보기', organizedProducts: '상품 {count}개', organizedContinue: '계속 둘러보기', organizedBack: '카테고리 변경' },
-  da: { organizedTitle: 'Hvad leder du efter?', organizedSubtitle: '', organizedAll: 'Se alle', organizedProducts: '{count} produkter', organizedContinue: 'Fortsæt med at udforske', organizedBack: 'Skift kategori' },
-  fi: { organizedTitle: 'Mitä etsit?', organizedSubtitle: '', organizedAll: 'Näytä kaikki', organizedProducts: '{count} tuotetta', organizedContinue: 'Jatka selaamista', organizedBack: 'Vaihda kategoriaa' },
-  hi: { organizedTitle: 'आप क्या ढूंढ रहे हैं?', organizedSubtitle: '', organizedAll: 'सभी देखें', organizedProducts: '{count} उत्पाद', organizedContinue: 'और देखें', organizedBack: 'श्रेणी बदलें' },
-  nl: { organizedTitle: 'Waar ben je naar op zoek?', organizedSubtitle: '', organizedAll: 'Alles bekijken', organizedProducts: '{count} producten', organizedContinue: 'Verder ontdekken', organizedBack: 'Categorie wijzigen' },
-  id: { organizedTitle: 'Apa yang Anda cari?', organizedSubtitle: '', organizedAll: 'Lihat semua', organizedProducts: '{count} produk', organizedContinue: 'Lanjut jelajahi', organizedBack: 'Ganti kategori' },
-  it: { organizedTitle: 'Cosa stai cercando?', organizedSubtitle: '', organizedAll: 'Vedi tutto', organizedProducts: '{count} prodotti', organizedContinue: 'Continua a esplorare', organizedBack: 'Cambia categoria' },
-  ja: { organizedTitle: '何をお探しですか？', organizedSubtitle: '', organizedAll: 'すべて見る', organizedProducts: '{count} 商品', organizedContinue: 'さらに見る', organizedBack: 'カテゴリーを変更' },
-  ms: { organizedTitle: 'Apa yang anda cari?', organizedSubtitle: '', organizedAll: 'Lihat semua', organizedProducts: '{count} produk', organizedContinue: 'Terus meneroka', organizedBack: 'Tukar kategori' },
-  no: { organizedTitle: 'Hva leter du etter?', organizedSubtitle: '', organizedAll: 'Se alle', organizedProducts: '{count} produkter', organizedContinue: 'Fortsett å utforske', organizedBack: 'Bytt kategori' },
-  pl: { organizedTitle: 'Czego szukasz?', organizedSubtitle: '', organizedAll: 'Zobacz wszystko', organizedProducts: '{count} produktów', organizedContinue: 'Przeglądaj dalej', organizedBack: 'Zmień kategorię' },
-  sv: { organizedTitle: 'Vad letar du efter?', organizedSubtitle: '', organizedAll: 'Visa alla', organizedProducts: '{count} produkter', organizedContinue: 'Fortsätt utforska', organizedBack: 'Byt kategori' },
-  th: { organizedTitle: 'คุณกำลังมองหาอะไร?', organizedSubtitle: '', organizedAll: 'ดูทั้งหมด', organizedProducts: '{count} สินค้า', organizedContinue: 'เลือกดูต่อ', organizedBack: 'เปลี่ยนหมวดหมู่' },
-  tr: { organizedTitle: 'Ne arıyorsunuz?', organizedSubtitle: '', organizedAll: 'Tümünü gör', organizedProducts: '{count} ürün', organizedContinue: 'Keşfetmeye devam et', organizedBack: 'Kategoriyi değiştir' },
-  vi: { organizedTitle: 'Bạn đang tìm gì?', organizedSubtitle: '', organizedAll: 'Xem tất cả', organizedProducts: '{count} sản phẩm', organizedContinue: 'Tiếp tục khám phá', organizedBack: 'Đổi danh mục' },
+  pt: { organizedTitle: 'O que você quer encontrar?', organizedSubtitle: '', organizedAll: 'Ver tudo', organizedProducts: '{count} produtos', organizedContinue: 'Continuar explorando', organizedBack: 'Trocar categoria', organizedCategoryEnd: 'Este é o último produto desta categoria' },
+  en: { organizedTitle: 'What are you looking for?', organizedSubtitle: '', organizedAll: 'View all', organizedProducts: '{count} products', organizedContinue: 'Keep exploring', organizedBack: 'Change category', organizedCategoryEnd: 'This is the last product in this category' },
+  es: { organizedTitle: '¿Qué estás buscando?', organizedSubtitle: '', organizedAll: 'Ver todo', organizedProducts: '{count} productos', organizedContinue: 'Seguir explorando', organizedBack: 'Cambiar categoría', organizedCategoryEnd: 'Este es el último producto de esta categoría' },
+  de: { organizedTitle: 'Was suchen Sie?', organizedSubtitle: '', organizedAll: 'Alle anzeigen', organizedProducts: '{count} Produkte', organizedContinue: 'Weiter entdecken', organizedBack: 'Kategorie wechseln', organizedCategoryEnd: 'Dies ist das letzte Produkt in dieser Kategorie' },
+  ar: { organizedTitle: 'عمّ تبحث؟', organizedSubtitle: '', organizedAll: 'عرض الكل', organizedProducts: '{count} منتجات', organizedContinue: 'متابعة الاستكشاف', organizedBack: 'تغيير الفئة', organizedCategoryEnd: 'هذا هو آخر منتج في هذه الفئة' },
+  fr: { organizedTitle: 'Que recherchez-vous ?', organizedSubtitle: '', organizedAll: 'Tout voir', organizedProducts: '{count} produits', organizedContinue: 'Continuer à explorer', organizedBack: 'Changer de catégorie', organizedCategoryEnd: 'Voici le dernier produit de cette catégorie' },
+  'zh-Hans': { organizedTitle: '你在寻找什么？', organizedSubtitle: '', organizedAll: '查看全部', organizedProducts: '{count} 件商品', organizedContinue: '继续浏览', organizedBack: '更换类别', organizedCategoryEnd: '这是该类别的最后一件商品' },
+  'zh-Hant': { organizedTitle: '你在找什麼？', organizedSubtitle: '', organizedAll: '查看全部', organizedProducts: '{count} 件商品', organizedContinue: '繼續瀏覽', organizedBack: '更換類別', organizedCategoryEnd: '這是此類別的最後一件商品' },
+  ko: { organizedTitle: '무엇을 찾고 계신가요?', organizedSubtitle: '', organizedAll: '전체 보기', organizedProducts: '상품 {count}개', organizedContinue: '계속 둘러보기', organizedBack: '카테고리 변경', organizedCategoryEnd: '이 카테고리의 마지막 상품입니다' },
+  da: { organizedTitle: 'Hvad leder du efter?', organizedSubtitle: '', organizedAll: 'Se alle', organizedProducts: '{count} produkter', organizedContinue: 'Fortsæt med at udforske', organizedBack: 'Skift kategori', organizedCategoryEnd: 'Dette er det sidste produkt i denne kategori' },
+  fi: { organizedTitle: 'Mitä etsit?', organizedSubtitle: '', organizedAll: 'Näytä kaikki', organizedProducts: '{count} tuotetta', organizedContinue: 'Jatka selaamista', organizedBack: 'Vaihda kategoriaa', organizedCategoryEnd: 'Tämä on tämän kategorian viimeinen tuote' },
+  hi: { organizedTitle: 'आप क्या ढूंढ रहे हैं?', organizedSubtitle: '', organizedAll: 'सभी देखें', organizedProducts: '{count} उत्पाद', organizedContinue: 'और देखें', organizedBack: 'श्रेणी बदलें', organizedCategoryEnd: 'यह इस श्रेणी का अंतिम उत्पाद है' },
+  nl: { organizedTitle: 'Waar ben je naar op zoek?', organizedSubtitle: '', organizedAll: 'Alles bekijken', organizedProducts: '{count} producten', organizedContinue: 'Verder ontdekken', organizedBack: 'Categorie wijzigen', organizedCategoryEnd: 'Dit is het laatste product in deze categorie' },
+  id: { organizedTitle: 'Apa yang Anda cari?', organizedSubtitle: '', organizedAll: 'Lihat semua', organizedProducts: '{count} produk', organizedContinue: 'Lanjut jelajahi', organizedBack: 'Ganti kategori', organizedCategoryEnd: 'Ini adalah produk terakhir dalam kategori ini' },
+  it: { organizedTitle: 'Cosa stai cercando?', organizedSubtitle: '', organizedAll: 'Vedi tutto', organizedProducts: '{count} prodotti', organizedContinue: 'Continua a esplorare', organizedBack: 'Cambia categoria', organizedCategoryEnd: "Questo è l'ultimo prodotto di questa categoria" },
+  ja: { organizedTitle: '何をお探しですか？', organizedSubtitle: '', organizedAll: 'すべて見る', organizedProducts: '{count} 商品', organizedContinue: 'さらに見る', organizedBack: 'カテゴリーを変更', organizedCategoryEnd: 'このカテゴリーの最後の商品です' },
+  ms: { organizedTitle: 'Apa yang anda cari?', organizedSubtitle: '', organizedAll: 'Lihat semua', organizedProducts: '{count} produk', organizedContinue: 'Terus meneroka', organizedBack: 'Tukar kategori', organizedCategoryEnd: 'Ini ialah produk terakhir dalam kategori ini' },
+  no: { organizedTitle: 'Hva leter du etter?', organizedSubtitle: '', organizedAll: 'Se alle', organizedProducts: '{count} produkter', organizedContinue: 'Fortsett å utforske', organizedBack: 'Bytt kategori', organizedCategoryEnd: 'Dette er det siste produktet i denne kategorien' },
+  pl: { organizedTitle: 'Czego szukasz?', organizedSubtitle: '', organizedAll: 'Zobacz wszystko', organizedProducts: '{count} produktów', organizedContinue: 'Przeglądaj dalej', organizedBack: 'Zmień kategorię', organizedCategoryEnd: 'To ostatni produkt w tej kategorii' },
+  sv: { organizedTitle: 'Vad letar du efter?', organizedSubtitle: '', organizedAll: 'Visa alla', organizedProducts: '{count} produkter', organizedContinue: 'Fortsätt utforska', organizedBack: 'Byt kategori', organizedCategoryEnd: 'Det här är den sista produkten i den här kategorin' },
+  th: { organizedTitle: 'คุณกำลังมองหาอะไร?', organizedSubtitle: '', organizedAll: 'ดูทั้งหมด', organizedProducts: '{count} สินค้า', organizedContinue: 'เลือกดูต่อ', organizedBack: 'เปลี่ยนหมวดหมู่', organizedCategoryEnd: 'นี่คือสินค้าชิ้นสุดท้ายในหมวดหมู่นี้' },
+  tr: { organizedTitle: 'Ne arıyorsunuz?', organizedSubtitle: '', organizedAll: 'Tümünü gör', organizedProducts: '{count} ürün', organizedContinue: 'Keşfetmeye devam et', organizedBack: 'Kategoriyi değiştir', organizedCategoryEnd: 'Bu, bu kategorideki son üründür' },
+  vi: { organizedTitle: 'Bạn đang tìm gì?', organizedSubtitle: '', organizedAll: 'Xem tất cả', organizedProducts: '{count} sản phẩm', organizedContinue: 'Tiếp tục khám phá', organizedBack: 'Đổi danh mục', organizedCategoryEnd: 'Đây là sản phẩm cuối cùng trong danh mục này' },
 };
 
 export function resolveBestSellerUiLocale(locale?: string | null): string {

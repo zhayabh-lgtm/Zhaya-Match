@@ -2082,11 +2082,12 @@ export const MaisVendidosPage: React.FC = () => {
     sourceBlockId?: number,
   ) => {
     if (source === 'initial') {
-      const anchorNode = document.querySelector('[data-organized-selector="initial"]') as HTMLElement | null;
-      const anchorTop = anchorNode?.getBoundingClientRect().top ?? null;
+      // O primeiro seletor é permanente. Ao escolher a primeira categoria, não
+      // deslocamos a tela para o bloco novo: os botões selecionados ocupam o
+      // espaço logo abaixo do título e o título continua visível no mesmo ponto.
+      pendingOrganizedAnchorRef.current = null;
       const nextBlock = createOrganizedBlock(category);
       setOrganizedCategoryBlocks([nextBlock]);
-      queueOrganizedSelectorAnchor(`[data-organized-block-selector-id="${nextBlock.id}"]`, anchorTop);
       return;
     }
 
@@ -2460,13 +2461,13 @@ export const MaisVendidosPage: React.FC = () => {
                   )
                 )}
 
-                {organizedModel.showSelector && organizedCategoryBlocks.length === 0 && (
+                {organizedModel.showSelector && (
                   <section
                     data-organized-selector="initial"
-                    className="w-full max-w-[430px] mx-auto py-7 sm:py-9 px-4"
+                    className={`w-full max-w-[430px] mx-auto px-4 ${organizedCategoryBlocks.length === 0 ? 'py-7 sm:py-9' : 'pt-7 sm:pt-9 pb-1'}`}
                     style={{ fontFamily: '"Neue Einstellung", "Helvetica Neue", Helvetica, Arial, sans-serif' }}
                   >
-                    <div className="text-center mb-5">
+                    <div className={`text-center ${organizedCategoryBlocks.length === 0 ? 'mb-5' : 'mb-1'}`}>
                       <h2 className="text-[22px] leading-[1.08] font-semibold tracking-[-0.02em] text-white">
                         {listData.organizedTitle?.trim() || ui.organizedTitle}
                       </h2>
@@ -2477,13 +2478,16 @@ export const MaisVendidosPage: React.FC = () => {
                       )}
                     </div>
 
-                    {renderOrganizedCategoryButtons('initial', null)}
+                    {organizedCategoryBlocks.length === 0 && renderOrganizedCategoryButtons('initial', null)}
                   </section>
                 )}
 
                 {organizedModel.enabled && !organizedModel.showSelector && organizedModel.remainingItems.length > 0 && (
                   <div className="w-full flex flex-col space-y-4 sm:space-y-10">
                     {organizedModel.remainingItems.map((prod, idx) => renderStoreItem(prod, idx))}
+                    <p className="px-4 pt-2 pb-1 text-center text-[11px] font-normal tracking-[0.01em] text-neutral-500">
+                      {ui.organizedCategoryEnd}
+                    </p>
                   </div>
                 )}
 
@@ -2520,6 +2524,11 @@ export const MaisVendidosPage: React.FC = () => {
                             className="w-full flex flex-col space-y-4 sm:space-y-10 scroll-mt-20"
                           >
                             {block.items.map((prod, idx) => renderStoreItem(prod, idx))}
+                            {block.items.length > 0 && (
+                              <p className="px-4 pt-2 pb-1 text-center text-[11px] font-normal tracking-[0.01em] text-neutral-500">
+                                {ui.organizedCategoryEnd}
+                              </p>
+                            )}
                           </div>
                         </React.Fragment>
                       );
