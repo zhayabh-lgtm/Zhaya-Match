@@ -1516,7 +1516,6 @@ export const MaisVendidosPage: React.FC = () => {
   const [now, setNow] = useState<number>(Date.now());
   const [leadProduct, setLeadProduct] = useState<PublicBestSellerProduct | null>(null);
   const [organizedCategory, setOrganizedCategory] = useState<string | null>(null);
-  const [showOrganizedCategoryReturn, setShowOrganizedCategoryReturn] = useState<boolean>(false);
   const ui = useMemo(() => getBestSellerUiText(listData?.uiLocale || listData?.currencyLocale || (typeof navigator !== 'undefined' ? navigator.language : 'pt-BR')), [listData?.uiLocale, listData?.currencyLocale]);
 
   const lastDataRef = useRef<string>('');
@@ -1932,36 +1931,33 @@ export const MaisVendidosPage: React.FC = () => {
 
   const organizedModel = useMemo(() => {
     const items = listData?.products || [];
-    const isOrganized = listData?.experienceMode === 'organized';
-
-    // No modo organizado, padroniza os produtos em ordem alfabética sem mexer
-    // na posição relativa de blocos especiais (vídeo/benefícios). Cada "vaga"
-    // de produto recebe o próximo item da lista alfabetizada.
-    const alphabeticalProducts = items
-      .filter((item) => item.itemType !== 'video' && item.itemType !== 'benefits')
-      .slice()
-      .sort((a, b) =>
-        String(a.name || '').localeCompare(String(b.name || ''), ui.locale || 'pt-BR', {
-          sensitivity: 'base',
-          numeric: true,
-        })
-      );
-    let alphabeticalCursor = 0;
-    const orderedItems = isOrganized
-      ? items.map((item) =>
-          item.itemType === 'video' || item.itemType === 'benefits'
-            ? item
-            : alphabeticalProducts[alphabeticalCursor++] || item
-        )
-      : items;
-
-    const productIndexes = orderedItems
-      .map((item, index) => ({ item, index }))
-      .filter(({ item }) => item.itemType !== 'video' && item.itemType !== 'benefits');
+    const productItems = items.filter((item) => item.itemType !== 'video' && item.itemType !== 'benefits');
     const introCount = Math.min(12, Math.max(1, Number(listData?.organizedIntroCount) || 3));
-    const cutoff = productIndexes.length >= introCount ? productIndexes[introCount - 1].index : orderedItems.length - 1;
-    const introItems = cutoff >= 0 ? orderedItems.slice(0, cutoff + 1) : [];
-    const remainingItems = cutoff >= 0 ? orderedItems.slice(cutoff + 1) : orderedItems;
+    const hasFavorites = productItems.some((item) => Boolean(item.organizedFavorite));
+
+    let introItems: PublicBestSellerProduct[] = [];
+    let remainingItems: PublicBestSellerProduct[] = [];
+
+    if (hasFavorites) {
+      // Favoritos são uma curadoria dos primeiros produtos sem alterar a ordem geral cadastrada.
+      const prioritized = [...productItems].sort((a, b) => {
+        const favoriteDiff = Number(Boolean(b.organizedFavorite)) - Number(Boolean(a.organizedFavorite));
+        if (favoriteDiff !== 0) return favoriteDiff;
+        return (a.position || 0) - (b.position || 0);
+      });
+      introItems = prioritized.slice(0, introCount);
+      const introIds = new Set(introItems.map((item) => item.id));
+      remainingItems = items.filter((item) => !introIds.has(item.id));
+    } else {
+      // Sem favoritos, preserva exatamente a lógica histórica do modo organizado.
+      const productIndexes = items
+        .map((item, index) => ({ item, index }))
+        .filter(({ item }) => item.itemType !== 'video' && item.itemType !== 'benefits');
+      const cutoff = productIndexes.length >= introCount ? productIndexes[introCount - 1].index : items.length - 1;
+      introItems = cutoff >= 0 ? items.slice(0, cutoff + 1) : [];
+      remainingItems = cutoff >= 0 ? items.slice(cutoff + 1) : items;
+    }
+
     const remainingProducts = remainingItems.filter((item) => item.itemType !== 'video' && item.itemType !== 'benefits');
     const counts = new Map<string, number>();
     remainingProducts.forEach((product) => {
@@ -1974,14 +1970,9 @@ export const MaisVendidosPage: React.FC = () => {
         count,
         label: listData?.categoryTranslations?.[key] || getBestSellerCategoryLabel(ui.locale, key as any),
       }))
-      .sort((a, b) => b.count - a.count || a.label.localeCompare(b.label, ui.locale || 'pt-BR'));
-
-    // No modo internacional de Redirecionar, o seletor só agrega valor quando
-    // existem pelo menos duas categorias reais. Com uma única categoria, a
-    // pessoa já entra direto na sequência de produtos, sem uma etapa redundante.
-    const hasUsefulRedirectCategoryChoice = !listData?.redirectMode || categories.length > 1;
-    const active = isOrganized && remainingProducts.length >= 2 && hasUsefulRedirectCategoryChoice;
-    return { active, isOrganized, orderedItems, introItems, remainingItems, remainingProducts, categories };
+      .sort((a, b) => b.count - a.count || a.label.localeCompare(b.label));
+    const active = listData?.experienceMode === 'organized' && remainingProducts.length >= 2;
+    return { active, introItems, remainingItems, remainingProducts, categories };
   }, [listData, ui.locale]);
 
   const organizedSelectedItems = useMemo(() => {
@@ -1991,36 +1982,6 @@ export const MaisVendidosPage: React.FC = () => {
       item.itemType !== 'video' && item.itemType !== 'benefits' && (item.autoCategoryKey || detectBestSellerCategoryKey(item)) === organizedCategory
     );
   }, [organizedModel, organizedCategory]);
-
-  useEffect(() => {
-    if (!organizedModel.active || !organizedCategory) {
-      setShowOrganizedCategoryReturn(false);
-      return;
-    }
-    const update = () => {
-      const selector = document.querySelector('[data-organized-selector]') as HTMLElement | null;
-      if (!selector) {
-        setShowOrganizedCategoryReturn(false);
-        return;
-      }
-      const rect = selector.getBoundingClientRect();
-      setShowOrganizedCategoryReturn(rect.bottom < 8);
-    };
-    update();
-    window.addEventListener('scroll', update, { passive: true });
-    window.addEventListener('resize', update);
-    return () => {
-      window.removeEventListener('scroll', update);
-      window.removeEventListener('resize', update);
-    };
-  }, [organizedModel.active, organizedCategory]);
-
-  const returnToOrganizedCategories = () => {
-    setOrganizedCategory(null);
-    requestAnimationFrame(() => {
-      document.querySelector('[data-organized-selector]')?.scrollIntoView({ behavior: 'smooth', block: 'center' });
-    });
-  };
 
   const renderStoreItem = (prod: PublicBestSellerProduct, idx: number) => {
     if (!listData) return null;
@@ -2133,27 +2094,6 @@ export const MaisVendidosPage: React.FC = () => {
           />
         </div>
       )}
-
-      <AnimatePresence>
-        {showOrganizedCategoryReturn && organizedCategory && (
-          <motion.button
-            type="button"
-            initial={{ opacity: 0, y: -14, scale: 0.96 }}
-            animate={{ opacity: 1, y: 0, scale: 1 }}
-            exit={{ opacity: 0, y: -10, scale: 0.97 }}
-            transition={{ duration: 0.2, ease: 'easeOut' }}
-            onClick={returnToOrganizedCategories}
-            className="fixed left-1/2 z-[70] -translate-x-1/2 rounded-full bg-white px-4 py-2 text-[11px] font-semibold text-black shadow-[0_8px_30px_rgba(0,0,0,0.28)] border border-black/5 inline-flex items-center justify-center gap-1.5 active:scale-[0.98] cursor-pointer"
-            style={{ top: 'calc(env(safe-area-inset-top, 0px) + 10px)' }}
-          >
-            {ui.dir === 'rtl'
-              ? <ChevronRight className="w-3.5 h-3.5" strokeWidth={1.8} />
-              : <ChevronLeft className="w-3.5 h-3.5" strokeWidth={1.8} />}
-            {ui.organizedBack}
-          </motion.button>
-        )}
-      </AnimatePresence>
-
       <main className="relative z-10 w-full max-w-[540px] px-4 sm:px-6 pt-6 pb-28 sm:py-10 flex flex-col items-center">
         {/* ========================================================================= */}
         {/* ESTADO 1: LOADING                                                         */}
@@ -2253,6 +2193,7 @@ export const MaisVendidosPage: React.FC = () => {
 
             {listData.redirectMode && listData.redirectMessage?.trim() && (
               <section className="w-full max-w-xl mx-auto mb-8 sm:mb-10 text-center px-1">
+                <span className="inline-block text-[10px] font-black uppercase tracking-[0.2em] text-neutral-500 mb-3">ZHAYA</span>
                 <p className="text-sm sm:text-base text-neutral-200 font-normal leading-relaxed whitespace-pre-line">
                   {listData.redirectMessage}
                 </p>
@@ -2262,12 +2203,7 @@ export const MaisVendidosPage: React.FC = () => {
             {/* Vitrine de Produtos */}
             {listData.products && listData.products.length > 0 ? (
               <div className="w-full flex flex-col space-y-4 sm:space-y-10">
-                {(organizedModel.active
-                  ? organizedModel.introItems
-                  : organizedModel.isOrganized
-                    ? organizedModel.orderedItems
-                    : listData.products
-                ).map((prod, idx) => renderStoreItem(prod, idx))}
+                {(organizedModel.active ? organizedModel.introItems : listData.products).map((prod, idx) => renderStoreItem(prod, idx))}
 
                 {organizedModel.active && (
                   <section
@@ -2276,11 +2212,11 @@ export const MaisVendidosPage: React.FC = () => {
                     style={{ fontFamily: '"Neue Einstellung", "Helvetica Neue", Helvetica, Arial, sans-serif' }}
                   >
                     <div className="text-center mb-5">
-                      <h2 className="text-[24px] leading-[1.05] font-semibold tracking-[-0.025em] text-white">
+                      <h2 className="text-[22px] leading-[1.08] font-semibold tracking-[-0.02em] text-white">
                         {listData.organizedTitle || ui.organizedTitle}
                       </h2>
                       {(listData.organizedSubtitle || ui.organizedSubtitle)?.trim() && (
-                        <p className="mt-2.5 text-[12px] leading-relaxed font-normal text-neutral-400">
+                        <p className="mt-2 text-[12px] leading-relaxed font-normal text-neutral-400">
                           {listData.organizedSubtitle || ui.organizedSubtitle}
                         </p>
                       )}
@@ -2289,35 +2225,29 @@ export const MaisVendidosPage: React.FC = () => {
                     <div className="space-y-2">
                       <button
                         type="button"
-                        aria-pressed={organizedCategory === 'all'}
                         onClick={() => setOrganizedCategory('all')}
-                        className={`w-full min-h-[46px] rounded-[7px] px-4 py-2.5 inline-flex items-center justify-center gap-1.5 text-center text-black transition-[transform,background-color,opacity,box-shadow] active:scale-[0.985] ${organizedCategory === 'all' ? 'bg-white opacity-100 shadow-[inset_0_0_0_2px_#111]' : 'bg-white opacity-90 hover:opacity-100'}`}
+                        aria-pressed={organizedCategory === 'all'}
+                        className={`w-full min-h-[46px] rounded-[6px] px-4 py-2.5 inline-flex items-center justify-center text-center border transition-[transform,background-color,color,border-color] active:scale-[0.985] ${organizedCategory === 'all' ? 'bg-black text-white border-white outline outline-1 outline-white/80' : 'bg-white text-black border-white hover:bg-neutral-100'}`}
                       >
-                        {organizedCategory === 'all' && (
-                          <span aria-hidden="true" className="inline-flex h-4 w-4 shrink-0 items-center justify-center rounded-full bg-black text-[9px] font-bold text-white">✓</span>
-                        )}
                         <span className="text-[13px] leading-none font-semibold">{ui.organizedAll}</span>
-                        <span className="text-[11px] leading-none font-normal text-neutral-500">
+                        <span className={`ml-1.5 text-[11px] leading-none font-normal ${organizedCategory === 'all' ? 'text-neutral-300' : 'text-neutral-500'}`}>
                           {organizedModel.remainingProducts.length}
                         </span>
                       </button>
 
                       <div className="grid grid-cols-2 gap-2">
                         {organizedModel.categories.map((category) => {
-                          const selected = organizedCategory === category.key;
+                          const isSelected = organizedCategory === category.key;
                           return (
                             <button
                               key={category.key}
                               type="button"
-                              aria-pressed={selected}
+                              aria-pressed={isSelected}
                               onClick={() => setOrganizedCategory(category.key)}
-                              className={`w-full min-h-[46px] rounded-[7px] px-2.5 py-2.5 inline-flex items-center justify-center gap-1.5 text-center text-black transition-[transform,background-color,opacity,box-shadow] active:scale-[0.985] ${selected ? 'bg-white opacity-100 shadow-[inset_0_0_0_2px_#111]' : 'bg-white opacity-90 hover:opacity-100'}`}
+                              className={`w-full min-h-[46px] rounded-[6px] px-2.5 py-2.5 inline-flex items-center justify-center text-center border transition-[transform,background-color,color,border-color] active:scale-[0.985] ${isSelected ? 'bg-black text-white border-white outline outline-1 outline-white/80' : 'bg-white text-black border-white hover:bg-neutral-100'}`}
                             >
-                              {selected && (
-                                <span aria-hidden="true" className="inline-flex h-4 w-4 shrink-0 items-center justify-center rounded-full bg-black text-[9px] font-bold text-white">✓</span>
-                              )}
                               <span className="text-[12px] leading-none font-semibold truncate">{category.label}</span>
-                              <span className="text-[10px] leading-none font-normal text-neutral-500 shrink-0">
+                              <span className={`ml-1 text-[10px] leading-none font-normal shrink-0 ${isSelected ? 'text-neutral-300' : 'text-neutral-500'}`}>
                                 {category.count}
                               </span>
                             </button>
@@ -2325,29 +2255,32 @@ export const MaisVendidosPage: React.FC = () => {
                         })}
                       </div>
 
-                      {organizedCategory && organizedSelectedItems.length > 0 && (
-                        <button
-                          type="button"
-                          aria-label={ui.organizedContinue}
-                          onClick={() => document.querySelector('[data-organized-products]')?.scrollIntoView({ behavior: 'smooth', block: 'start' })}
-                          className="organized-product-arrow mx-auto mt-4 flex h-9 w-9 items-center justify-center rounded-full text-white/80 hover:text-white focus:outline-none"
-                        >
-                          <svg aria-hidden="true" viewBox="0 0 24 24" className="h-5 w-5 fill-none stroke-current" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
-                            <path d="M7 10l5 5 5-5" />
-                          </svg>
-                        </button>
-                      )}
+                      <AnimatePresence initial={false}>
+                        {organizedCategory && organizedSelectedItems.length > 0 && (
+                          <motion.div
+                            initial={{ opacity: 0, y: -3 }}
+                            animate={{ opacity: 1, y: 0 }}
+                            exit={{ opacity: 0, y: -3 }}
+                            className="pt-3 flex justify-center"
+                            aria-hidden="true"
+                          >
+                            <motion.div animate={{ y: [0, 5, 0] }} transition={{ duration: 1.35, repeat: Infinity, ease: 'easeInOut' }}>
+                              <ChevronDown className="w-5 h-5 text-white/80" strokeWidth={1.35} />
+                            </motion.div>
+                          </motion.div>
+                        )}
+                      </AnimatePresence>
                     </div>
                   </section>
                 )}
 
                 {organizedModel.active && organizedCategory && organizedSelectedItems.length > 0 && (
-                  <div data-organized-products className="w-full flex flex-col space-y-4 sm:space-y-10 scroll-mt-4">
+                  <div className="w-full flex flex-col space-y-4 sm:space-y-10">
                     {organizedSelectedItems.map((prod, idx) => renderStoreItem(prod, idx))}
                     <div className="w-full flex justify-center pt-3 px-4">
                       <button
                         type="button"
-                        onClick={returnToOrganizedCategories}
+                        onClick={() => { setOrganizedCategory(null); document.querySelector('[data-organized-selector]')?.scrollIntoView({ behavior: 'smooth', block: 'center' }); }}
                         className="min-h-[42px] px-5 rounded-[6px] bg-white text-black inline-flex items-center justify-center text-center text-[12px] font-semibold hover:bg-neutral-100 active:scale-[0.985] transition-[transform,background-color] cursor-pointer"
                       >
                         {ui.organizedBack}

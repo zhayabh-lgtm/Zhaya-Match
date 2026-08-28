@@ -48,6 +48,7 @@ import {
   FileDown,
   Sparkles,
   ClipboardList,
+  Star,
 } from 'lucide-react';
 import { Repository } from '../../lib/repository';
 import { getReadableTextColor } from '../../lib/contrast';
@@ -56,7 +57,7 @@ import { uploadFileToCloudinary } from '../../lib/cloudinaryMedia';
 import { getBestSellerUiText } from '../../lib/bestSellerI18n';
 import { BEST_SELLER_CATEGORY_KEYS, detectBestSellerCategoryKey, getBestSellerCategoryBaseLabel, getBestSellerCategoryLabel } from '../../lib/bestSellerCategories';
 import { CloudinaryMediaPicker } from '../../components/admin/CloudinaryMediaPicker';
-import type { BestSellerList, BestSellerProduct, BestSellerMediaItem, BestSellerLibraryProduct, BestSellerGiftPreset, BestSellerAnalyticsSummary, BestSellerAnalyticsHourItem, BestSellerOverallHoursSummary, BestSellerLiveSession, BestSellerInternationalConfig, BestSellerInternationalCountryRule, BestSellerInternationalProductTranslation, BestSellerInternationalAdditionalCountry } from '../../types/zhaya';
+import type { BestSellerList, BestSellerProduct, BestSellerMediaItem, BestSellerLibraryProduct, BestSellerGiftPreset, BestSellerAnalyticsSummary, BestSellerAnalyticsHourItem, BestSellerOverallHoursSummary, BestSellerLiveSession, BestSellerInternationalConfig, BestSellerInternationalCountryRule, BestSellerInternationalProductTranslation } from '../../types/zhaya';
 
 const BEST_SELLERS_SQL = `-- ==============================================================================
 -- ZHAYA MATCH - SETUP DE MAIS VENDIDOS DO DIA (100% COMPLETO E IDEMPOTENTE)
@@ -803,7 +804,6 @@ const INTERNATIONAL_COUNTRY_PRESETS: InternationalCountryPreset[] = [
   { code: 'ZA', name: 'África do Sul', locale: 'en', localeLabel: 'Inglês', currency: 'ZAR', approximateLabel: 'Approximate conversion', ctaText: 'BUY NOW' },
   { code: 'DE', name: 'Alemanha', locale: 'de', localeLabel: 'Alemão', currency: 'EUR', approximateLabel: 'Ungefähre Umrechnung', ctaText: 'JETZT KAUFEN' },
   { code: 'SA', name: 'Arábia Saudita', locale: 'ar', localeLabel: 'Árabe', currency: 'SAR', approximateLabel: 'تحويل تقريبي', ctaText: 'اشترِ الآن' },
-  { code: 'DZ', name: 'Argélia', locale: 'ar', localeLabel: 'Árabe', currency: 'DZD', approximateLabel: 'تحويل تقريبي', ctaText: 'اشترِ الآن' },
   { code: 'AR', name: 'Argentina', locale: 'es', localeLabel: 'Espanhol', currency: 'ARS', approximateLabel: 'Conversión aproximada', ctaText: 'COMPRAR' },
   { code: 'AU', name: 'Austrália', locale: 'en', localeLabel: 'Inglês', currency: 'AUD', approximateLabel: 'Approximate conversion', ctaText: 'BUY NOW' },
   { code: 'AT', name: 'Áustria', locale: 'de', localeLabel: 'Alemão', currency: 'EUR', approximateLabel: 'Ungefähre Umrechnung', ctaText: 'JETZT KAUFEN' },
@@ -816,7 +816,6 @@ const INTERNATIONAL_COUNTRY_PRESETS: InternationalCountryPreset[] = [
   { code: 'CO', name: 'Colômbia', locale: 'es', localeLabel: 'Espanhol', currency: 'COP', approximateLabel: 'Conversión aproximada', ctaText: 'COMPRAR' },
   { code: 'KR', name: 'Coreia do Sul', locale: 'ko', localeLabel: 'Coreano', currency: 'KRW', approximateLabel: '대략적인 환산', ctaText: '구매하기' },
   { code: 'DK', name: 'Dinamarca', locale: 'da', localeLabel: 'Dinamarquês', currency: 'DKK', approximateLabel: 'Omtrentlig omregning', ctaText: 'KØB NU' },
-  { code: 'EG', name: 'Egito', locale: 'ar', localeLabel: 'Árabe', currency: 'EGP', approximateLabel: 'تحويل تقريبي', ctaText: 'اشترِ الآن' },
   { code: 'AE', name: 'Emirados Árabes Unidos', locale: 'ar', localeLabel: 'Árabe', currency: 'AED', approximateLabel: 'تحويل تقريبي', ctaText: 'اشترِ الآن' },
   { code: 'ES', name: 'Espanha', locale: 'es', localeLabel: 'Espanhol', currency: 'EUR', approximateLabel: 'Conversión aproximada', ctaText: 'COMPRAR' },
   { code: 'US', name: 'Estados Unidos', locale: 'en', localeLabel: 'Inglês', currency: 'USD', approximateLabel: 'Approximate conversion', ctaText: 'BUY NOW' },
@@ -825,23 +824,17 @@ const INTERNATIONAL_COUNTRY_PRESETS: InternationalCountryPreset[] = [
   { code: 'HK', name: 'Hong Kong', locale: 'zh-Hant', localeLabel: 'Chinês Tradicional', currency: 'HKD', approximateLabel: '約略換算', ctaText: '立即購買' },
   { code: 'IN', name: 'Índia', locale: 'hi', localeLabel: 'Hindi', currency: 'INR', approximateLabel: 'अनुमानित रूपांतरण', ctaText: 'अभी खरीदें' },
   { code: 'ID', name: 'Indonésia', locale: 'id', localeLabel: 'Indonésio', currency: 'IDR', approximateLabel: 'Konversi perkiraan', ctaText: 'BELI SEKARANG' },
-  { code: 'IQ', name: 'Iraque', locale: 'ar', localeLabel: 'Árabe', currency: 'IQD', approximateLabel: 'تحويل تقريبي', ctaText: 'اشترِ الآن' },
   { code: 'IE', name: 'Irlanda', locale: 'en', localeLabel: 'Inglês', currency: 'EUR', approximateLabel: 'Approximate conversion', ctaText: 'BUY NOW' },
   { code: 'IT', name: 'Itália', locale: 'it', localeLabel: 'Italiano', currency: 'EUR', approximateLabel: 'Conversione approssimativa', ctaText: 'ACQUISTA' },
   { code: 'JP', name: 'Japão', locale: 'ja', localeLabel: 'Japonês', currency: 'JPY', approximateLabel: '概算換算', ctaText: '購入する' },
-  { code: 'JO', name: 'Jordânia', locale: 'ar', localeLabel: 'Árabe', currency: 'JOD', approximateLabel: 'تحويل تقريبي', ctaText: 'اشترِ الآن' },
   { code: 'KW', name: 'Kuwait', locale: 'ar', localeLabel: 'Árabe', currency: 'KWD', approximateLabel: 'تحويل تقريبي', ctaText: 'اشترِ الآن' },
-  { code: 'LB', name: 'Líbano', locale: 'ar', localeLabel: 'Árabe', currency: 'LBP', approximateLabel: 'تحويل تقريبي', ctaText: 'اشترِ الآن' },
   { code: 'LU', name: 'Luxemburgo', locale: 'fr', localeLabel: 'Francês', currency: 'EUR', approximateLabel: 'Conversion approximative', ctaText: 'ACHETER' },
   { code: 'MY', name: 'Malásia', locale: 'ms', localeLabel: 'Malaio', currency: 'MYR', approximateLabel: 'Penukaran anggaran', ctaText: 'BELI SEKARANG' },
-  { code: 'MA', name: 'Marrocos', locale: 'ar', localeLabel: 'Árabe', currency: 'MAD', approximateLabel: 'تحويل تقريبي', ctaText: 'اشترِ الآن' },
   { code: 'MX', name: 'México', locale: 'es', localeLabel: 'Espanhol', currency: 'MXN', approximateLabel: 'Conversión aproximada', ctaText: 'COMPRAR' },
   { code: 'NO', name: 'Noruega', locale: 'no', localeLabel: 'Norueguês', currency: 'NOK', approximateLabel: 'Omtrentlig konvertering', ctaText: 'KJØP NÅ' },
   { code: 'NZ', name: 'Nova Zelândia', locale: 'en', localeLabel: 'Inglês', currency: 'NZD', approximateLabel: 'Approximate conversion', ctaText: 'BUY NOW' },
   { code: 'OM', name: 'Omã', locale: 'ar', localeLabel: 'Árabe', currency: 'OMR', approximateLabel: 'تحويل تقريبي', ctaText: 'اشترِ الآن' },
   { code: 'NL', name: 'Países Baixos', locale: 'nl', localeLabel: 'Holandês', currency: 'EUR', approximateLabel: 'Geschatte conversie', ctaText: 'KOPEN' },
-  { code: 'PH', name: 'Filipinas', locale: 'en', localeLabel: 'Inglês', currency: 'PHP', approximateLabel: 'Approximate conversion', ctaText: 'BUY NOW' },
-  { code: 'PE', name: 'Peru', locale: 'es', localeLabel: 'Espanhol', currency: 'PEN', approximateLabel: 'Conversión aproximada', ctaText: 'COMPRAR' },
   { code: 'PL', name: 'Polônia', locale: 'pl', localeLabel: 'Polonês', currency: 'PLN', approximateLabel: 'Przybliżone przeliczenie', ctaText: 'KUP TERAZ' },
   { code: 'PT', name: 'Portugal', locale: 'pt', localeLabel: 'Português', currency: 'EUR', approximateLabel: 'Conversão aproximada', ctaText: 'COMPRAR' },
   { code: 'QA', name: 'Qatar', locale: 'ar', localeLabel: 'Árabe', currency: 'QAR', approximateLabel: 'تحويل تقريبي', ctaText: 'اشترِ الآن' },
@@ -850,37 +843,16 @@ const INTERNATIONAL_COUNTRY_PRESETS: InternationalCountryPreset[] = [
   { code: 'SE', name: 'Suécia', locale: 'sv', localeLabel: 'Sueco', currency: 'SEK', approximateLabel: 'Ungefärlig omräkning', ctaText: 'KÖP NU' },
   { code: 'CH', name: 'Suíça', locale: 'de', localeLabel: 'Alemão', currency: 'CHF', approximateLabel: 'Ungefähre Umrechnung', ctaText: 'JETZT KAUFEN' },
   { code: 'TH', name: 'Tailândia', locale: 'th', localeLabel: 'Tailandês', currency: 'THB', approximateLabel: 'การแปลงโดยประมาณ', ctaText: 'ซื้อเลย' },
-  { code: 'TN', name: 'Tunísia', locale: 'ar', localeLabel: 'Árabe', currency: 'TND', approximateLabel: 'تحويل تقريبي', ctaText: 'اشترِ الآن' },
   { code: 'TW', name: 'Taiwan', locale: 'zh-Hant', localeLabel: 'Chinês Tradicional', currency: 'TWD', approximateLabel: '約略換算', ctaText: '立即購買' },
   { code: 'TR', name: 'Turquia', locale: 'tr', localeLabel: 'Turco', currency: 'TRY', approximateLabel: 'Yaklaşık dönüşüm', ctaText: 'ŞİMDİ SATIN AL' },
   { code: 'UY', name: 'Uruguai', locale: 'es', localeLabel: 'Espanhol', currency: 'UYU', approximateLabel: 'Conversión aproximada', ctaText: 'COMPRAR' },
   { code: 'VN', name: 'Vietnã', locale: 'vi', localeLabel: 'Vietnamita', currency: 'VND', approximateLabel: 'Quy đổi ước tính', ctaText: 'MUA NGAY' },
-
-  // Mercados adicionais que podem reutilizar uma tradução/regra principal.
-  { code: 'AO', name: 'Angola', locale: 'pt', localeLabel: 'Português', currency: 'AOA', approximateLabel: 'Conversão aproximada', ctaText: 'COMPRAR' },
-  { code: 'BO', name: 'Bolívia', locale: 'es', localeLabel: 'Espanhol', currency: 'BOB', approximateLabel: 'Conversión aproximada', ctaText: 'COMPRAR' },
-  { code: 'BN', name: 'Brunei', locale: 'ms', localeLabel: 'Malaio', currency: 'BND', approximateLabel: 'Penukaran anggaran', ctaText: 'BELI SEKARANG' },
-  { code: 'CV', name: 'Cabo Verde', locale: 'pt', localeLabel: 'Português', currency: 'CVE', approximateLabel: 'Conversão aproximada', ctaText: 'COMPRAR' },
-  { code: 'CR', name: 'Costa Rica', locale: 'es', localeLabel: 'Espanhol', currency: 'CRC', approximateLabel: 'Conversión aproximada', ctaText: 'COMPRAR' },
-  { code: 'EC', name: 'Equador', locale: 'es', localeLabel: 'Espanhol', currency: 'USD', approximateLabel: 'Conversión aproximada', ctaText: 'COMPRAR' },
-  { code: 'GH', name: 'Gana', locale: 'en', localeLabel: 'Inglês', currency: 'GHS', approximateLabel: 'Approximate conversion', ctaText: 'BUY NOW' },
-  { code: 'GT', name: 'Guatemala', locale: 'es', localeLabel: 'Espanhol', currency: 'GTQ', approximateLabel: 'Conversión aproximada', ctaText: 'COMPRAR' },
-  { code: 'KE', name: 'Quênia', locale: 'en', localeLabel: 'Inglês', currency: 'KES', approximateLabel: 'Approximate conversion', ctaText: 'BUY NOW' },
-  { code: 'LI', name: 'Liechtenstein', locale: 'de', localeLabel: 'Alemão', currency: 'CHF', approximateLabel: 'Ungefähre Umrechnung', ctaText: 'JETZT KAUFEN' },
-  { code: 'MC', name: 'Mônaco', locale: 'fr', localeLabel: 'Francês', currency: 'EUR', approximateLabel: 'Conversion approximative', ctaText: 'ACHETER' },
-  { code: 'MZ', name: 'Moçambique', locale: 'pt', localeLabel: 'Português', currency: 'MZN', approximateLabel: 'Conversão aproximada', ctaText: 'COMPRAR' },
-  { code: 'NG', name: 'Nigéria', locale: 'en', localeLabel: 'Inglês', currency: 'NGN', approximateLabel: 'Approximate conversion', ctaText: 'BUY NOW' },
-  { code: 'PA', name: 'Panamá', locale: 'es', localeLabel: 'Espanhol', currency: 'PAB', approximateLabel: 'Conversión aproximada', ctaText: 'COMPRAR' },
-  { code: 'PY', name: 'Paraguai', locale: 'es', localeLabel: 'Espanhol', currency: 'PYG', approximateLabel: 'Conversión aproximada', ctaText: 'COMPRAR' },
-  { code: 'DO', name: 'República Dominicana', locale: 'es', localeLabel: 'Espanhol', currency: 'DOP', approximateLabel: 'Conversión aproximada', ctaText: 'COMPRAR' },
-  { code: 'VE', name: 'Venezuela', locale: 'es', localeLabel: 'Espanhol', currency: 'VES', approximateLabel: 'Conversión aproximada', ctaText: 'COMPRAR' },
 ];
 
 const INTERNATIONAL_CURRENCY_OPTIONS = [
-  'AED', 'ARS', 'AUD', 'BHD', 'BRL', 'CAD', 'CHF', 'CLP', 'CNY', 'COP', 'DKK', 'DZD', 'EGP', 'EUR', 'GBP', 'HKD',
-  'AOA', 'BND', 'BOB', 'CRC', 'CVE', 'DOP', 'GHS', 'GTQ', 'IDR', 'INR', 'IQD', 'JOD', 'JPY', 'KES', 'KRW', 'KWD',
-  'LBP', 'MAD', 'MXN', 'MYR', 'MZN', 'NGN', 'NOK', 'NZD', 'OMR', 'PAB', 'PEN', 'PHP', 'PLN', 'PYG',
-  'QAR', 'SAR', 'SEK', 'SGD', 'THB', 'TND', 'TRY', 'TWD', 'USD', 'UYU', 'VES', 'VND', 'ZAR',
+  'AED', 'ARS', 'AUD', 'BHD', 'BRL', 'CAD', 'CHF', 'CLP', 'CNY', 'COP', 'DKK', 'EUR', 'GBP', 'HKD',
+  'IDR', 'INR', 'JPY', 'KRW', 'KWD', 'MXN', 'MYR', 'NOK', 'NZD', 'OMR', 'PLN', 'QAR', 'SAR', 'SEK',
+  'SGD', 'THB', 'TRY', 'TWD', 'USD', 'UYU', 'VND', 'ZAR',
 ];
 
 const INTERNATIONAL_LOCALE_OPTIONS = [
@@ -991,7 +963,6 @@ export const MaisVendidos: React.FC = () => {
   const [internationalSaving, setInternationalSaving] = useState<boolean>(false);
   const [internationalError, setInternationalError] = useState<string | null>(null);
   const [internationalCountryToAdd, setInternationalCountryToAdd] = useState<string>('US');
-  const [internationalAdditionalCountryDrafts, setInternationalAdditionalCountryDrafts] = useState<Record<number, string>>({});
   const [internationalJsonMessage, setInternationalJsonMessage] = useState<string | null>(null);
   const [internationalJsonRuleIndex, setInternationalJsonRuleIndex] = useState<number | null>(null);
   const internationalJsonFileInputRef = useRef<HTMLInputElement>(null);
@@ -3192,6 +3163,17 @@ export const MaisVendidos: React.FC = () => {
 
   const liveElapsedSeconds = getLiveElapsedSeconds(liveSession, liveClock);
   const productItemsForMetrics = products.filter((item) => item.itemType !== 'video');
+  const handleToggleOrganizedFavorite = async (prod: BestSellerProduct) => {
+    if (prod.itemType === 'video' || prod.itemType === 'benefits') return;
+    const nextValue = !Boolean(prod.organizedFavorite);
+    setProducts((current) => current.map((item) => item.id === prod.id ? { ...item, organizedFavorite: nextValue } : item));
+    const result = await Repository.updateBestSellerProduct(prod.id, { organizedFavorite: nextValue });
+    if (!result.success) {
+      setProducts((current) => current.map((item) => item.id === prod.id ? { ...item, organizedFavorite: !nextValue } : item));
+      window.alert(result.error || 'Não foi possível atualizar o favorito do modo organizado.');
+    }
+  };
+
   const mainDisplayProducts = products.filter((item) => item.displayGroup !== 'redirect');
   const redirectDisplayProducts = products.filter((item) => item.displayGroup === 'redirect');
   const productsForAdminDisplay = [...mainDisplayProducts, ...redirectDisplayProducts];
@@ -3321,24 +3303,11 @@ export const MaisVendidos: React.FC = () => {
         ...visibilityDefaults,
         ...rule,
         locale: normalizeInternationalLocale(rule.locale || preset?.locale),
-        additionalCountries: Array.isArray(rule.additionalCountries)
-          ? rule.additionalCountries.map((item) => ({
-              countryCode: String(item?.countryCode || '').trim().toUpperCase().slice(0, 2),
-              currencyCode: String(item?.currencyCode || getInternationalCountryPreset(item?.countryCode)?.currency || 'USD').trim().toUpperCase(),
-              currencyRate: Number.isFinite(Number(item?.currencyRate)) ? Number(item?.currencyRate) : 0,
-              approximateConversion: item?.approximateConversion !== false,
-              approximateLabel: item?.approximateLabel || getInternationalCountryPreset(item?.countryCode)?.approximateLabel || '',
-            })).filter((item) => /^[A-Z]{2}$/.test(item.countryCode))
-          : [],
       };
     });
     setInternationalEnabled(Boolean(config?.enabled));
     setInternationalRules(normalizedRules);
-    setInternationalAdditionalCountryDrafts({});
-    const used = new Set(normalizedRules.flatMap((rule) => [
-      String(rule.countryCode || '').toUpperCase(),
-      ...(rule.additionalCountries || []).map((item) => String(item.countryCode || '').toUpperCase()),
-    ]));
+    const used = new Set(normalizedRules.map((rule) => String(rule.countryCode || '').toUpperCase()));
     setInternationalCountryToAdd(INTERNATIONAL_COUNTRY_PRESETS.find((country) => !used.has(country.code))?.code || 'US');
     setInternationalError(null);
     setInternationalJsonMessage(null);
@@ -3353,7 +3322,6 @@ export const MaisVendidos: React.FC = () => {
       locale: preset.locale,
       currencyCode: preset.currency,
       currencyRate: 1,
-      additionalCountries: [],
       approximateConversion: preset.currency !== 'BRL',
       approximateLabel: preset.approximateLabel,
       title: '',
@@ -3367,6 +3335,9 @@ export const MaisVendidos: React.FC = () => {
       formMessage: '',
       redirectProducts: false,
       redirectMessage: '',
+      redirectShowPromotions: false,
+      redirectShowTimers: false,
+      redirectAutoDiscountBadge: true,
       organizedTitle: '',
       organizedSubtitle: '',
       categoryTranslations: {},
@@ -3384,11 +3355,8 @@ export const MaisVendidos: React.FC = () => {
       setInternationalError('Escolha um país da lista.');
       return;
     }
-    if (internationalRules.some((rule) =>
-      String(rule.countryCode || '').toUpperCase() === code ||
-      (rule.additionalCountries || []).some((item) => String(item.countryCode || '').toUpperCase() === code)
-    )) {
-      setInternationalError(`${preset.name} já está vinculado a uma configuração internacional desta Vitrine.`);
+    if (internationalRules.some((rule) => String(rule.countryCode || '').toUpperCase() === code)) {
+      setInternationalError(`${preset.name} já está configurado nesta Vitrine.`);
       return;
     }
     setInternationalRules((current) => [...current, buildInternationalRuleFromPreset(code)]);
@@ -3397,60 +3365,6 @@ export const MaisVendidos: React.FC = () => {
 
   const updateInternationalRule = (index: number, patch: Partial<BestSellerInternationalCountryRule>) => {
     setInternationalRules((current) => current.map((rule, i) => i === index ? { ...rule, ...patch } : rule));
-  };
-
-  const addInternationalAdditionalCountry = (ruleIndex: number, countryCode: string) => {
-    const code = String(countryCode || '').trim().toUpperCase();
-    const preset = getInternationalCountryPreset(code);
-    if (!preset) {
-      setInternationalError('Escolha um país adicional da lista.');
-      return;
-    }
-    const alreadyUsed = internationalRules.some((rule, index) =>
-      String(rule.countryCode || '').toUpperCase() === code ||
-      (rule.additionalCountries || []).some((item) => String(item.countryCode || '').toUpperCase() === code)
-    );
-    if (alreadyUsed) {
-      setInternationalError(`${preset.name} já está vinculado a outra configuração internacional.`);
-      return;
-    }
-    setInternationalRules((current) => current.map((rule, index) => {
-      if (index !== ruleIndex) return rule;
-      const next: BestSellerInternationalAdditionalCountry = {
-        countryCode: preset.code,
-        currencyCode: preset.currency,
-        currencyRate: preset.currency === rule.currencyCode ? Number(rule.currencyRate) || 0 : 0,
-        approximateConversion: preset.currency !== 'BRL',
-        approximateLabel: preset.approximateLabel,
-      };
-      return { ...rule, additionalCountries: [...(rule.additionalCountries || []), next] };
-    }));
-    setInternationalAdditionalCountryDrafts((current) => ({ ...current, [ruleIndex]: '' }));
-    setInternationalError(null);
-  };
-
-  const updateInternationalAdditionalCountry = (
-    ruleIndex: number,
-    additionalIndex: number,
-    patch: Partial<BestSellerInternationalAdditionalCountry>,
-  ) => {
-    setInternationalRules((current) => current.map((rule, index) => {
-      if (index !== ruleIndex) return rule;
-      const next = [...(rule.additionalCountries || [])];
-      if (!next[additionalIndex]) return rule;
-      next[additionalIndex] = { ...next[additionalIndex], ...patch };
-      return { ...rule, additionalCountries: next };
-    }));
-  };
-
-  const removeInternationalAdditionalCountry = (ruleIndex: number, additionalIndex: number) => {
-    setInternationalRules((current) => current.map((rule, index) => {
-      if (index !== ruleIndex) return rule;
-      return {
-        ...rule,
-        additionalCountries: (rule.additionalCountries || []).filter((_, itemIndex) => itemIndex !== additionalIndex),
-      };
-    }));
   };
 
   const updateInternationalProductTranslation = (
@@ -3698,11 +3612,8 @@ export const MaisVendidos: React.FC = () => {
     const code = String(countryCode || '').toUpperCase();
     const preset = getInternationalCountryPreset(code);
     if (!preset) return;
-    if (internationalRules.some((rule, i) =>
-      (i !== index && String(rule.countryCode || '').toUpperCase() === code) ||
-      (rule.additionalCountries || []).some((item) => String(item.countryCode || '').toUpperCase() === code)
-    )) {
-      setInternationalError(`${preset.name} já está vinculado a outra configuração internacional.`);
+    if (internationalRules.some((rule, i) => i !== index && String(rule.countryCode || '').toUpperCase() === code)) {
+      setInternationalError(`${preset.name} já está configurado nesta Vitrine.`);
       return;
     }
     setInternationalRules((current) => current.map((rule, i) => {
@@ -3746,36 +3657,10 @@ export const MaisVendidos: React.FC = () => {
       locale: normalizeInternationalLocale(rule.locale || 'en'),
       currencyCode: String(rule.currencyCode || 'USD').trim().toUpperCase(),
       currencyRate: Number(rule.currencyRate),
-      additionalCountries: (rule.additionalCountries || []).map((item) => ({
-        ...item,
-        countryCode: String(item.countryCode || '').trim().toUpperCase().slice(0, 2),
-        currencyCode: String(item.currencyCode || getInternationalCountryPreset(item.countryCode)?.currency || 'USD').trim().toUpperCase(),
-        currencyRate: Number(item.currencyRate),
-        approximateConversion: item.approximateConversion !== false,
-        approximateLabel: String(item.approximateLabel || '').trim() || getInternationalCountryPreset(item.countryCode)?.approximateLabel || '',
-      })),
     }));
-    const invalid = normalizedRules.find((rule) =>
-      !/^[A-Z]{2}$/.test(rule.countryCode) ||
-      !Number.isFinite(rule.currencyRate) ||
-      rule.currencyRate <= 0 ||
-      (rule.additionalCountries || []).some((item) =>
-        !/^[A-Z]{2}$/.test(item.countryCode) ||
-        !Number.isFinite(item.currencyRate) ||
-        item.currencyRate <= 0
-      )
-    );
+    const invalid = normalizedRules.find((rule) => !/^[A-Z]{2}$/.test(rule.countryCode) || !Number.isFinite(rule.currencyRate) || rule.currencyRate <= 0);
     if (invalid) {
-      setInternationalError('Cada país principal ou adicional precisa de um código válido e uma taxa maior que zero.');
-      return;
-    }
-
-    const allCountryCodes = normalizedRules.flatMap((rule) => [
-      rule.countryCode,
-      ...(rule.additionalCountries || []).map((item) => item.countryCode),
-    ]);
-    if (new Set(allCountryCodes).size !== allCountryCodes.length) {
-      setInternationalError('Um mesmo país não pode estar em duas configurações internacionais ao mesmo tempo.');
+      setInternationalError('Cada regra precisa de um país ISO com 2 letras e uma taxa maior que zero.');
       return;
     }
     const invalidFooterUrl = normalizedRules.find((rule) => {
@@ -4651,6 +4536,11 @@ export const MaisVendidos: React.FC = () => {
                                   <Globe2 className="w-2.5 h-2.5" /> Redirecionar
                                 </span>
                               )}
+                              {prod.organizedFavorite && prod.itemType !== 'video' && prod.itemType !== 'benefits' && (
+                                <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-bold bg-neutral-900 text-white border border-neutral-900">
+                                  <Star className="w-2.5 h-2.5 fill-current" /> Destaque organizado
+                                </span>
+                              )}
                               {prod.itemType === 'video' && (
                                 <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-bold bg-neutral-900 text-white">
                                   <Video className="w-2.5 h-2.5" /> 9:16
@@ -4784,6 +4674,17 @@ export const MaisVendidos: React.FC = () => {
 
                         {/* Actions */}
                         <div className="flex items-center gap-2 self-end md:self-center shrink-0 border-t md:border-t-0 pt-2 md:pt-0 border-neutral-100">
+                          {prod.itemType !== 'video' && prod.itemType !== 'benefits' && (
+                            <button
+                              type="button"
+                              onClick={() => void handleToggleOrganizedFavorite(prod)}
+                              className={`inline-flex items-center gap-1 px-2.5 py-1.5 text-[10px] font-bold rounded border transition-colors cursor-pointer ${prod.organizedFavorite ? 'text-white bg-neutral-900 border-neutral-900 hover:bg-neutral-800' : 'text-neutral-700 bg-white border-neutral-200 hover:bg-neutral-50'}`}
+                              title={prod.organizedFavorite ? 'Remover dos primeiros produtos do modo organizado' : 'Priorizar entre os primeiros produtos do modo organizado'}
+                            >
+                              <Star className={`w-3.5 h-3.5 ${prod.organizedFavorite ? 'fill-current' : ''}`} />
+                              {prod.organizedFavorite ? 'Favoritado' : 'Favoritar'}
+                            </button>
+                          )}
                           {prod.itemType !== 'video' && prod.itemType !== 'benefits' && (
                             <button
                               type="button"
@@ -7422,13 +7323,13 @@ export const MaisVendidos: React.FC = () => {
                 <span>
                   <span className="block text-xs font-bold text-neutral-900">Ativar experiência internacional</span>
                   <span className="block text-[10px] text-neutral-500 mt-0.5">
-                    O país é detectado automaticamente. Quando não houver configuração exata, o sistema tenta uma regra compatível por idioma/região e, por último, uma configuração em inglês.
+                    O país é detectado automaticamente. Países sem regra continuam vendo a configuração brasileira original.
                   </span>
                 </span>
               </label>
 
               <div className="rounded-lg border border-blue-100 bg-blue-50/60 px-3 py-2 text-[10px] text-blue-800">
-                O país é detectado automaticamente pelo acesso. Uma configuração pode atender vários países da mesma região/idioma. Use <strong>+ País/moeda</strong> quando quiser que um país adicional herde exatamente as mesmas traduções e comportamento, mas tenha moeda e taxa próprias. Sem vínculo explícito, o fallback regional reaproveita a tradução disponível e usa a moeda da regra encontrada.
+                O país é detectado automaticamente pelo acesso. Os textos do sistema da página (timer, estoque, vendas, vídeo, botões auxiliares, mensagens e estados) acompanham o idioma escolhido automaticamente. Você traduz manualmente apenas o conteúdo que foi digitado por vocês, como títulos, descrições, selos e benefícios. A taxa da moeda continua manual para evitar cotações externas inesperadas.
               </div>
 
               <div className="space-y-3">
@@ -7504,90 +7405,6 @@ export const MaisVendidos: React.FC = () => {
                         />
                       </div>
 
-                      <div className="rounded-lg border border-sky-200 bg-sky-50/60 p-3 space-y-2.5">
-                        <div className="flex items-start justify-between gap-3">
-                          <div>
-                            <p className="text-[10px] font-bold text-sky-900">Países adicionais · mesma tradução</p>
-                            <p className="text-[9px] text-sky-700 mt-0.5 leading-relaxed">
-                              Estes países herdam idioma, textos, CTA, formulário e redirecionamento de {getInternationalCountryPreset(rule.countryCode)?.name || rule.countryCode}, mas usam moeda e taxa próprias. Ao adicionar uma moeda diferente, preencha a taxa antes de salvar.
-                            </p>
-                          </div>
-                        </div>
-
-                        {(rule.additionalCountries || []).map((item, additionalIndex) => {
-                          const preset = getInternationalCountryPreset(item.countryCode);
-                          return (
-                            <div key={`${item.countryCode}-${additionalIndex}`} className="rounded border border-sky-100 bg-white p-2.5 grid grid-cols-1 sm:grid-cols-[1.2fr_0.8fr_1fr_auto] gap-2 items-end">
-                              <div className="min-w-0">
-                                <span className="block text-[9px] font-bold text-neutral-500 mb-1">País</span>
-                                <div className="min-h-[34px] px-2.5 rounded border border-neutral-200 bg-neutral-50 flex items-center text-[10px] font-semibold text-neutral-800">
-                                  {preset?.name || item.countryCode}
-                                </div>
-                              </div>
-                              <label className="min-w-0">
-                                <span className="block text-[9px] font-bold text-neutral-500 mb-1">Moeda</span>
-                                <select
-                                  value={item.currencyCode}
-                                  onChange={(e) => updateInternationalAdditionalCountry(ruleIndex, additionalIndex, { currencyCode: e.target.value })}
-                                  className="w-full min-w-0 px-2.5 py-2 rounded border border-neutral-200 bg-white text-[10px]"
-                                >
-                                  {!INTERNATIONAL_CURRENCY_OPTIONS.includes(item.currencyCode) && item.currencyCode && <option value={item.currencyCode}>{item.currencyCode}</option>}
-                                  {INTERNATIONAL_CURRENCY_OPTIONS.map((currency) => <option key={currency} value={currency}>{currency}</option>)}
-                                </select>
-                              </label>
-                              <label className="min-w-0">
-                                <span className="block text-[9px] font-bold text-neutral-500 mb-1">R$ 1 =</span>
-                                <input
-                                  type="number"
-                                  min="0.000001"
-                                  step="0.000001"
-                                  value={item.currencyRate}
-                                  onChange={(e) => updateInternationalAdditionalCountry(ruleIndex, additionalIndex, { currencyRate: Number(e.target.value) })}
-                                  className="w-full min-w-0 px-2.5 py-2 rounded border border-neutral-200 text-[10px]"
-                                />
-                              </label>
-                              <button
-                                type="button"
-                                onClick={() => removeInternationalAdditionalCountry(ruleIndex, additionalIndex)}
-                                className="h-[34px] w-[34px] rounded border border-neutral-200 bg-white text-neutral-400 hover:text-red-600 hover:border-red-200 inline-flex items-center justify-center cursor-pointer"
-                                title="Remover país adicional"
-                              >
-                                <Trash2 className="w-3.5 h-3.5" />
-                              </button>
-                            </div>
-                          );
-                        })}
-
-                        <div className="flex flex-col sm:flex-row gap-2">
-                          <select
-                            value={internationalAdditionalCountryDrafts[ruleIndex] || ''}
-                            onChange={(e) => setInternationalAdditionalCountryDrafts((current) => ({ ...current, [ruleIndex]: e.target.value }))}
-                            className="flex-1 min-w-0 px-3 py-2 rounded border border-sky-200 bg-white text-[10px]"
-                          >
-                            <option value="">Escolher país adicional...</option>
-                            {INTERNATIONAL_COUNTRY_PRESETS
-                              .filter((country) =>
-                                country.code !== String(rule.countryCode || '').toUpperCase() &&
-                                !internationalRules.some((configuredRule) =>
-                                  String(configuredRule.countryCode || '').toUpperCase() === country.code ||
-                                  (configuredRule.additionalCountries || []).some((entry) => String(entry.countryCode || '').toUpperCase() === country.code)
-                                )
-                              )
-                              .map((country) => (
-                                <option key={country.code} value={country.code}>{country.name} · {country.currency}</option>
-                              ))}
-                          </select>
-                          <button
-                            type="button"
-                            disabled={!internationalAdditionalCountryDrafts[ruleIndex]}
-                            onClick={() => addInternationalAdditionalCountry(ruleIndex, internationalAdditionalCountryDrafts[ruleIndex] || '')}
-                            className="shrink-0 inline-flex items-center justify-center gap-1 px-3 py-2 rounded bg-sky-900 text-white text-[10px] font-bold hover:bg-sky-800 disabled:opacity-40 cursor-pointer disabled:cursor-default"
-                          >
-                            <Plus className="w-3 h-3" /> País/moeda
-                          </button>
-                        </div>
-                      </div>
-
                       {selectedList.experienceMode === 'organized' && (() => {
                         const categoryEntries = getAutomaticCategoryEntries(rule.locale);
                         const automaticUi = getBestSellerUiText(rule.locale);
@@ -7655,6 +7472,33 @@ export const MaisVendidos: React.FC = () => {
                               <span className={`font-bold ${redirectDisplayProducts.length > 0 ? 'text-emerald-700' : 'text-amber-700'}`}>
                                 {redirectDisplayProducts.length > 0 ? `${redirectDisplayProducts.length} produto(s) em Redirecionar` : 'Nenhum produto em Redirecionar ainda'}
                               </span>
+                            </div>
+                            <div className="rounded border border-amber-200 bg-white p-2.5 space-y-2">
+                              <p className="text-[9px] font-bold text-neutral-700">Promoção no catálogo redirecionado</p>
+                              <label className="flex items-start gap-2 cursor-pointer text-[9px] text-neutral-600">
+                                <input
+                                  type="checkbox"
+                                  checked={Boolean(rule.redirectShowPromotions)}
+                                  onChange={(e) => updateInternationalRule(ruleIndex, {
+                                    redirectShowPromotions: e.target.checked,
+                                    ...(e.target.checked ? {} : { redirectShowTimers: false }),
+                                  })}
+                                  className="mt-0.5"
+                                />
+                                <span><strong className="text-neutral-800">Permitir promoção</strong><span className="block text-neutral-500 mt-0.5">Desligado por padrão. Sem isso, o produto usa apenas o preço normal e não exibe badge ou timer promocional.</span></span>
+                              </label>
+                              {rule.redirectShowPromotions && (
+                                <div className="pl-5 space-y-1.5">
+                                  <label className="flex items-center gap-2 cursor-pointer text-[9px] text-neutral-600">
+                                    <input type="checkbox" checked={rule.redirectAutoDiscountBadge !== false} onChange={(e) => updateInternationalRule(ruleIndex, { redirectAutoDiscountBadge: e.target.checked })} />
+                                    <span>Badge automático de desconto <strong>calculado pelo preço</strong></span>
+                                  </label>
+                                  <label className="flex items-center gap-2 cursor-pointer text-[9px] text-neutral-600">
+                                    <input type="checkbox" checked={Boolean(rule.redirectShowTimers)} onChange={(e) => updateInternationalRule(ruleIndex, { redirectShowTimers: e.target.checked })} />
+                                    <span>Permitir timer individual nos produtos em promoção</span>
+                                  </label>
+                                </div>
+                              )}
                             </div>
                           </div>
                         )}

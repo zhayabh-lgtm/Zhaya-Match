@@ -486,17 +486,6 @@ export interface BestSellerInternationalProductTranslation {
   outOfStockSizes?: string[];
 }
 
-export interface BestSellerInternationalAdditionalCountry {
-  /** País adicional que reutiliza idioma, textos e comportamento da regra principal. */
-  countryCode: string;
-  /** Moeda específica exibida para este país adicional. */
-  currencyCode: string;
-  /** Multiplicador manual aplicado ao preço em BRL para este país. */
-  currencyRate: number;
-  approximateConversion?: boolean;
-  approximateLabel?: string | null;
-}
-
 export interface BestSellerInternationalCountryRule {
   countryCode: string;
   enabled: boolean;
@@ -504,8 +493,6 @@ export interface BestSellerInternationalCountryRule {
   currencyCode: string;
   /** Multiplicador manual aplicado ao preço em BRL. Ex.: USD 0.18. */
   currencyRate: number;
-  /** Países extras que herdam esta tradução/configuração, mas podem ter moeda e taxa próprias. */
-  additionalCountries?: BestSellerInternationalAdditionalCountry[];
   approximateConversion?: boolean;
   approximateLabel?: string | null;
   title?: string | null;
@@ -526,6 +513,12 @@ export interface BestSellerInternationalCountryRule {
   redirectProducts?: boolean;
   /** Mensagem editorial exibida acima da seleção alternativa internacional. */
   redirectMessage?: string | null;
+  /** Promoção dos itens Redirecionar. Desligada por padrão para mercados internacionais. */
+  redirectShowPromotions?: boolean;
+  /** Permite timers individuais apenas no catálogo Redirecionar. */
+  redirectShowTimers?: boolean;
+  /** Gera automaticamente um badge com o percentual de desconto quando houver preço promocional válido. */
+  redirectAutoDiscountBadge?: boolean;
   /** Overrides do novo modo Imersiva organizada. Vazios usam tradução automática da interface. */
   organizedTitle?: string | null;
   organizedSubtitle?: string | null;
@@ -631,6 +624,8 @@ export interface BestSellerProduct {
   itemType?: 'product' | 'video' | 'benefits';
   /** Principal aparece na vitrine normal; redirect só aparece no fluxo internacional alternativo. */
   displayGroup?: 'main' | 'redirect';
+  /** Prioriza este produto entre os destaques iniciais do modo Imersiva organizada. */
+  organizedFavorite?: boolean;
   libraryProductId?: string | null;
   listId: string;
   position: number;
@@ -720,6 +715,8 @@ export interface PublicBestSellerProduct {
   id: string;
   itemType?: 'product' | 'video' | 'benefits';
   displayGroup?: 'main' | 'redirect';
+  /** Prioridade editorial do modo organizado. */
+  organizedFavorite?: boolean;
   /** Categoria semântica calculada a partir do produto original; permanece estável mesmo após traduzir o nome. */
   autoCategoryKey?: string;
   position: number;

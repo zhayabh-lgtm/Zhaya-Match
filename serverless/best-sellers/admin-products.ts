@@ -48,6 +48,7 @@ const VIDEO_CONTROLS_ON = '__ZHAYA_CONTROLS_1__';
 const TIMER_SEPARATE_ON = '__ZHAYA_TIMER_SEPARATE_1__';
 const BENEFITS_MARKER = '__ZHAYA_BENEFITS_BLOCK__';
 const REDIRECT_MARKER = '__ZHAYA_REDIRECT_PRODUCT__';
+const ORGANIZED_FAVORITE_MARKER = '__ZHAYA_ORGANIZED_FAVORITE__';
 const BENEFIT_PREFIX = '__ZHAYA_BENEFIT__:';
 
 function videoLegacyMarkers(autoplay: any, loop: any, controls: any): string[] {
@@ -58,7 +59,7 @@ function videoLegacyMarkers(autoplay: any, loop: any, controls: any): string[] {
   return markers;
 }
 
-const VIDEO_INTERNAL_MARKERS = new Set([VIDEO_MARKER, VIDEO_AUTOPLAY_ON, VIDEO_LOOP_ON, VIDEO_CONTROLS_ON, TIMER_SEPARATE_ON, BENEFITS_MARKER, REDIRECT_MARKER]);
+const VIDEO_INTERNAL_MARKERS = new Set([VIDEO_MARKER, VIDEO_AUTOPLAY_ON, VIDEO_LOOP_ON, VIDEO_CONTROLS_ON, TIMER_SEPARATE_ON, BENEFITS_MARKER, REDIRECT_MARKER, ORGANIZED_FAVORITE_MARKER]);
 
 function visibleProductColors(input: any): string[] {
   const source = Array.isArray(input) ? input : [];
@@ -67,11 +68,17 @@ function visibleProductColors(input: any): string[] {
     .filter((value: string) => value && !VIDEO_INTERNAL_MARKERS.has(value) && !value.startsWith(BENEFIT_PREFIX));
 }
 
-function withProductInternalMarkers(input: any, separate: any, displayGroup: any = 'main'): string[] {
+function withProductInternalMarkers(input: any, separate: any, displayGroup: any = 'main', organizedFavorite: any = false): string[] {
   const colors = visibleProductColors(input);
   if (Boolean(separate)) colors.push(TIMER_SEPARATE_ON);
   if (String(displayGroup || '').toLowerCase() === 'redirect') colors.push(REDIRECT_MARKER);
+  if (Boolean(organizedFavorite)) colors.push(ORGANIZED_FAVORITE_MARKER);
   return Array.from(new Set(colors));
+}
+
+function readOrganizedFavorite(row: any): boolean {
+  const colors = Array.isArray(row?.colors) ? row.colors.map((v: any) => String(v)) : [];
+  return colors.includes(ORGANIZED_FAVORITE_MARKER);
 }
 
 function readDisplayGroup(row: any): 'main' | 'redirect' {
@@ -419,6 +426,7 @@ export default async function handler(req: any, res: any) {
         id: p.id,
         itemType: readVideoFlags(p).itemType,
         displayGroup: readDisplayGroup(p),
+        organizedFavorite: readOrganizedFavorite(p),
         libraryProductId: p.library_product_id || null,
         listId: p.list_id,
         position: p.position,
@@ -550,6 +558,7 @@ export default async function handler(req: any, res: any) {
         timerColor,
         timerSeparate,
         displayGroup,
+        organizedFavorite,
       } = body;
 
       const requestedItemType = String(itemType || body.item_type);
@@ -698,7 +707,7 @@ export default async function handler(req: any, res: any) {
         available_quantity: parsedAvailable,
         sizes: cleanSizes,
         out_of_stock_sizes: cleanOutOfStockSizes,
-        colors: cleanItemType === 'video' ? videoLegacyMarkers(videoAutoplay, videoLoop, videoControls) : cleanItemType === 'benefits' ? benefitsMarkers(cleanBenefits) : withProductInternalMarkers(cleanColors, timerSeparate, displayGroup),
+        colors: cleanItemType === 'video' ? videoLegacyMarkers(videoAutoplay, videoLoop, videoControls) : cleanItemType === 'benefits' ? benefitsMarkers(cleanBenefits) : withProductInternalMarkers(cleanColors, timerSeparate, displayGroup, organizedFavorite),
         installments_count: parsedInstallmentsCount,
         installment_value: parsedInstallmentValue,
         badge_enabled: isBadgeActive,
@@ -780,6 +789,7 @@ export default async function handler(req: any, res: any) {
         id: data.id,
         itemType: readVideoFlags(data).itemType,
         displayGroup: readDisplayGroup(data),
+        organizedFavorite: readOrganizedFavorite(data),
         libraryProductId: syncedLibraryId || data.library_product_id || null,
         listId: data.list_id,
         position: data.position,
@@ -1043,14 +1053,15 @@ export default async function handler(req: any, res: any) {
         updates.installment_value = parsePriceInput(raw);
       }
 
-      if (body.colors !== undefined || body.timerSeparate !== undefined || body.displayGroup !== undefined) {
+      if (body.colors !== undefined || body.timerSeparate !== undefined || body.displayGroup !== undefined || body.organizedFavorite !== undefined) {
         const { data: currentColorRow } = await supabase.from('best_seller_products').select('colors').eq('id', id).maybeSingle();
         const baseColors = body.colors !== undefined
           ? (Array.isArray(body.colors) ? body.colors.map((c: any) => sanitizeText(String(c))).filter(Boolean) : [])
           : (currentColorRow?.colors || []);
         const currentSeparate = body.timerSeparate !== undefined ? body.timerSeparate : readTimerSeparate(currentColorRow);
         const currentGroup = body.displayGroup !== undefined ? body.displayGroup : readDisplayGroup(currentColorRow);
-        updates.colors = withProductInternalMarkers(baseColors, currentSeparate, currentGroup);
+        const currentFavorite = body.organizedFavorite !== undefined ? Boolean(body.organizedFavorite) : readOrganizedFavorite(currentColorRow);
+        updates.colors = withProductInternalMarkers(baseColors, currentSeparate, currentGroup, currentFavorite);
       }
 
       if (body.badgeEnabled !== undefined) {
@@ -1159,6 +1170,7 @@ export default async function handler(req: any, res: any) {
         id: data.id,
         itemType: readVideoFlags(data).itemType,
         displayGroup: readDisplayGroup(data),
+        organizedFavorite: readOrganizedFavorite(data),
         libraryProductId: syncedLibraryId || data.library_product_id || null,
         listId: data.list_id,
         position: data.position,
