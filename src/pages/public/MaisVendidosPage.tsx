@@ -2186,33 +2186,49 @@ export const MaisVendidosPage: React.FC = () => {
                 {(organizedModel.active ? organizedModel.introItems : listData.products).map((prod, idx) => renderStoreItem(prod, idx))}
 
                 {organizedModel.active && (
-                  <section data-organized-selector className="w-full max-w-2xl mx-auto py-8 sm:py-12 px-1">
-                    <div className="text-center mb-5 sm:mb-6">
-                      <p className="text-[10px] font-black uppercase tracking-[0.2em] text-neutral-500 mb-2">ZHAYA MATCH</p>
-                      <h2 className="text-xl sm:text-2xl font-black tracking-[-0.025em] text-white">{listData.organizedTitle || ui.organizedTitle}</h2>
-                      <p className="mt-2 text-xs sm:text-sm text-neutral-400">{listData.organizedSubtitle || ui.organizedSubtitle}</p>
+                  <section
+                    data-organized-selector
+                    className="w-full max-w-[430px] mx-auto py-7 sm:py-9 px-4"
+                    style={{ fontFamily: '"Neue Einstellung", "Helvetica Neue", Helvetica, Arial, sans-serif' }}
+                  >
+                    <div className="text-center mb-5">
+                      <h2 className="text-[22px] leading-[1.08] font-semibold tracking-[-0.02em] text-white">
+                        {listData.organizedTitle || ui.organizedTitle}
+                      </h2>
+                      {(listData.organizedSubtitle || ui.organizedSubtitle)?.trim() && (
+                        <p className="mt-2 text-[12px] leading-relaxed font-normal text-neutral-400">
+                          {listData.organizedSubtitle || ui.organizedSubtitle}
+                        </p>
+                      )}
                     </div>
 
-                    <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
+                    <div className="space-y-2">
                       <button
                         type="button"
                         onClick={() => setOrganizedCategory('all')}
-                        className={`min-h-16 rounded-lg border px-3 py-3 text-left transition-colors ${organizedCategory === 'all' ? 'border-white bg-white text-black' : 'border-neutral-800 bg-neutral-950 text-white hover:border-neutral-600'}`}
+                        className={`w-full min-h-[46px] rounded-[6px] px-4 py-2.5 inline-flex items-center justify-center text-center text-black transition-[transform,background-color,opacity] active:scale-[0.985] ${organizedCategory === 'all' ? 'bg-neutral-200' : 'bg-white hover:bg-neutral-100'}`}
                       >
-                        <span className="block text-[11px] font-black">{ui.organizedAll}</span>
-                        <span className={`block mt-1 text-[9px] ${organizedCategory === 'all' ? 'text-neutral-600' : 'text-neutral-500'}`}>{formatBestSellerUiText(ui.organizedProducts, { count: organizedModel.remainingProducts.length })}</span>
+                        <span className="text-[13px] leading-none font-semibold">{ui.organizedAll}</span>
+                        <span className="ml-1.5 text-[11px] leading-none font-normal text-neutral-500">
+                          {organizedModel.remainingProducts.length}
+                        </span>
                       </button>
-                      {organizedModel.categories.map((category) => (
-                        <button
-                          key={category.key}
-                          type="button"
-                          onClick={() => setOrganizedCategory(category.key)}
-                          className={`min-h-16 rounded-lg border px-3 py-3 text-left transition-colors ${organizedCategory === category.key ? 'border-white bg-white text-black' : 'border-neutral-800 bg-neutral-950 text-white hover:border-neutral-600'}`}
-                        >
-                          <span className="block text-[11px] font-black">{category.label}</span>
-                          <span className={`block mt-1 text-[9px] ${organizedCategory === category.key ? 'text-neutral-600' : 'text-neutral-500'}`}>{formatBestSellerUiText(ui.organizedProducts, { count: category.count })}</span>
-                        </button>
-                      ))}
+
+                      <div className="grid grid-cols-2 gap-2">
+                        {organizedModel.categories.map((category) => (
+                          <button
+                            key={category.key}
+                            type="button"
+                            onClick={() => setOrganizedCategory(category.key)}
+                            className={`w-full min-h-[46px] rounded-[6px] px-2.5 py-2.5 inline-flex items-center justify-center text-center text-black transition-[transform,background-color,opacity] active:scale-[0.985] ${organizedCategory === category.key ? 'bg-neutral-200' : 'bg-white hover:bg-neutral-100'}`}
+                          >
+                            <span className="text-[12px] leading-none font-semibold truncate">{category.label}</span>
+                            <span className="ml-1 text-[10px] leading-none font-normal text-neutral-500 shrink-0">
+                              {category.count}
+                            </span>
+                          </button>
+                        ))}
+                      </div>
                     </div>
                   </section>
                 )}
@@ -2220,8 +2236,12 @@ export const MaisVendidosPage: React.FC = () => {
                 {organizedModel.active && organizedCategory && organizedSelectedItems.length > 0 && (
                   <div className="w-full flex flex-col space-y-4 sm:space-y-10">
                     {organizedSelectedItems.map((prod, idx) => renderStoreItem(prod, idx))}
-                    <div className="w-full flex justify-center pt-2">
-                      <button type="button" onClick={() => { setOrganizedCategory(null); document.querySelector('[data-organized-selector]')?.scrollIntoView({ behavior: 'smooth', block: 'center' }); }} className="text-[10px] font-bold uppercase tracking-[0.12em] text-neutral-500 hover:text-white transition-colors cursor-pointer">
+                    <div className="w-full flex justify-center pt-3 px-4">
+                      <button
+                        type="button"
+                        onClick={() => { setOrganizedCategory(null); document.querySelector('[data-organized-selector]')?.scrollIntoView({ behavior: 'smooth', block: 'center' }); }}
+                        className="min-h-[42px] px-5 rounded-[6px] bg-white text-black inline-flex items-center justify-center text-center text-[12px] font-semibold hover:bg-neutral-100 active:scale-[0.985] transition-[transform,background-color] cursor-pointer"
+                      >
                         {ui.organizedBack}
                       </button>
                     </div>
