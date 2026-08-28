@@ -2004,12 +2004,21 @@ export const MaisVendidosPage: React.FC = () => {
     ? organizedCategoryBlocks[organizedCategoryBlocks.length - 1]
     : null;
 
-  const scrollToCurrentOrganizedSelector = () => {
+  const scrollToInitialOrganizedSelector = () => {
     requestAnimationFrame(() => {
       requestAnimationFrame(() => {
-        document.querySelector('[data-organized-selector="current"]')?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+        document.querySelector('[data-organized-selector="initial"]')?.scrollIntoView({ behavior: 'smooth', block: 'center' });
       });
     });
+  };
+
+  const handleResetOrganizedCategories = () => {
+    // O atalho flutuante sempre volta para o primeiro seletor, logo depois dos
+    // produtos principais. Também limpa os blocos categorizados já carregados,
+    // restaurando a experiência organizada ao estado inicial.
+    setOrganizedCategoryBlocks([]);
+    setShowOrganizedFloatingSelector(false);
+    scrollToInitialOrganizedSelector();
   };
 
   const scrollToNewestOrganizedBlock = () => {
@@ -2227,7 +2236,7 @@ export const MaisVendidosPage: React.FC = () => {
             animate={{ opacity: 1, y: 0, scale: 1 }}
             exit={{ opacity: 0, y: -8, scale: 0.985 }}
             transition={{ duration: 0.18, ease: 'easeOut' }}
-            onClick={scrollToCurrentOrganizedSelector}
+            onClick={handleResetOrganizedCategories}
             className="fixed left-1/2 z-[70] -translate-x-1/2 rounded-full border border-white/20 bg-black/92 px-4 py-2.5 text-[12px] font-semibold text-white shadow-[0_10px_30px_rgba(0,0,0,0.35)] backdrop-blur-md active:scale-[0.98]"
             style={{ top: 'calc(env(safe-area-inset-top, 0px) + 8px)', fontFamily: '"Neue Einstellung", "Helvetica Neue", Helvetica, Arial, sans-serif' }}
           >
