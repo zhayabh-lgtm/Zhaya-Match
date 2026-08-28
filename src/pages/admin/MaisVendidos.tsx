@@ -915,6 +915,54 @@ function internationalTranslationRuleScore(rule: BestSellerInternationalCountryR
   return score;
 }
 
+function hydrateInternationalLanguageRules(rules: BestSellerInternationalCountryRule[]): BestSellerInternationalCountryRule[] {
+  const bestByLocale = new Map<string, BestSellerInternationalCountryRule>();
+  rules.forEach((rule) => {
+    const locale = normalizeInternationalLocale(rule.locale || 'en');
+    const current = bestByLocale.get(locale);
+    if (!current || internationalTranslationRuleScore(rule) > internationalTranslationRuleScore(current)) {
+      bestByLocale.set(locale, rule);
+    }
+  });
+
+  return rules.map((rule) => {
+    const locale = normalizeInternationalLocale(rule.locale || 'en');
+    const languageSource = bestByLocale.get(locale);
+    if (!languageSource || languageSource === rule) return rule;
+    const next: BestSellerInternationalCountryRule = { ...rule };
+    INTERNATIONAL_SHARED_TRANSLATION_KEYS.forEach((key) => {
+      const value = (languageSource as any)[key];
+      if (value !== undefined && value !== null) (next as any)[key] = value;
+    });
+    next.categoryTranslations = { ...(languageSource.categoryTranslations || {}) };
+    next.productTranslations = { ...(languageSource.productTranslations || {}) };
+    return next;
+  });
+}
+
+function compactInternationalLanguageRules(rules: BestSellerInternationalCountryRule[]): BestSellerInternationalCountryRule[] {
+  const ownerIndexByLocale = new Map<string, number>();
+  rules.forEach((rule, index) => {
+    const locale = normalizeInternationalLocale(rule.locale || 'en');
+    const currentIndex = ownerIndexByLocale.get(locale);
+    if (currentIndex === undefined || internationalTranslationRuleScore(rule) > internationalTranslationRuleScore(rules[currentIndex])) {
+      ownerIndexByLocale.set(locale, index);
+    }
+  });
+
+  return rules.map((rule, index) => {
+    const locale = normalizeInternationalLocale(rule.locale || 'en');
+    if (ownerIndexByLocale.get(locale) === index) return rule;
+    const compacted: BestSellerInternationalCountryRule = { ...rule };
+    INTERNATIONAL_SHARED_TRANSLATION_KEYS.forEach((key) => {
+      if (key === 'categoryTranslations') (compacted as any)[key] = {};
+      else (compacted as any)[key] = '';
+    });
+    compacted.productTranslations = {};
+    return compacted;
+  });
+}
+
 function getInternationalVisibilityDefaults(countryCode?: string | null) {
   const isBrazil = String(countryCode || '').toUpperCase() === 'BR';
   return {
@@ -3323,7 +3371,9 @@ export const MaisVendidos: React.FC = () => {
       };
     });
     setInternationalEnabled(Boolean(config?.enabled));
-    setInternationalRules(normalizedRules);
+    // O banco guarda uma única cópia por idioma; no painel expandimos em memória
+    // para que qualquer país do mesmo idioma continue mostrando a tradução completa.
+    setInternationalRules(hydrateInternationalLanguageRules(normalizedRules));
     const used = new Set(normalizedRules.map((rule) => String(rule.countryCode || '').toUpperCase()));
     setInternationalCountryToAdd(INTERNATIONAL_COUNTRY_PRESETS.find((country) => !used.has(country.code))?.code || 'US');
     setInternationalError(null);
@@ -3776,7 +3826,10 @@ export const MaisVendidos: React.FC = () => {
     setInternationalSaving(true);
     setInternationalError(null);
     try {
-      const config: BestSellerInternationalConfig = { enabled: internationalEnabled, rules: normalizedRules };
+      // Evita duplicar o mesmo JSON de produtos em vários países do mesmo idioma.
+      // Em vitrines grandes isso reduz bastante o tamanho de international_config.
+      const storageRules = compactInternationalLanguageRules(normalizedRules);
+      const config: BestSellerInternationalConfig = { enabled: internationalEnabled, rules: storageRules };
       const result = await Repository.updateBestSellerList(selectedList.id, { internationalConfig: config });
       if (!result.success) {
         setInternationalError(result.error || 'Não foi possível salvar a configuração internacional.');

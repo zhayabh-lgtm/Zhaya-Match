@@ -249,7 +249,7 @@ function useRuntimeVideoCover(src: string, enabled: boolean): string | null {
     const probe = document.createElement('video');
     probe.muted = true;
     probe.playsInline = true;
-    probe.preload = 'auto';
+    probe.preload = 'metadata';
     probe.crossOrigin = 'anonymous';
 
     const cleanup = () => {
@@ -335,8 +335,9 @@ const GalleryVideo: React.FC<{
   autoPlay?: boolean;
   loop?: boolean;
   showControls?: boolean;
+  eagerCover?: boolean;
   ui?: BestSellerUiText;
-}> = ({ src, label, onError, posterUrl, fallbackPosterUrl, onPlaybackStarted, autoPlay = false, loop = false, showControls = true, ui = getBestSellerUiText('pt-BR') }) => {
+}> = ({ src, label, onError, posterUrl, fallbackPosterUrl, onPlaybackStarted, autoPlay = false, loop = false, showControls = true, eagerCover = false, ui = getBestSellerUiText('pt-BR') }) => {
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const containerRef = useRef<HTMLDivElement | null>(null);
   const [activated, setActivated] = useState(false);
@@ -528,8 +529,8 @@ const GalleryVideo: React.FC<{
             <img
               src={coverUrl}
               alt={`${label} - ${ui.cover}`}
-              loading="eager"
-              fetchPriority="high"
+              loading={eagerCover ? 'eager' : 'lazy'}
+              fetchPriority={eagerCover ? 'high' : 'auto'}
               decoding="async"
               draggable={false}
               onError={() => setPosterFailed(true)}
@@ -771,6 +772,7 @@ const ProductMediaGallery: React.FC<{
                 autoPlay={videoAutoplay}
                 loop={false}
                 showControls
+                eagerCover={isFirst && currentIndex === 0}
                 ui={ui}
               />
             ) : (
@@ -1425,6 +1427,7 @@ const VideoHighlightItem: React.FC<{
           autoPlay={Boolean(item.videoAutoplay)}
           loop={item.videoLoop !== false}
           showControls={item.videoControls !== false}
+          eagerCover={isHero}
           ui={ui}
           onPlaybackStarted={() => {
             Repository.trackBestSellerAnalyticsEvent({ eventType: 'product_play', listId, productId: item.id });
@@ -1527,13 +1530,20 @@ export const MaisVendidosPage: React.FC = () => {
   const organizedBlockSequenceRef = useRef<number>(0);
   const pendingOrganizedAnchorRef = useRef<{ selector: string; top: number } | null>(null);
 
-  // Atualiza relógio local para o timer (apenas cálculo visual a cada 1s)
+  // Atualiza o relógio somente quando existe algum timer realmente visível/ativo.
+  // Antes a página inteira renderizava novamente a cada 1s mesmo sem timer.
+  const hasAnyActiveTimer = Boolean(
+    listData?.timerEnabled ||
+    listData?.products?.some((product) => Boolean(product.timerEnabled))
+  );
   useEffect(() => {
-    const interval = setInterval(() => {
+    if (!hasAnyActiveTimer) return;
+    setNow(Date.now());
+    const interval = window.setInterval(() => {
       setNow(Date.now());
     }, 1000);
-    return () => clearInterval(interval);
-  }, []);
+    return () => window.clearInterval(interval);
+  }, [hasAnyActiveTimer]);
 
   // SEO e Título da Página
   useEffect(() => {
@@ -1586,7 +1596,7 @@ export const MaisVendidosPage: React.FC = () => {
     }
   };
 
-  // Carregamento inicial e Polling silencioso a cada ~3 segundos
+  // Carregamento inicial e atualização silenciosa de baixa frequência
   useEffect(() => {
     // Ao trocar de slug, não reaproveita o snapshot da lista anterior.
     lastDataRef.current = '';
@@ -1602,12 +1612,12 @@ export const MaisVendidosPage: React.FC = () => {
     // 1. Carregamento inicial explícito
     fetchPublicList({ silent: false });
 
-    // 2. Polling silencioso a cada 3 segundos
+    // 2. Atualização silenciosa a cada 20s. Evita bombardear a mesma Vercel Function/Supabase.
     const pollInterval = setInterval(() => {
       if (typeof document !== 'undefined' && document.visibilityState === 'visible') {
         fetchPublicList({ silent: true });
       }
-    }, 3000);
+    }, 20000);
 
     // 3. Atualização imediata ao voltar à aba ou focar na janela
     const handleVisibilityChange = () => {
@@ -2169,10 +2179,25 @@ export const MaisVendidosPage: React.FC = () => {
     );
   };
 
+  const productRenderMeta = useMemo(() => {
+    const indexById = new Map<string, number>();
+    const rankById = new Map<string, number>();
+    let rank = 0;
+    (listData?.products || []).forEach((item, index) => {
+      indexById.set(item.id, index);
+      if (item.itemType === 'product' || !item.itemType) {
+        rank += 1;
+        rankById.set(item.id, rank);
+      }
+    });
+    const firstProductIndex = (listData?.products || []).findIndex((item) => item.itemType === 'product' || !item.itemType);
+    return { indexById, rankById, firstProductIndex };
+  }, [listData?.products]);
+
   const renderStoreItem = (prod: PublicBestSellerProduct, idx: number) => {
     if (!listData) return null;
-    const originalIndex = listData.products.findIndex((item) => item.id === prod.id);
-    const safeIndex = originalIndex >= 0 ? originalIndex : idx;
+    const originalIndex = productRenderMeta.indexById.get(prod.id);
+    const safeIndex = originalIndex !== undefined ? originalIndex : idx;
     if (prod.itemType === 'benefits') return <BenefitsBlockItem key={prod.id} item={prod} ui={ui} />;
     if (prod.itemType === 'video') {
       const nextProduct = listData.products.slice(safeIndex + 1).find((item) => item.itemType === 'product' || !item.itemType);
@@ -2190,8 +2215,8 @@ export const MaisVendidosPage: React.FC = () => {
         />
       );
     }
-    const displayRank = listData.products.slice(0, safeIndex + 1).filter((item) => item.itemType === 'product' || !item.itemType).length;
-    const firstProductIndex = listData.products.findIndex((item) => item.itemType === 'product' || !item.itemType);
+    const displayRank = productRenderMeta.rankById.get(prod.id) || 1;
+    const firstProductIndex = productRenderMeta.firstProductIndex;
     return (
       <ProductItem
         key={prod.id}

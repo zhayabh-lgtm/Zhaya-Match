@@ -5,6 +5,36 @@ import { getBestSellerUiText } from '../../src/lib/bestSellerI18n.js';
 import { detectBestSellerCategoryKey } from '../../src/lib/bestSellerCategories.js';
 import { isBestSellerForeignCountry, normalizeBestSellerRegionLocale, resolveBestSellerCountryLocale } from '../../src/lib/bestSellerRegions.js';
 
+// Cache curto apenas dentro da instância serverless, separado por país + slug.
+// Não usa CDN/browser cache, portanto uma resposta de um país nunca vaza para outro.
+const PUBLIC_LIST_MEMORY_TTL_MS = 15_000;
+const publicListMemoryCache = new Map<string, { expiresAt: number; list: PublicBestSellerList }>();
+
+function readPublicListMemoryCache(key: string): PublicBestSellerList | null {
+  const hit = publicListMemoryCache.get(key);
+  if (!hit) return null;
+  if (hit.expiresAt <= Date.now()) {
+    publicListMemoryCache.delete(key);
+    return null;
+  }
+  return hit.list;
+}
+
+function writePublicListMemoryCache(key: string, list: PublicBestSellerList): void {
+  // Limite simples evita crescimento indefinido em instâncias quentes.
+  if (publicListMemoryCache.size > 80) {
+    const now = Date.now();
+    for (const [entryKey, entry] of publicListMemoryCache) {
+      if (entry.expiresAt <= now) publicListMemoryCache.delete(entryKey);
+    }
+    if (publicListMemoryCache.size > 80) {
+      const oldestKey = publicListMemoryCache.keys().next().value as string | undefined;
+      if (oldestKey) publicListMemoryCache.delete(oldestKey);
+    }
+  }
+  publicListMemoryCache.set(key, { expiresAt: Date.now() + PUBLIC_LIST_MEMORY_TTL_MS, list });
+}
+
 function getSupabaseClient() {
   const supabaseUrl = process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL || '';
   const serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY || '';
@@ -189,20 +219,17 @@ function translationRuleScore(rule: any): number {
   if (!rule || typeof rule !== 'object') return -1;
   let score = 0;
   LANGUAGE_SHARED_TEXT_KEYS.forEach((key) => {
-    if (String(rule?.[key] || '').trim()) score += 4;
+    if (String(rule?.[key] || '').trim()) score += 1000;
   });
   const categories = rule.categoryTranslations && typeof rule.categoryTranslations === 'object'
-    ? Object.values(rule.categoryTranslations).filter((value: any) => String(value || '').trim()).length
+    ? Object.keys(rule.categoryTranslations).length
     : 0;
-  score += categories * 2;
   const products = rule.productTranslations && typeof rule.productTranslations === 'object'
-    ? Object.values(rule.productTranslations)
-    : [];
-  products.forEach((translation: any) => {
-    if (!translation || typeof translation !== 'object') return;
-    score += Object.values(translation).filter((value: any) => Array.isArray(value) ? value.length > 0 : String(value || '').trim()).length;
-  });
-  return score;
+    ? Object.keys(rule.productTranslations).length
+    : 0;
+  // Para escolher a regra mais completa não precisamos percorrer cada campo de
+  // cada tradução em todo request. Quantidade de produtos + textos é suficiente.
+  return score + (products * 10) + categories;
 }
 
 function pickBestLanguageRule(rules: any[], locale: string): any | null {
@@ -213,7 +240,7 @@ function pickBestLanguageRule(rules: any[], locale: string): any | null {
 }
 
 function mergeLanguageContentRules(...sources: Array<any | null | undefined>): any | null {
-  const output: any = { categoryTranslations: {}, productTranslations: {} };
+  const output: any = { categoryTranslations: {} };
   let used = false;
 
   for (const source of sources) {
@@ -235,16 +262,6 @@ function mergeLanguageContentRules(...sources: Array<any | null | undefined>): a
       }
     }
 
-    if (source.productTranslations && typeof source.productTranslations === 'object') {
-      for (const [productId, translation] of Object.entries(source.productTranslations)) {
-        if (!translation || typeof translation !== 'object') continue;
-        output.productTranslations[String(productId)] = {
-          ...(output.productTranslations[String(productId)] || {}),
-          ...(translation as Record<string, unknown>),
-        };
-        used = true;
-      }
-    }
   }
 
   return used ? output : null;
@@ -282,6 +299,14 @@ export default async function handler(req: any, res: any) {
 
     const requestUrl = new URL(req.url || '/', `http://${req.headers?.host || 'localhost'}`);
     const requestedSlug = String(req.query?.slug || requestUrl.searchParams.get('slug') || '').trim();
+    const detectedCountryCode = readDetectedCountryCode(req);
+    const cacheKey = `${requestedSlug || '__active__'}:${detectedCountryCode || '__unknown__'}`;
+    const cachedList = readPublicListMemoryCache(cacheKey);
+    if (cachedList) {
+      res.setHeader('X-Zhaya-Public-Cache', 'HIT');
+      return res.status(200).json({ success: true, list: cachedList });
+    }
+    res.setHeader('X-Zhaya-Public-Cache', 'MISS');
 
     // Com slug, cada lista possui um link público independente. Sem slug,
     // preserva /mais-vendidos como atalho para a lista marcada como padrão (active).
@@ -291,7 +316,7 @@ export default async function handler(req: any, res: any) {
     if (requestedSlug) {
       const result = await supabase
         .from('best_seller_lists')
-        .select('*')
+        .select('id,slug,title,logo_url,subtitle,cta_text,footer_cta_enabled,footer_cta_text,footer_cta_url,experience_mode,organized_intro_count,show_date,show_ranking,rank_color,size_color,background_video_url,background_video_opacity,background_video_blur,default_badge_enabled,default_badge_text,default_badge_color,gift_enabled,gift_image_url,gift_title,gift_label,gift_text_color,gift_image_size,list_date,timer_enabled,timer_end,timer_looping,timer_duration_minutes,timezone,international_config')
         .eq('slug', requestedSlug)
         .maybeSingle();
       activeList = result.data;
@@ -299,7 +324,7 @@ export default async function handler(req: any, res: any) {
     } else {
       const result = await supabase
         .from('best_seller_lists')
-        .select('*')
+        .select('id,slug,title,logo_url,subtitle,cta_text,footer_cta_enabled,footer_cta_text,footer_cta_url,experience_mode,organized_intro_count,show_date,show_ranking,rank_color,size_color,background_video_url,background_video_opacity,background_video_blur,default_badge_enabled,default_badge_text,default_badge_color,gift_enabled,gift_image_url,gift_title,gift_label,gift_text_color,gift_image_size,list_date,timer_enabled,timer_end,timer_looping,timer_duration_minutes,timezone,international_config')
         .eq('active', true)
         .order('list_date', { ascending: false })
         .limit(1)
@@ -326,7 +351,7 @@ export default async function handler(req: any, res: any) {
     // Busca os produtos ordenados por posição
     const { data: productsData, error: prodsError } = await supabase
       .from('best_seller_products')
-      .select('*')
+      .select('id,item_type,video_autoplay,video_loop,video_controls,video_title,position,name,category,image_url,image_urls,media_items,product_url,original_price,promotional_price,sold_quantity,show_sold_quantity,available_quantity,sizes,out_of_stock_sizes,colors,installments_count,installment_value,badge_use_list_default,badge_enabled,badge_text,badge_color,gift_mode,gift_image_url,gift_title,gift_label,gift_text_color,gift_image_size,timer_enabled,timer_end,timer_looping,timer_duration_minutes,timer_color')
       .eq('list_id', activeList.id)
       .order('position', { ascending: true });
 
@@ -419,7 +444,6 @@ export default async function handler(req: any, res: any) {
     // Uma tradução em inglês é fallback para qualquer país estrangeiro. Quando existe
     // um pacote no idioma da região (árabe, espanhol, francês etc.), ele prevalece.
     // Redirecionamento, moeda, destino do CTA e visibilidades continuam específicos do país.
-    const detectedCountryCode = readDetectedCountryCode(req);
     const internationalConfig = activeList.international_config && typeof activeList.international_config === 'object'
       ? activeList.international_config
       : null;
@@ -435,15 +459,29 @@ export default async function handler(req: any, res: any) {
       : 'pt';
     const englishLanguageRule = isForeignMarket ? pickBestLanguageRule(enabledRules, 'en') : null;
     const regionLanguageRule = isForeignMarket ? pickBestLanguageRule(enabledRules, regionLocale) : null;
-    const languageContentRule = isForeignMarket
-      ? mergeLanguageContentRules(
-          // Português internacional usa o conteúdo original como base; nos demais
-          // idiomas, inglês funciona como fallback mundial quando configurado.
+    const languageRuleSources = isForeignMarket
+      ? Array.from(new Set([
           regionLocale === 'pt' ? null : englishLanguageRule,
           regionLanguageRule,
           countryRule && normalizeBestSellerRegionLocale(countryRule.locale) === regionLocale ? countryRule : null,
-        )
+        ].filter(Boolean)))
+      : [];
+    const languageContentRule = isForeignMarket
+      ? mergeLanguageContentRules(...languageRuleSources)
       : null;
+
+    // Traduções de produto são resolvidas sob demanda, um produto por vez.
+    // Antes o servidor clonava o mapa inteiro de traduções (potencialmente enorme)
+    // em todo request, mesmo que boa parte não fosse usada na resposta atual.
+    const getProductTranslation = (productId: string): Record<string, any> => {
+      let output: Record<string, any> | null = null;
+      for (const source of languageRuleSources as any[]) {
+        const translation = source?.productTranslations?.[productId];
+        if (!translation || typeof translation !== 'object') continue;
+        output = { ...(output || {}), ...(translation as Record<string, any>) };
+      }
+      return output || {};
+    };
 
     let publicTitle = activeList.title;
     let publicSubtitle = activeList.subtitle || null;
@@ -539,9 +577,6 @@ export default async function handler(req: any, res: any) {
     // Conteúdo textual é compartilhado por idioma, independentemente de o país ter
     // uma regra comercial própria. Isso faz, por exemplo, a tradução EN dos EUA
     // aparecer também no Reino Unido e em qualquer outro mercado internacional.
-    const translations = languageContentRule?.productTranslations && typeof languageContentRule.productTranslations === 'object'
-      ? languageContentRule.productTranslations
-      : {};
     if (languageContentRule) {
       publicTitle = String(languageContentRule.title || '').trim() || publicTitle;
       publicSubtitle = String(languageContentRule.subtitle || '').trim() || publicSubtitle;
@@ -568,7 +603,7 @@ export default async function handler(req: any, res: any) {
     if (isForeignMarket) {
       formattedProducts = formattedProducts.map((product) => {
         const stableCategoryKey = product.autoCategoryKey || detectBestSellerCategoryKey(product);
-        const translation: any = translations[product.id] || {};
+        const translation: any = getProductTranslation(product.id);
         const converted = (value: number | null | undefined) => value === null || value === undefined ? value : Math.round(value * priceRate * 100) / 100;
         const has = (key: string) => Object.prototype.hasOwnProperty.call(translation, key);
         const translatedList = (key: string, fallback: string[] | undefined): string[] | undefined => {
@@ -728,6 +763,7 @@ export default async function handler(req: any, res: any) {
       products: formattedProducts,
     };
 
+    writePublicListMemoryCache(cacheKey, responseList);
     return res.status(200).json({
       success: true,
       list: responseList,

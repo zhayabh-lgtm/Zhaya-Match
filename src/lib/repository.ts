@@ -2265,12 +2265,8 @@ export const Repository = {
   async getPublicBestSellers(slug?: string): Promise<PublicBestSellerList | null> {
     try {
       const slugQuery = slug ? `&slug=${encodeURIComponent(slug)}` : '';
-      const res = await fetch(`/api/best-sellers?mode=public-list${slugQuery}&_=${Date.now()}`, {
+      const res = await fetch(`/api/best-sellers?mode=public-list${slugQuery}`, {
         cache: 'no-store',
-        headers: {
-          'Cache-Control': 'no-cache',
-          Pragma: 'no-cache',
-        },
       });
       if (res.ok) {
         const json = await res.json();
