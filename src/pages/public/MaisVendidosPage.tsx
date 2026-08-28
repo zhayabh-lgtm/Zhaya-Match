@@ -2211,16 +2211,20 @@ export const MaisVendidosPage: React.FC = () => {
                     className="w-full max-w-[430px] mx-auto py-7 sm:py-9 px-4"
                     style={{ fontFamily: '"Neue Einstellung", "Helvetica Neue", Helvetica, Arial, sans-serif' }}
                   >
-                    <div className="text-center mb-5">
-                      <h2 className="text-[22px] leading-[1.08] font-semibold tracking-[-0.02em] text-white">
-                        {listData.organizedTitle || ui.organizedTitle}
-                      </h2>
-                      {(listData.organizedSubtitle || ui.organizedSubtitle)?.trim() && (
-                        <p className="mt-2 text-[12px] leading-relaxed font-normal text-neutral-400">
-                          {listData.organizedSubtitle || ui.organizedSubtitle}
-                        </p>
-                      )}
-                    </div>
+                    {(listData.organizedTitle?.trim() || listData.organizedSubtitle?.trim()) && (
+                      <div className="text-center mb-5">
+                        {listData.organizedTitle?.trim() && (
+                          <h2 className="text-[22px] leading-[1.08] font-semibold tracking-[-0.02em] text-white">
+                            {listData.organizedTitle}
+                          </h2>
+                        )}
+                        {listData.organizedSubtitle?.trim() && (
+                          <p className={`${listData.organizedTitle?.trim() ? 'mt-2' : ''} text-[12px] leading-relaxed font-normal text-neutral-400`}>
+                            {listData.organizedSubtitle}
+                          </p>
+                        )}
+                      </div>
+                    )}
 
                     <div className="space-y-2">
                       <button
