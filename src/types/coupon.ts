@@ -19,6 +19,7 @@ export interface CouponCampaign {
   accentColor: string;
   buttonBackgroundColor: string;
   buttonTextColor: string;
+  timerColor: string;
   couponCode?: string;
   unlockMode: CouponUnlockMode;
   unlockDelaySeconds: number;

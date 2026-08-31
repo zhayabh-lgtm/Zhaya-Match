@@ -97,3 +97,4 @@ GROUP BY campaign_id, visitor_id
 ON CONFLICT (campaign_id, visitor_id) DO NOTHING;
 
 NOTIFY pgrst, 'reload schema';
+

@@ -48,6 +48,7 @@ const emptyCampaign = (): CouponCampaign => ({
   accentColor: '#FFFFFF',
   buttonBackgroundColor: '#FFFFFF',
   buttonTextColor: '#000000',
+  timerColor: '#FFFFFF',
   couponCode: 'LIVE10',
   unlockMode: 'immediate',
   unlockDelaySeconds: 10,
@@ -503,7 +504,7 @@ export function Cupons() {
                   <div><FieldLabel>Endereço público</FieldLabel><div className="flex items-center"><span className="px-3 py-2.5 border border-r-0 border-neutral-300 bg-neutral-50 rounded-l text-[11px] text-neutral-400">/cupom/</span><input value={draft.slug} onChange={(e) => patch('slug', slugify(e.target.value))} className="min-w-0 flex-1 px-3 py-2.5 border border-neutral-300 rounded-r text-xs" /></div></div>
                   <Toggle checked={draft.active} onChange={(v) => patch('active', v)} label="Campanha ativa" description="Quando desligada, o link público fica indisponível para desbloqueio." />
                   <div><FieldLabel>Texto pequeno acima do título</FieldLabel><input value={draft.eyebrow || ''} onChange={(e) => patch('eyebrow', e.target.value || null)} placeholder="CUPOM DA LIVE" className="w-full px-3 py-2.5 border border-neutral-300 rounded text-xs" /></div>
-                  <div><FieldLabel>Título</FieldLabel><input value={draft.title} onChange={(e) => patch('title', e.target.value)} className="w-full px-3 py-2.5 border border-neutral-300 rounded text-xs" /></div>
+                  <div><FieldLabel>Título <span className="normal-case font-normal text-neutral-400">(opcional)</span></FieldLabel><input value={draft.title} onChange={(e) => patch('title', e.target.value)} placeholder="Deixe vazio para não exibir" className="w-full px-3 py-2.5 border border-neutral-300 rounded text-xs" /></div>
                   <div><FieldLabel>Subtítulo</FieldLabel><textarea value={draft.subtitle || ''} onChange={(e) => patch('subtitle', e.target.value || null)} rows={3} className="w-full px-3 py-2.5 border border-neutral-300 rounded text-xs resize-y" /></div>
                   <MediaField label="Logo customizada" value={draft.logoUrl} type="image" purpose="logos" onChange={(v) => patch('logoUrl', v)} />
                 </section>
@@ -558,6 +559,7 @@ export function Cupons() {
                       ['accentColor', 'Destaque'],
                       ['buttonBackgroundColor', 'Botão'],
                       ['buttonTextColor', 'Texto botão'],
+                      ['timerColor', 'Timer'],
                     ] as const).map(([key, label]) => <div key={key}><FieldLabel>{label}</FieldLabel><div className="flex gap-2"><input type="color" value={draft[key]} onChange={(e) => patch(key, e.target.value.toUpperCase() as any)} className="w-10 h-9 p-0.5 border border-neutral-300 rounded bg-white" /><input value={draft[key]} onChange={(e) => patch(key, e.target.value.toUpperCase() as any)} className="min-w-0 flex-1 px-2 py-2 border border-neutral-300 rounded text-[10px] font-mono" /></div></div>)}
                   </div>
                   <MediaField label="Imagem de fundo" value={draft.backgroundImageUrl} type="image" purpose="backgrounds" onChange={(v) => patch('backgroundImageUrl', v)} />
@@ -573,11 +575,11 @@ export function Cupons() {
                     {draft.backgroundVideoUrl && <video src={draft.backgroundVideoUrl} muted autoPlay loop playsInline className="absolute inset-0 w-full h-full object-cover scale-105" style={{ filter: `blur(${draft.backgroundBlur}px)` }} />}
                     {(draft.backgroundImageUrl || draft.backgroundVideoUrl) && <div className="absolute inset-0" style={{ backgroundColor: draft.backgroundColor, opacity: draft.backgroundOverlay }} />}
                     <div className="relative z-10 w-full max-w-sm text-center">
-                      {draft.logoUrl && <img src={draft.logoUrl} alt="" className="max-h-28 max-w-[90%] mx-auto object-contain mb-7" />}
+                      {draft.logoUrl && <img src={draft.logoUrl} alt="" className="relative left-1/2 -translate-x-1/2 w-[calc(100%+2rem)] max-w-none h-auto max-h-32 object-contain mb-7" />}
                       {draft.eyebrow && <div className="text-[9px] uppercase tracking-[0.25em] font-bold mb-2" style={{ color: draft.accentColor }}>{draft.eyebrow}</div>}
-                      <div className="text-2xl font-black leading-tight tracking-tight">{draft.title}</div>
+                      {draft.title.trim() && <div className="text-2xl font-black leading-tight tracking-tight">{draft.title}</div>}
                       {draft.subtitle && <div className="text-xs mt-2 leading-relaxed" style={{ color: draft.mutedTextColor }}>{draft.subtitle}</div>}
-                      {draft.timerEnabled && <div className="mt-7"><div className="text-[9px] uppercase tracking-[0.24em] opacity-55">{draft.timerLabel}</div><div className="text-4xl font-black mt-1">00:50:58</div></div>}
+                      {draft.timerEnabled && <div className="mt-7" style={{ color: draft.timerColor }}><div className="text-[9px] uppercase tracking-[0.24em] opacity-70">{draft.timerLabel}</div><div className="text-4xl font-black mt-1">00:50:58</div></div>}
                       {(draft.showRemaining || draft.showMaxUnlocks) && draft.maxUnlocks && <div className="mt-7 mb-2 text-[9px] uppercase tracking-[0.14em] font-bold opacity-60">{draft.showRemaining ? `${Math.max(0, draft.maxUnlocks - (draft.totalUnlocks || 0))} cupons restantes${draft.showMaxUnlocks ? ` de ${draft.maxUnlocks}` : ''}` : `Limite de ${draft.maxUnlocks} cupons`}</div>}
                       <button type="button" className={`w-full ${!(draft.showRemaining || draft.showMaxUnlocks) ? 'mt-8' : ''} py-4 rounded-lg text-xs font-black uppercase flex items-center justify-center gap-2`} style={{ backgroundColor: draft.buttonBackgroundColor, color: draft.buttonTextColor }}><LockKeyhole className="w-4 h-4" />{draft.unlockButtonText}</button>
                     </div>

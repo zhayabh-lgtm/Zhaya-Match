@@ -24,6 +24,7 @@ CREATE TABLE IF NOT EXISTS public.coupon_campaigns (
   accent_color TEXT NOT NULL DEFAULT '#FFFFFF',
   button_background_color TEXT NOT NULL DEFAULT '#FFFFFF',
   button_text_color TEXT NOT NULL DEFAULT '#000000',
+  timer_color TEXT NOT NULL DEFAULT '#FFFFFF',
   coupon_code TEXT NOT NULL DEFAULT 'CUPOM',
   unlock_mode TEXT NOT NULL DEFAULT 'immediate' CHECK (unlock_mode IN ('immediate', 'countdown', 'video')),
   unlock_delay_seconds INTEGER NOT NULL DEFAULT 0 CHECK (unlock_delay_seconds >= 0 AND unlock_delay_seconds <= 3600),
@@ -58,6 +59,7 @@ ALTER TABLE public.coupon_campaigns ADD COLUMN IF NOT EXISTS timer_looping BOOLE
 ALTER TABLE public.coupon_campaigns ADD COLUMN IF NOT EXISTS timer_duration_minutes INTEGER;
 ALTER TABLE public.coupon_campaigns ADD COLUMN IF NOT EXISTS timer_end_at TIMESTAMPTZ;
 ALTER TABLE public.coupon_campaigns ADD COLUMN IF NOT EXISTS show_max_unlocks BOOLEAN NOT NULL DEFAULT false;
+ALTER TABLE public.coupon_campaigns ADD COLUMN IF NOT EXISTS timer_color TEXT NOT NULL DEFAULT '#FFFFFF';
 
 UPDATE public.coupon_campaigns
 SET timer_duration_minutes = NULL

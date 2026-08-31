@@ -94,9 +94,9 @@ function CouponTimer({ label, targetMs, color }: { label: string; targetMs: numb
     return () => window.clearInterval(id);
   }, [targetMs]);
   return (
-    <div className="text-center py-3">
+    <div className="text-center py-3" style={{ color }}>
       <div className="text-[10px] uppercase tracking-[0.34em] font-bold opacity-55 mb-2">{label}</div>
-      <div className="text-[clamp(2.2rem,11vw,4rem)] leading-none font-black tracking-[-0.055em] tabular-nums" style={{ color }}>{value}</div>
+      <div className="text-[clamp(2.2rem,11vw,4rem)] leading-none font-black tracking-[-0.055em] tabular-nums">{value}</div>
     </div>
   );
 }
@@ -416,13 +416,13 @@ export function CouponCampaignPage() {
 
       <main className="relative z-10 min-h-screen w-full max-w-[560px] mx-auto px-5 sm:px-7 py-10 sm:py-14 flex flex-col justify-center">
         <section className="text-center">
-          {campaign.logoUrl && <img src={campaign.logoUrl} alt="" className="block mx-auto max-w-[92%] max-h-[190px] object-contain mb-8 sm:mb-10" decoding="async" />}
+          {campaign.logoUrl && <img src={campaign.logoUrl} alt="" className="block relative left-1/2 -translate-x-1/2 w-[calc(100vw-24px)] sm:w-[min(92vw,760px)] max-w-[760px] h-auto max-h-[240px] object-contain mb-8 sm:mb-10" decoding="async" />}
           {campaign.eyebrow && <div className="text-[10px] sm:text-[11px] uppercase tracking-[0.32em] font-bold mb-3" style={{ color: campaign.accentColor }}>{campaign.eyebrow}</div>}
-          <h1 className="text-[clamp(1.65rem,7vw,2.45rem)] leading-[1.04] tracking-[-0.04em] font-black">{campaign.title}</h1>
+          {campaign.title?.trim() && <h1 className="text-[clamp(1.65rem,7vw,2.45rem)] leading-[1.04] tracking-[-0.04em] font-black">{campaign.title}</h1>}
           {campaign.subtitle && <p className="text-[14px] sm:text-[16px] leading-relaxed mt-3 max-w-[470px] mx-auto" style={{ color: campaign.mutedTextColor }}>{campaign.subtitle}</p>}
 
           {campaign.timerEnabled && timerTargetMs && effectiveStatus !== 'depleted' && effectiveStatus !== 'expired' && (
-            <div className="mt-8 sm:mt-10"><CouponTimer label={timerLabel} targetMs={timerTargetMs} color={campaign.textColor} /></div>
+            <div className="mt-8 sm:mt-10"><CouponTimer label={timerLabel} targetMs={timerTargetMs} color={campaign.timerColor || campaign.textColor} /></div>
           )}
 
           <div className="mt-8 sm:mt-10">
