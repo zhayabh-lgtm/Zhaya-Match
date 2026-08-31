@@ -421,15 +421,19 @@ export function CouponCampaignPage() {
   const timerSpacingClass = hasTitle
     ? 'mt-8 sm:mt-10'
     : hasHeadlineContent
-      ? 'mt-3 sm:mt-4'
-      : campaign.logoUrl ? 'mt-1 sm:mt-2' : 'mt-0';
+      ? 'mt-2 sm:mt-3'
+      : campaign.logoUrl ? 'mt-0' : 'mt-0';
   const couponSpacingClass = hasVisibleTimer
-    ? 'mt-8 sm:mt-10'
+    ? hasTitle
+      ? 'mt-8 sm:mt-10'
+      : hasHeadlineContent
+        ? 'mt-3 sm:mt-4'
+        : 'mt-2 sm:mt-3'
     : hasTitle
       ? 'mt-8 sm:mt-10'
       : hasHeadlineContent
         ? 'mt-3 sm:mt-4'
-        : campaign.logoUrl ? 'mt-2 sm:mt-3' : 'mt-0';
+        : campaign.logoUrl ? 'mt-1 sm:mt-2' : 'mt-0';
 
   return (
     <div className="min-h-screen relative overflow-x-hidden" style={{ backgroundColor: campaign.backgroundColor, color: campaign.textColor, fontFamily: '"Neue Einstellung", "Helvetica Neue", Helvetica, Arial, sans-serif' }}>
@@ -444,7 +448,7 @@ export function CouponCampaignPage() {
 
       <main className="relative z-10 min-h-screen w-full max-w-[560px] mx-auto px-5 sm:px-7 py-10 sm:py-14 flex flex-col justify-center">
         <section className="text-center">
-          {campaign.logoUrl && <img src={campaign.logoUrl} alt="" className={`block relative left-1/2 -translate-x-1/2 w-[calc(100vw-24px)] sm:w-[min(92vw,760px)] max-w-[760px] h-auto max-h-[240px] object-contain ${hasTitle ? 'mb-8 sm:mb-10' : hasHeadlineContent ? 'mb-3 sm:mb-4' : 'mb-1 sm:mb-2'}`} decoding="async" />}
+          {campaign.logoUrl && <img src={campaign.logoUrl} alt="" className={`block relative left-1/2 -translate-x-1/2 w-[calc(100vw-24px)] sm:w-[min(92vw,760px)] max-w-[760px] h-auto max-h-[240px] object-contain ${hasTitle ? 'mb-8 sm:mb-10' : hasHeadlineContent ? 'mb-2 sm:mb-3' : 'mb-0'}`} decoding="async" />}
           {campaign.eyebrow && <div className="text-[10px] sm:text-[11px] uppercase tracking-[0.32em] font-bold mb-3" style={{ color: campaign.accentColor }}>{campaign.eyebrow}</div>}
           {campaign.title?.trim() && <h1 className="text-[clamp(1.65rem,7vw,2.45rem)] leading-[1.04] tracking-[-0.04em] font-black">{campaign.title}</h1>}
           {campaign.subtitle && <p className="text-[14px] sm:text-[16px] leading-relaxed mt-3 max-w-[470px] mx-auto" style={{ color: campaign.mutedTextColor }}>{campaign.subtitle}</p>}
