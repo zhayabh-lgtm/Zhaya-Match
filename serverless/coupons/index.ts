@@ -454,8 +454,32 @@ export default async function handler(req: any, res: any) {
       return res.status(200).json({ success: true });
     }
 
+    if (mode === 'admin-reset-analytics') {
+      if (!await requireAdmin(req, res)) return;
+      if (req.method !== 'POST' && req.method !== 'DELETE') return res.status(405).json({ error: 'METHOD_NOT_ALLOWED' });
+      const body = parseBody(req);
+      const id = readParam(req, 'id') || String(body.id || '');
+      if (!UUID_REGEX.test(id)) return res.status(400).json({ error: 'INVALID_ID' });
+
+      const [{ error: eventsError }, { error: sessionsError }] = await Promise.all([
+        supabase.from('coupon_events').delete().eq('campaign_id', id),
+        supabase.from('coupon_visitor_sessions').delete().eq('campaign_id', id),
+      ]);
+
+      if (eventsError) {
+        return res.status(500).json({ success: false, error: 'DATABASE_ERROR', message: eventsError.message });
+      }
+      const sessionsMissing = String(sessionsError?.code || '') === '42P01';
+      if (sessionsError && !sessionsMissing) {
+        return res.status(500).json({ success: false, error: 'DATABASE_ERROR', message: sessionsError.message });
+      }
+
+      return res.status(200).json({ success: true, reset: true });
+    }
+
     if (mode === 'analytics') {
       if (!await requireAdmin(req, res)) return;
+      res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate');
       const id = readParam(req, 'id');
       if (!UUID_REGEX.test(id)) return res.status(400).json({ error: 'INVALID_ID' });
 

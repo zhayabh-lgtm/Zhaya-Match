@@ -266,6 +266,7 @@ export function Cupons() {
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [duplicating, setDuplicating] = useState(false);
+  const [resettingAnalytics, setResettingAnalytics] = useState(false);
   const [deleting, setDeleting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [tableMissing, setTableMissing] = useState(false);
@@ -314,7 +315,7 @@ export function Cupons() {
   const loadAnalytics = useCallback(async (id: string) => {
     if (!id) return;
     try {
-      const data = await couponApi('analytics', { method: 'GET' }, { id });
+      const data = await couponApi('analytics', { method: 'GET', cache: 'no-store' }, { id });
       setAnalytics(data.analytics || null);
     } catch {
       setAnalytics(null);
@@ -323,9 +324,20 @@ export function Cupons() {
 
   useEffect(() => {
     if (!draft?.id) { setAnalytics(null); return; }
-    loadAnalytics(draft.id);
-    const id = window.setInterval(() => loadAnalytics(draft.id), 15000);
-    return () => window.clearInterval(id);
+    let cancelled = false;
+    let timeoutId: number | null = null;
+    const campaignId = draft.id;
+
+    const refresh = async () => {
+      await loadAnalytics(campaignId);
+      if (!cancelled) timeoutId = window.setTimeout(refresh, 5000);
+    };
+
+    refresh();
+    return () => {
+      cancelled = true;
+      if (timeoutId !== null) window.clearTimeout(timeoutId);
+    };
   }, [draft?.id, loadAnalytics]);
 
   const patch = <K extends keyof CouponCampaign>(key: K, value: CouponCampaign[K]) => {
@@ -414,6 +426,41 @@ export function Cupons() {
       setError(err?.code === 'SLUG_ALREADY_EXISTS' ? 'Esse endereço já pertence a outra campanha.' : (err?.message || 'Não foi possível salvar.'));
     } finally {
       setSaving(false);
+    }
+  };
+
+  const resetAnalytics = async () => {
+    if (!draft?.id || resettingAnalytics) return;
+    const confirmed = window.confirm(
+      `Resetar os analytics de “${draft.name}”?\n\nVisitantes, desbloqueios, cópias, cliques e tempo ativo voltarão a zero. A configuração da campanha e o limite máximo continuam iguais, mas a quantidade já consumida do limite também volta a zero.`,
+    );
+    if (!confirmed) return;
+
+    setResettingAnalytics(true);
+    setError(null);
+    try {
+      await couponApi('admin-reset-analytics', {
+        method: 'POST',
+        body: JSON.stringify({ id: draft.id }),
+      });
+
+      const maxUnlocks = draft.maxUnlocks && draft.maxUnlocks > 0 ? draft.maxUnlocks : null;
+      const resetDraft: CouponCampaign = {
+        ...draft,
+        totalUnlocks: 0,
+        remainingUnlocks: maxUnlocks,
+      };
+      setDraft(resetDraft);
+      setCampaigns((current) => current.map((campaign) => campaign.id === draft.id ? {
+        ...campaign,
+        totalUnlocks: 0,
+        remainingUnlocks: maxUnlocks,
+      } : campaign));
+      await loadAnalytics(draft.id);
+    } catch (err: any) {
+      setError(err?.message || 'Não foi possível resetar os analytics.');
+    } finally {
+      setResettingAnalytics(false);
     }
   };
 
@@ -508,7 +555,7 @@ export function Cupons() {
 
             {draft.id && analytics && (
               <section className="space-y-3">
-                <div className="flex items-center justify-between gap-3"><div><h3 className="text-xs font-black uppercase tracking-[0.08em] text-neutral-600">Analytics da campanha</h3><p className="text-[10px] text-neutral-400 mt-0.5">Atualiza a cada 15s. Computadores são ignorados em todas as métricas.</p></div></div>
+                <div className="flex flex-wrap items-center justify-between gap-3"><div><h3 className="text-xs font-black uppercase tracking-[0.08em] text-neutral-600">Analytics da campanha</h3><p className="text-[10px] text-neutral-400 mt-0.5">Atualiza aproximadamente a cada 5s. Computadores são ignorados em todas as métricas.</p></div><button type="button" onClick={resetAnalytics} disabled={resettingAnalytics} className="px-3 py-2 border border-red-200 text-red-600 rounded text-[10px] font-bold inline-flex items-center gap-1.5 cursor-pointer disabled:opacity-50">{resettingAnalytics ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <RefreshCw className="w-3.5 h-3.5" />}Resetar analytics</button></div>
 
                 <div className="grid grid-cols-2 md:grid-cols-3 xl:grid-cols-6 gap-3">
                   <Stat icon={Users} label="Visitantes únicos" value={analytics.uniqueVisitors} sub={`${analytics.pageViews} visualizações`} />
