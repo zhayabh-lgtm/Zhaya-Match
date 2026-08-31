@@ -272,8 +272,11 @@ export function CouponCampaignPage() {
     if (!localUnlockAtMs || couponCode) return;
     const tick = () => {
       const left = localUnlockAtMs - Date.now();
-      setLocalCountdown(formatCountdownMs(localUnlockAtMs));
-      if (left <= 0) reveal();
+      if (left <= 0) {
+        reveal();
+        return;
+      }
+      setLocalCountdown(String(Math.max(1, Math.ceil(left / 1000))));
     };
     tick();
     const id = window.setInterval(tick, 100);
@@ -309,9 +312,14 @@ export function CouponCampaignPage() {
         // Usa a duração devolvida pelo servidor para mostrar exatamente o número
         // configurado, sem perder 1 segundo por latência/floor do relógio.
         const delaySeconds = Math.max(1, Number(data.delaySeconds || campaign.unlockDelaySeconds || 1));
-        const target = Date.now() + delaySeconds * 1000;
+        const serverUnlockAt = new Date(data.unlockAt || '').getTime();
+        const serverNow = new Date(data.serverNow || '').getTime();
+        const remainingMs = Number.isFinite(serverUnlockAt) && Number.isFinite(serverNow)
+          ? Math.max(1000, serverUnlockAt - serverNow)
+          : delaySeconds * 1000;
+        const target = Date.now() + remainingMs;
         setLocalUnlockAtMs(target);
-        setLocalCountdown(formatCountdownMs(target));
+        setLocalCountdown(String(Math.max(1, Math.ceil(remainingMs / 1000))));
         return;
       }
       if (data?.mode === 'video') {
@@ -403,6 +411,26 @@ export function CouponCampaignPage() {
         : null
     : null;
 
+  const hasEyebrow = Boolean(campaign.eyebrow?.trim());
+  const hasTitle = Boolean(campaign.title?.trim());
+  const hasSubtitle = Boolean(campaign.subtitle?.trim());
+  const hasHeadlineContent = hasEyebrow || hasTitle || hasSubtitle;
+  const hasVisibleTimer = Boolean(campaign.timerEnabled && timerTargetMs && effectiveStatus !== 'depleted' && effectiveStatus !== 'expired');
+  // Quando o título é removido, os elementos abaixo realmente ocupam o espaço
+  // liberado em vez de manter a mesma distância visual da composição completa.
+  const timerSpacingClass = hasTitle
+    ? 'mt-8 sm:mt-10'
+    : hasHeadlineContent
+      ? 'mt-3 sm:mt-4'
+      : campaign.logoUrl ? 'mt-1 sm:mt-2' : 'mt-0';
+  const couponSpacingClass = hasVisibleTimer
+    ? 'mt-8 sm:mt-10'
+    : hasTitle
+      ? 'mt-8 sm:mt-10'
+      : hasHeadlineContent
+        ? 'mt-3 sm:mt-4'
+        : campaign.logoUrl ? 'mt-2 sm:mt-3' : 'mt-0';
+
   return (
     <div className="min-h-screen relative overflow-x-hidden" style={{ backgroundColor: campaign.backgroundColor, color: campaign.textColor, fontFamily: '"Neue Einstellung", "Helvetica Neue", Helvetica, Arial, sans-serif' }}>
       <div className="fixed inset-0 pointer-events-none overflow-hidden">
@@ -416,16 +444,16 @@ export function CouponCampaignPage() {
 
       <main className="relative z-10 min-h-screen w-full max-w-[560px] mx-auto px-5 sm:px-7 py-10 sm:py-14 flex flex-col justify-center">
         <section className="text-center">
-          {campaign.logoUrl && <img src={campaign.logoUrl} alt="" className="block relative left-1/2 -translate-x-1/2 w-[calc(100vw-24px)] sm:w-[min(92vw,760px)] max-w-[760px] h-auto max-h-[240px] object-contain mb-8 sm:mb-10" decoding="async" />}
+          {campaign.logoUrl && <img src={campaign.logoUrl} alt="" className={`block relative left-1/2 -translate-x-1/2 w-[calc(100vw-24px)] sm:w-[min(92vw,760px)] max-w-[760px] h-auto max-h-[240px] object-contain ${hasTitle ? 'mb-8 sm:mb-10' : hasHeadlineContent ? 'mb-3 sm:mb-4' : 'mb-1 sm:mb-2'}`} decoding="async" />}
           {campaign.eyebrow && <div className="text-[10px] sm:text-[11px] uppercase tracking-[0.32em] font-bold mb-3" style={{ color: campaign.accentColor }}>{campaign.eyebrow}</div>}
           {campaign.title?.trim() && <h1 className="text-[clamp(1.65rem,7vw,2.45rem)] leading-[1.04] tracking-[-0.04em] font-black">{campaign.title}</h1>}
           {campaign.subtitle && <p className="text-[14px] sm:text-[16px] leading-relaxed mt-3 max-w-[470px] mx-auto" style={{ color: campaign.mutedTextColor }}>{campaign.subtitle}</p>}
 
-          {campaign.timerEnabled && timerTargetMs && effectiveStatus !== 'depleted' && effectiveStatus !== 'expired' && (
-            <div className="mt-8 sm:mt-10"><CouponTimer label={timerLabel} targetMs={timerTargetMs} color={campaign.timerColor || campaign.textColor} /></div>
+          {hasVisibleTimer && timerTargetMs && (
+            <div className={timerSpacingClass}><CouponTimer label={timerLabel} targetMs={timerTargetMs} color={campaign.timerColor || campaign.textColor} /></div>
           )}
 
-          <div className="mt-8 sm:mt-10">
+          <div className={couponSpacingClass}>
             {statusMessage && !couponCode && <div className="rounded-2xl border border-white/15 bg-black/20 backdrop-blur-sm px-5 py-4 text-sm" style={{ color: campaign.mutedTextColor }}>{statusMessage}</div>}
 
             {!couponCode && canUnlock && !localUnlockAtMs && !videoActive && (
@@ -440,7 +468,7 @@ export function CouponCampaignPage() {
             {!couponCode && localUnlockAtMs && (
               <div className="rounded-2xl border border-white/15 bg-black/20 backdrop-blur-sm px-5 py-6">
                 <div className="text-[11px] uppercase tracking-[0.22em] font-bold opacity-55">Liberando seu cupom</div>
-                <div className="text-4xl font-black tracking-[-0.04em] tabular-nums mt-2">{localCountdown}</div>
+                <div className="text-5xl font-black tracking-[-0.04em] tabular-nums mt-2">{localCountdown}</div>
                 {campaign.waitingText && <p className="text-sm mt-3" style={{ color: campaign.mutedTextColor }}>{campaign.waitingText}</p>}
               </div>
             )}

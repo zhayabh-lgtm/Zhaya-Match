@@ -163,7 +163,9 @@ function dbToCampaign(row: any, includeCode = false, totalUnlocks?: number) {
     timerLooping: Boolean(row.timer_looping),
     timerDurationMinutes: row.timer_duration_minutes === null || row.timer_duration_minutes === undefined ? null : Number(row.timer_duration_minutes),
     timerEndAt: row.timer_end_at || null,
-    maxUnlocks: row.max_unlocks === null || row.max_unlocks === undefined ? null : Number(row.max_unlocks),
+    maxUnlocks: row.max_unlocks === null || row.max_unlocks === undefined || !Number.isFinite(Number(row.max_unlocks)) || Number(row.max_unlocks) <= 0
+      ? null
+      : Number(row.max_unlocks),
     showRemaining: Boolean(row.show_remaining),
     showMaxUnlocks: Boolean(row.show_max_unlocks),
     createdAt: row.created_at,
@@ -189,7 +191,8 @@ function campaignStatus(row: any, totalUnlocks: number, nowMs = Date.now()): 'sc
     const ends = new Date(row.unlock_ends_at).getTime();
     if (Number.isFinite(ends) && ends <= nowMs) return 'expired';
   }
-  if (row.max_unlocks !== null && row.max_unlocks !== undefined && totalUnlocks >= Number(row.max_unlocks)) {
+  const maxUnlocks = Number(row.max_unlocks);
+  if (row.max_unlocks !== null && row.max_unlocks !== undefined && Number.isFinite(maxUnlocks) && maxUnlocks > 0 && totalUnlocks >= maxUnlocks) {
     return 'depleted';
   }
   return 'available';
@@ -215,19 +218,20 @@ async function insertEvent(
 ) {
   if (!VISITOR_REGEX.test(visitorId)) return;
   const deviceType = detectDeviceType(req.headers?.['user-agent']);
-  // A versão pública é pensada para tráfego mobile. Desktop é usado pela equipe
-  // para testes e não entra em analytics. O evento operacional 'unlocked' é
-  // preservado para que limite e reutilização do cupom continuem corretos.
-  if (deviceType === 'desktop' && eventType !== 'unlocked') return;
+  // Desktop não entra nos analytics, mas unlock_click e unlocked são estados
+  // operacionais necessários para contagem regressiva, reutilização e limite.
+  // Para esses registros no desktop não guardamos geolocalização/referrer.
+  const operationalDesktopEvent = deviceType === 'desktop' && (eventType === 'unlock_click' || eventType === 'unlocked');
+  if (deviceType === 'desktop' && !operationalDesktopEvent) return;
   const row = {
     campaign_id: campaignId,
     event_type: eventType,
     visitor_id: visitorId,
     device_type: deviceType,
-    country_code: detectCountry(req),
-    region: cleanHeader(req.headers?.['x-vercel-ip-country-region'], 80),
-    city: cleanHeader(req.headers?.['x-vercel-ip-city'], 120),
-    referrer: cleanText(metadata.referrer, 500),
+    country_code: operationalDesktopEvent ? null : detectCountry(req),
+    region: operationalDesktopEvent ? null : cleanHeader(req.headers?.['x-vercel-ip-country-region'], 80),
+    city: operationalDesktopEvent ? null : cleanHeader(req.headers?.['x-vercel-ip-city'], 120),
+    referrer: operationalDesktopEvent ? null : cleanText(metadata.referrer, 500),
     metadata: { ...metadata, referrer: undefined },
   };
   const { error } = await supabase.from('coupon_events').insert(row);
@@ -305,9 +309,11 @@ function sanitizeAdminCampaign(body: any) {
   const slug = slugify(body.slug || body.name || body.title || 'cupom');
   const unlockMode = normalizeUnlockMode(body.unlockMode);
   const maxUnlocksRaw = Number(body.maxUnlocks);
-  const maxUnlocks = body.maxUnlocks === null || body.maxUnlocks === '' || body.maxUnlocks === undefined
+  // 0 é a representação explícita de ilimitado no painel. No banco mantemos
+  // NULL para preservar compatibilidade com o schema e com campanhas antigas.
+  const maxUnlocks = body.maxUnlocks === null || body.maxUnlocks === '' || body.maxUnlocks === undefined || !Number.isFinite(maxUnlocksRaw) || maxUnlocksRaw <= 0
     ? null
-    : Math.max(1, Math.min(1000000, Math.round(maxUnlocksRaw || 1)));
+    : Math.max(1, Math.min(1000000, Math.round(maxUnlocksRaw)));
   return {
     name: cleanRequiredText(body.name, 'Nova campanha', 120),
     slug: SLUG_REGEX.test(slug) ? slug : `cupom-${Date.now()}`,

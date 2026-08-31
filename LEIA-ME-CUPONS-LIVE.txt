@@ -48,3 +48,9 @@ lado do cliente pode ser manipulada por um usuário técnico.
 Arquitetura Vercel:
 As rotas do módulo continuam dentro da função consolidada /api/best-sellers usando modos coupon-*.
 Isso evita criar uma Vercel Function extra e preserva a organização pensada para o plano Hobby.
+
+V4 - Correções rápidas
+- Corrigido desbloqueio com contagem em desktop sem reativar analytics de PC.
+- Quantidade máxima aceita 0 como ilimitado (persistido como NULL no banco).
+- Contagem do botão usa 5, 4, 3, 2, 1 em vez de HH:MM:SS.
+- Remover o título compacta de verdade a composição e puxa timer/cupom para cima.

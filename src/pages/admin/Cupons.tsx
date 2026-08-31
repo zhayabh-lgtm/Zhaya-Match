@@ -544,9 +544,9 @@ export function Cupons() {
 
                 <section className="border border-neutral-200 rounded-xl bg-white p-5 space-y-4">
                   <div><h3 className="text-sm font-black">Urgência</h3><p className="text-[11px] text-neutral-500 mt-0.5">Opcional. Um mesmo dispositivo só consome um desbloqueio do limite.</p></div>
-                  <div><FieldLabel>Quantidade máxima de desbloqueios <span className="normal-case font-normal text-neutral-400">(vazio = ilimitado)</span></FieldLabel><input type="number" min={1} value={draft.maxUnlocks ?? ''} onChange={(e) => patch('maxUnlocks', e.target.value ? Math.max(1, Number(e.target.value)) : null)} className="w-full px-3 py-2.5 border border-neutral-300 rounded text-xs" /></div>
+                  <div><FieldLabel>Quantidade máxima de desbloqueios <span className="normal-case font-normal text-neutral-400">(0 = ilimitado)</span></FieldLabel><input type="number" min={0} max={1000000} value={draft.maxUnlocks ?? 0} onChange={(e) => { const value = Math.max(0, Number(e.target.value) || 0); patch('maxUnlocks', value <= 0 ? null : value); }} className="w-full px-3 py-2.5 border border-neutral-300 rounded text-xs" /></div>
                   <Toggle checked={draft.showRemaining} onChange={(v) => patch('showRemaining', v)} label="Mostrar quantos cupons restam" description="A informação aparece pequena, imediatamente acima do botão Desbloquear cupom." />
-                  {draft.maxUnlocks !== null && <Toggle checked={draft.showMaxUnlocks} onChange={(v) => patch('showMaxUnlocks', v)} label="Mostrar também a quantidade máxima" description={draft.showRemaining ? `Exemplo: “17 cupons restantes de ${draft.maxUnlocks}”.` : `Exemplo: “Limite de ${draft.maxUnlocks} cupons”.`} />}
+                  {draft.maxUnlocks !== null && draft.maxUnlocks > 0 && <Toggle checked={draft.showMaxUnlocks} onChange={(v) => patch('showMaxUnlocks', v)} label="Mostrar também a quantidade máxima" description={draft.showRemaining ? `Exemplo: “17 cupons restantes de ${draft.maxUnlocks}”.` : `Exemplo: “Limite de ${draft.maxUnlocks} cupons”.`} />}
                 </section>
 
                 <section className="border border-neutral-200 rounded-xl bg-white p-5 space-y-4">
@@ -575,13 +575,13 @@ export function Cupons() {
                     {draft.backgroundVideoUrl && <video src={draft.backgroundVideoUrl} muted autoPlay loop playsInline className="absolute inset-0 w-full h-full object-cover scale-105" style={{ filter: `blur(${draft.backgroundBlur}px)` }} />}
                     {(draft.backgroundImageUrl || draft.backgroundVideoUrl) && <div className="absolute inset-0" style={{ backgroundColor: draft.backgroundColor, opacity: draft.backgroundOverlay }} />}
                     <div className="relative z-10 w-full max-w-sm text-center">
-                      {draft.logoUrl && <img src={draft.logoUrl} alt="" className="relative left-1/2 -translate-x-1/2 w-[calc(100%+2rem)] max-w-none h-auto max-h-32 object-contain mb-7" />}
+                      {draft.logoUrl && <img src={draft.logoUrl} alt="" className={`relative left-1/2 -translate-x-1/2 w-[calc(100%+2rem)] max-w-none h-auto max-h-32 object-contain ${draft.title.trim() ? 'mb-7' : (draft.eyebrow || draft.subtitle) ? 'mb-3' : 'mb-1'}`} />}
                       {draft.eyebrow && <div className="text-[9px] uppercase tracking-[0.25em] font-bold mb-2" style={{ color: draft.accentColor }}>{draft.eyebrow}</div>}
                       {draft.title.trim() && <div className="text-2xl font-black leading-tight tracking-tight">{draft.title}</div>}
                       {draft.subtitle && <div className="text-xs mt-2 leading-relaxed" style={{ color: draft.mutedTextColor }}>{draft.subtitle}</div>}
-                      {draft.timerEnabled && <div className="mt-7" style={{ color: draft.timerColor }}><div className="text-[9px] uppercase tracking-[0.24em] opacity-70">{draft.timerLabel}</div><div className="text-4xl font-black mt-1">00:50:58</div></div>}
+                      {draft.timerEnabled && <div className={draft.title.trim() ? 'mt-7' : (draft.eyebrow || draft.subtitle) ? 'mt-3' : 'mt-1'} style={{ color: draft.timerColor }}><div className="text-[9px] uppercase tracking-[0.24em] opacity-70">{draft.timerLabel}</div><div className="text-4xl font-black mt-1">00:50:58</div></div>}
                       {(draft.showRemaining || draft.showMaxUnlocks) && draft.maxUnlocks && <div className="mt-7 mb-2 text-[9px] uppercase tracking-[0.14em] font-bold opacity-60">{draft.showRemaining ? `${Math.max(0, draft.maxUnlocks - (draft.totalUnlocks || 0))} cupons restantes${draft.showMaxUnlocks ? ` de ${draft.maxUnlocks}` : ''}` : `Limite de ${draft.maxUnlocks} cupons`}</div>}
-                      <button type="button" className={`w-full ${!(draft.showRemaining || draft.showMaxUnlocks) ? 'mt-8' : ''} py-4 rounded-lg text-xs font-black uppercase flex items-center justify-center gap-2`} style={{ backgroundColor: draft.buttonBackgroundColor, color: draft.buttonTextColor }}><LockKeyhole className="w-4 h-4" />{draft.unlockButtonText}</button>
+                      <button type="button" className={`w-full ${!(draft.showRemaining || draft.showMaxUnlocks) ? (draft.timerEnabled || draft.title.trim() ? 'mt-8' : (draft.eyebrow || draft.subtitle) ? 'mt-3' : 'mt-2') : ''} py-4 rounded-lg text-xs font-black uppercase flex items-center justify-center gap-2`} style={{ backgroundColor: draft.buttonBackgroundColor, color: draft.buttonTextColor }}><LockKeyhole className="w-4 h-4" />{draft.unlockButtonText}</button>
                     </div>
                   </div>
                 </section>
