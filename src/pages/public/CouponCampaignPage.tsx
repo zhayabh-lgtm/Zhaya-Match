@@ -1,9 +1,11 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { Check, Clipboard, ExternalLink, Gift, Loader2, LockKeyhole, Play, RotateCcw } from 'lucide-react';
+import { Check, Clipboard, ExternalLink, Gift, Loader2, LockKeyhole, RotateCcw } from 'lucide-react';
 import { useParams } from 'react-router-dom';
 import type { PublicCouponCampaign } from '../../types/coupon';
 
 const VISITOR_KEY = 'zhaya_coupon_visitor_v1';
+const EVERGREEN_TIMER_PREFIX = 'zhaya_coupon_timer_v1';
+const evergreenMemory = new Map<string, { expiresAt: number; durationMinutes: number }>();
 
 function getVisitorId(): string {
   if (typeof window === 'undefined') return `server_${Math.random().toString(36).slice(2)}`;
@@ -20,14 +22,52 @@ function getVisitorId(): string {
   }
 }
 
-function formatCountdown(targetIso: string | null | undefined): string {
-  if (!targetIso) return '00:00:00';
-  const diff = Math.max(0, new Date(targetIso).getTime() - Date.now());
-  const total = Math.floor(diff / 1000);
+function isDesktopTrackingBlocked(): boolean {
+  if (typeof navigator === 'undefined') return false;
+  const ua = String(navigator.userAgent || '').toLowerCase();
+  const iPadDesktopUa = /macintosh/.test(ua) && Number(navigator.maxTouchPoints || 0) > 1;
+  if (iPadDesktopUa || /ipad|tablet|kindle|silk|playbook/.test(ua) || (/android/.test(ua) && !/mobile/.test(ua))) return false;
+  if (/iphone|ipod|android.*mobile|windows phone|mobile/.test(ua)) return false;
+  return true;
+}
+
+function formatCountdownMs(targetMs: number | null | undefined): string {
+  if (!targetMs || !Number.isFinite(targetMs)) return '00:00:00';
+  const diff = Math.max(0, targetMs - Date.now());
+  // ceil evita que 10 segundos configurados apareçam imediatamente como 09.
+  const total = Math.max(0, Math.ceil(diff / 1000));
   const hours = Math.floor(total / 3600);
   const minutes = Math.floor((total % 3600) / 60);
   const seconds = total % 60;
   return `${String(hours).padStart(2, '0')}:${String(minutes).padStart(2, '0')}:${String(seconds).padStart(2, '0')}`;
+}
+
+function getEvergreenTimerEndMs(campaignId: string, durationMinutes: number, nowMs: number): number {
+  const safeDuration = Math.max(1, Math.min(10080, Math.round(durationMinutes)));
+  const durationMs = safeDuration * 60_000;
+  const key = `${EVERGREEN_TIMER_PREFIX}:${campaignId}`;
+  const fallback = () => {
+    const current = evergreenMemory.get(key);
+    if (current && current.durationMinutes === safeDuration && current.expiresAt > nowMs) return current.expiresAt;
+    const expiresAt = nowMs + durationMs;
+    evergreenMemory.set(key, { expiresAt, durationMinutes: safeDuration });
+    return expiresAt;
+  };
+  if (typeof window === 'undefined') return fallback();
+  try {
+    const raw = window.localStorage.getItem(key);
+    if (raw) {
+      const parsed = JSON.parse(raw);
+      const expiresAt = Number(parsed?.expiresAt);
+      const storedDuration = Number(parsed?.durationMinutes);
+      if (Number.isFinite(expiresAt) && storedDuration === safeDuration && expiresAt > nowMs) return expiresAt;
+    }
+    const expiresAt = nowMs + durationMs;
+    window.localStorage.setItem(key, JSON.stringify({ expiresAt, durationMinutes: safeDuration }));
+    return expiresAt;
+  } catch {
+    return fallback();
+  }
 }
 
 async function postCoupon(mode: string, body: any) {
@@ -46,13 +86,13 @@ async function postCoupon(mode: string, body: any) {
   return data;
 }
 
-function CouponTimer({ label, target, color }: { label: string; target: string; color: string }) {
-  const [value, setValue] = useState(() => formatCountdown(target));
+function CouponTimer({ label, targetMs, color }: { label: string; targetMs: number; color: string }) {
+  const [value, setValue] = useState(() => formatCountdownMs(targetMs));
   useEffect(() => {
-    setValue(formatCountdown(target));
-    const id = window.setInterval(() => setValue(formatCountdown(target)), 1000);
+    setValue(formatCountdownMs(targetMs));
+    const id = window.setInterval(() => setValue(formatCountdownMs(targetMs)), 250);
     return () => window.clearInterval(id);
-  }, [target]);
+  }, [targetMs]);
   return (
     <div className="text-center py-3">
       <div className="text-[10px] uppercase tracking-[0.34em] font-bold opacity-55 mb-2">{label}</div>
@@ -64,6 +104,7 @@ function CouponTimer({ label, target, color }: { label: string; target: string; 
 export function CouponCampaignPage() {
   const { slug = '' } = useParams();
   const visitorId = useMemo(() => getVisitorId(), []);
+  const desktopTrackingBlocked = useMemo(() => isDesktopTrackingBlocked(), []);
   const [campaign, setCampaign] = useState<PublicCouponCampaign | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -71,7 +112,7 @@ export function CouponCampaignPage() {
   const [actionLoading, setActionLoading] = useState(false);
   const [copied, setCopied] = useState(false);
   const [nowMs, setNowMs] = useState(() => Date.now());
-  const [localUnlockAt, setLocalUnlockAt] = useState<string | null>(null);
+  const [localUnlockAtMs, setLocalUnlockAtMs] = useState<number | null>(null);
   const [localCountdown, setLocalCountdown] = useState('');
   const [videoActive, setVideoActive] = useState(false);
   const [videoProgress, setVideoProgress] = useState(0);
@@ -81,7 +122,7 @@ export function CouponCampaignPage() {
   const pageViewTrackedRef = useRef(false);
 
   const track = useCallback((eventType: string, extra: Record<string, any> = {}) => {
-    if (!campaign?.id) return;
+    if (!campaign?.id || desktopTrackingBlocked) return;
     const payload = JSON.stringify({
       campaignId: campaign.id,
       visitorId,
@@ -94,14 +135,11 @@ export function CouponCampaignPage() {
         navigator.sendBeacon('/api/best-sellers?mode=coupon-event', new Blob([payload], { type: 'application/json' }));
         return;
       }
-    } catch { /* fallback below */ }
+    } catch { /* fallback */ }
     fetch('/api/best-sellers?mode=coupon-event', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: payload,
-      keepalive: true,
+      method: 'POST', headers: { 'Content-Type': 'application/json' }, body: payload, keepalive: true,
     }).catch(() => undefined);
-  }, [campaign?.id, visitorId]);
+  }, [campaign?.id, desktopTrackingBlocked, visitorId]);
 
   const loadCampaign = useCallback(async (silent = false) => {
     if (!slug) return;
@@ -134,7 +172,7 @@ export function CouponCampaignPage() {
     pageViewTrackedRef.current = false;
     setCouponCode(null);
     setCopied(false);
-    setLocalUnlockAt(null);
+    setLocalUnlockAtMs(null);
     setVideoActive(false);
     setVideoProgress(0);
     setVideoStartedTracked(false);
@@ -146,11 +184,60 @@ export function CouponCampaignPage() {
     pageViewTrackedRef.current = true;
     track('page_view');
     postCoupon('unlock-status', { campaignId: campaign.id, visitorId })
-      .then((data) => {
-        if (data?.unlocked && data?.couponCode) setCouponCode(String(data.couponCode));
-      })
+      .then((data) => { if (data?.unlocked && data?.couponCode) setCouponCode(String(data.couponCode)); })
       .catch(() => undefined);
   }, [campaign?.id, track, visitorId]);
+
+  // Tempo realmente ativo, seguindo a mesma filosofia da Vitrine. Desktop nem envia.
+  useEffect(() => {
+    if (!campaign?.id || desktopTrackingBlocked || typeof document === 'undefined') return;
+    const campaignId = campaign.id;
+    let engagedSeconds = 0;
+    let lastTick = Date.now();
+    let lastActivity = Date.now();
+    let lastSent = -1;
+    const idleMs = 60_000;
+    const touchActivity = () => { lastActivity = Date.now(); };
+    const events: Array<keyof WindowEventMap> = ['pointerdown', 'touchstart', 'scroll', 'keydown', 'mousemove'];
+    events.forEach((name) => window.addEventListener(name, touchActivity, { passive: true }));
+
+    const send = (beacon = false) => {
+      const total = Math.max(0, Math.round(engagedSeconds));
+      if (total === lastSent && !beacon) return;
+      lastSent = total;
+      const payload = JSON.stringify({ campaignId, visitorId, engagedSeconds: total, referrer: document.referrer || null });
+      if (beacon && navigator.sendBeacon) {
+        try {
+          navigator.sendBeacon('/api/best-sellers?mode=coupon-engagement', new Blob([payload], { type: 'application/json' }));
+          return;
+        } catch { /* fallback */ }
+      }
+      fetch('/api/best-sellers?mode=coupon-engagement', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' }, body: payload, keepalive: true,
+      }).catch(() => undefined);
+    };
+
+    const tick = window.setInterval(() => {
+      const now = Date.now();
+      const delta = Math.max(0, Math.min(2, (now - lastTick) / 1000));
+      lastTick = now;
+      const videoPlaying = Boolean(videoRef.current && !videoRef.current.paused && !videoRef.current.ended);
+      if (document.visibilityState === 'visible' && (videoPlaying || now - lastActivity < idleMs)) engagedSeconds += delta;
+    }, 1000);
+    const sync = window.setInterval(() => send(false), 15000);
+    const pageHide = () => send(true);
+    window.addEventListener('pagehide', pageHide);
+    document.addEventListener('visibilitychange', pageHide);
+
+    return () => {
+      window.clearInterval(tick);
+      window.clearInterval(sync);
+      events.forEach((name) => window.removeEventListener(name, touchActivity));
+      window.removeEventListener('pagehide', pageHide);
+      document.removeEventListener('visibilitychange', pageHide);
+      send(true);
+    };
+  }, [campaign?.id, desktopTrackingBlocked, visitorId]);
 
   const reveal = useCallback(async (progress?: number) => {
     if (!campaign?.id || revealingRef.current || couponCode) return;
@@ -164,30 +251,48 @@ export function CouponCampaignPage() {
       });
       if (data?.unlocked && data?.couponCode) {
         setCouponCode(String(data.couponCode));
-        setLocalUnlockAt(null);
+        setLocalUnlockAtMs(null);
         setVideoActive(false);
+        loadCampaign(true);
       }
     } catch (err: any) {
-      if (err?.code !== 'COUNTDOWN_NOT_FINISHED' && err?.code !== 'VIDEO_NOT_FINISHED') {
+      if (err?.code === 'COUNTDOWN_NOT_FINISHED' && err?.data?.unlockAt) {
+        const serverTarget = new Date(err.data.unlockAt).getTime();
+        if (Number.isFinite(serverTarget)) setLocalUnlockAtMs(serverTarget);
+      } else if (err?.code !== 'VIDEO_NOT_FINISHED') {
         setError('Não foi possível liberar o cupom agora. Tente novamente.');
       }
     } finally {
       setActionLoading(false);
       revealingRef.current = false;
     }
-  }, [campaign?.id, couponCode, videoProgress, visitorId]);
+  }, [campaign?.id, couponCode, loadCampaign, videoProgress, visitorId]);
 
   useEffect(() => {
-    if (!localUnlockAt || couponCode) return;
+    if (!localUnlockAtMs || couponCode) return;
     const tick = () => {
-      const left = new Date(localUnlockAt).getTime() - Date.now();
-      setLocalCountdown(formatCountdown(localUnlockAt));
-      if (left <= 150) reveal();
+      const left = localUnlockAtMs - Date.now();
+      setLocalCountdown(formatCountdownMs(localUnlockAtMs));
+      if (left <= 0) reveal();
     };
     tick();
-    const id = window.setInterval(tick, 250);
+    const id = window.setInterval(tick, 100);
     return () => window.clearInterval(id);
-  }, [localUnlockAt, couponCode, reveal]);
+  }, [localUnlockAtMs, couponCode, reveal]);
+
+  const effectiveStatus: PublicCouponCampaign['status'] = useMemo(() => {
+    if (!campaign?.active) return 'expired';
+    if (campaign.scheduleEnabled && campaign.unlockStartsAt) {
+      const start = new Date(campaign.unlockStartsAt).getTime();
+      if (Number.isFinite(start) && start > nowMs) return 'scheduled';
+    }
+    if (campaign.unlockEndsAt) {
+      const end = new Date(campaign.unlockEndsAt).getTime();
+      if (Number.isFinite(end) && end <= nowMs) return 'expired';
+    }
+    if (campaign.status === 'depleted') return 'depleted';
+    return 'available';
+  }, [campaign, nowMs]);
 
   const handleUnlock = async () => {
     if (!campaign?.id || effectiveStatus !== 'available' || actionLoading) return;
@@ -197,10 +302,16 @@ export function CouponCampaignPage() {
       const data = await postCoupon('unlock-start', { campaignId: campaign.id, visitorId });
       if (data?.unlocked && data?.couponCode) {
         setCouponCode(String(data.couponCode));
+        loadCampaign(true);
         return;
       }
-      if (data?.mode === 'countdown' && data?.unlockAt) {
-        setLocalUnlockAt(String(data.unlockAt));
+      if (data?.mode === 'countdown') {
+        // Usa a duração devolvida pelo servidor para mostrar exatamente o número
+        // configurado, sem perder 1 segundo por latência/floor do relógio.
+        const delaySeconds = Math.max(1, Number(data.delaySeconds || campaign.unlockDelaySeconds || 1));
+        const target = Date.now() + delaySeconds * 1000;
+        setLocalUnlockAtMs(target);
+        setLocalCountdown(formatCountdownMs(target));
         return;
       }
       if (data?.mode === 'video') {
@@ -248,37 +359,30 @@ export function CouponCampaignPage() {
     window.setTimeout(() => setCopied(false), 2200);
   };
 
-  if (loading) {
-    return <div className="min-h-screen bg-black text-white flex items-center justify-center"><Loader2 className="w-7 h-7 animate-spin opacity-70" /></div>;
-  }
+  if (loading) return <div className="min-h-screen bg-black text-white flex items-center justify-center"><Loader2 className="w-7 h-7 animate-spin opacity-70" /></div>;
 
   if (!campaign) {
     return (
       <div className="min-h-screen bg-black text-white flex items-center justify-center p-6 text-center">
-        <div className="max-w-sm">
-          <Gift className="w-8 h-8 mx-auto mb-4 opacity-50" />
-          <h1 className="text-xl font-bold">Campanha indisponível</h1>
-          <p className="text-sm opacity-60 mt-2">{error || 'Este cupom não está disponível.'}</p>
-        </div>
+        <div className="max-w-sm"><Gift className="w-8 h-8 mx-auto mb-4 opacity-50" /><h1 className="text-xl font-bold">Campanha indisponível</h1><p className="text-sm opacity-60 mt-2">{error || 'Este cupom não está disponível.'}</p></div>
       </div>
     );
   }
 
-  const effectiveStatus: PublicCouponCampaign['status'] = (() => {
-    if (!campaign.active) return 'expired';
-    if (campaign.scheduleEnabled && campaign.unlockStartsAt) {
-      const start = new Date(campaign.unlockStartsAt).getTime();
-      if (Number.isFinite(start) && start > nowMs) return 'scheduled';
+  const timerTargetMs = (() => {
+    if (!campaign.timerEnabled || effectiveStatus === 'depleted') return null;
+    if (effectiveStatus === 'scheduled' && campaign.unlockStartsAt) {
+      const target = new Date(campaign.unlockStartsAt).getTime();
+      return Number.isFinite(target) ? target : null;
     }
-    if (campaign.unlockEndsAt) {
-      const end = new Date(campaign.unlockEndsAt).getTime();
-      if (Number.isFinite(end) && end <= nowMs) return 'expired';
+    if (campaign.timerLooping && campaign.timerDurationMinutes && campaign.timerDurationMinutes > 0) {
+      return getEvergreenTimerEndMs(campaign.id, campaign.timerDurationMinutes, nowMs);
     }
-    if (campaign.status === 'depleted') return 'depleted';
-    return 'available';
+    const fixedTarget = campaign.timerEndAt || campaign.unlockEndsAt;
+    if (!fixedTarget) return null;
+    const target = new Date(fixedTarget).getTime();
+    return Number.isFinite(target) ? target : null;
   })();
-
-  const timerTarget = effectiveStatus === 'scheduled' ? campaign.unlockStartsAt : campaign.unlockEndsAt;
   const timerLabel = effectiveStatus === 'scheduled' ? 'Libera em' : campaign.timerLabel;
   const canUnlock = effectiveStatus === 'available';
   const statusMessage = effectiveStatus === 'scheduled'
@@ -289,88 +393,51 @@ export function CouponCampaignPage() {
         ? 'Os cupons disponíveis desta campanha acabaram.'
         : null;
 
+  const availabilityText = campaign.maxUnlocks !== null && campaign.maxUnlocks !== undefined && effectiveStatus === 'available'
+    ? campaign.showRemaining && campaign.remainingUnlocks !== null && campaign.remainingUnlocks !== undefined
+      ? campaign.showMaxUnlocks
+        ? `${campaign.remainingUnlocks} ${campaign.remainingUnlocks === 1 ? 'cupom restante' : 'cupons restantes'} de ${campaign.maxUnlocks}`
+        : `${campaign.remainingUnlocks} ${campaign.remainingUnlocks === 1 ? 'cupom restante' : 'cupons restantes'}`
+      : campaign.showMaxUnlocks
+        ? `Limite de ${campaign.maxUnlocks} cupons`
+        : null
+    : null;
+
   return (
-    <div
-      className="min-h-screen relative overflow-x-hidden"
-      style={{
-        backgroundColor: campaign.backgroundColor,
-        color: campaign.textColor,
-        fontFamily: '"Neue Einstellung", "Helvetica Neue", Helvetica, Arial, sans-serif',
-      }}
-    >
+    <div className="min-h-screen relative overflow-x-hidden" style={{ backgroundColor: campaign.backgroundColor, color: campaign.textColor, fontFamily: '"Neue Einstellung", "Helvetica Neue", Helvetica, Arial, sans-serif' }}>
       <div className="fixed inset-0 pointer-events-none overflow-hidden">
         {campaign.backgroundVideoUrl ? (
-          <video
-            src={campaign.backgroundVideoUrl}
-            autoPlay muted loop playsInline
-            className="absolute inset-0 w-full h-full object-cover scale-[1.03]"
-            style={{ filter: `blur(${campaign.backgroundBlur}px)` }}
-          />
+          <video src={campaign.backgroundVideoUrl} autoPlay muted loop playsInline className="absolute inset-0 w-full h-full object-cover scale-[1.03]" style={{ filter: `blur(${campaign.backgroundBlur}px)` }} />
         ) : campaign.backgroundImageUrl ? (
-          <img
-            src={campaign.backgroundImageUrl}
-            alt=""
-            className="absolute inset-0 w-full h-full object-cover scale-[1.03]"
-            style={{ filter: `blur(${campaign.backgroundBlur}px)` }}
-          />
+          <img src={campaign.backgroundImageUrl} alt="" className="absolute inset-0 w-full h-full object-cover scale-[1.03]" style={{ filter: `blur(${campaign.backgroundBlur}px)` }} />
         ) : null}
-        {(campaign.backgroundVideoUrl || campaign.backgroundImageUrl) && (
-          <div className="absolute inset-0" style={{ backgroundColor: campaign.backgroundColor, opacity: campaign.backgroundOverlay }} />
-        )}
+        {(campaign.backgroundVideoUrl || campaign.backgroundImageUrl) && <div className="absolute inset-0" style={{ backgroundColor: campaign.backgroundColor, opacity: campaign.backgroundOverlay }} />}
       </div>
 
       <main className="relative z-10 min-h-screen w-full max-w-[560px] mx-auto px-5 sm:px-7 py-10 sm:py-14 flex flex-col justify-center">
         <section className="text-center">
-          {campaign.logoUrl && (
-            <img
-              src={campaign.logoUrl}
-              alt=""
-              className="block mx-auto max-w-[92%] max-h-[190px] object-contain mb-8 sm:mb-10"
-              decoding="async"
-            />
-          )}
-
-          {campaign.eyebrow && (
-            <div className="text-[10px] sm:text-[11px] uppercase tracking-[0.32em] font-bold mb-3" style={{ color: campaign.accentColor }}>{campaign.eyebrow}</div>
-          )}
+          {campaign.logoUrl && <img src={campaign.logoUrl} alt="" className="block mx-auto max-w-[92%] max-h-[190px] object-contain mb-8 sm:mb-10" decoding="async" />}
+          {campaign.eyebrow && <div className="text-[10px] sm:text-[11px] uppercase tracking-[0.32em] font-bold mb-3" style={{ color: campaign.accentColor }}>{campaign.eyebrow}</div>}
           <h1 className="text-[clamp(1.65rem,7vw,2.45rem)] leading-[1.04] tracking-[-0.04em] font-black">{campaign.title}</h1>
-          {campaign.subtitle && (
-            <p className="text-[14px] sm:text-[16px] leading-relaxed mt-3 max-w-[470px] mx-auto" style={{ color: campaign.mutedTextColor }}>{campaign.subtitle}</p>
-          )}
+          {campaign.subtitle && <p className="text-[14px] sm:text-[16px] leading-relaxed mt-3 max-w-[470px] mx-auto" style={{ color: campaign.mutedTextColor }}>{campaign.subtitle}</p>}
 
-          {campaign.timerEnabled && timerTarget && effectiveStatus !== 'depleted' && (
-            <div className="mt-8 sm:mt-10">
-              <CouponTimer label={timerLabel} target={timerTarget} color={campaign.textColor} />
-            </div>
-          )}
-
-          {campaign.showRemaining && campaign.remainingUnlocks !== null && campaign.remainingUnlocks !== undefined && effectiveStatus === 'available' && (
-            <div className="mt-5 text-xs font-bold uppercase tracking-[0.16em]" style={{ color: campaign.accentColor }}>
-              {campaign.remainingUnlocks === 1 ? 'Resta 1 cupom' : `Restam ${campaign.remainingUnlocks} cupons`}
-            </div>
+          {campaign.timerEnabled && timerTargetMs && effectiveStatus !== 'depleted' && effectiveStatus !== 'expired' && (
+            <div className="mt-8 sm:mt-10"><CouponTimer label={timerLabel} targetMs={timerTargetMs} color={campaign.textColor} /></div>
           )}
 
           <div className="mt-8 sm:mt-10">
-            {statusMessage && !couponCode && (
-              <div className="rounded-2xl border border-white/15 bg-black/20 backdrop-blur-sm px-5 py-4 text-sm" style={{ color: campaign.mutedTextColor }}>
-                {statusMessage}
-              </div>
+            {statusMessage && !couponCode && <div className="rounded-2xl border border-white/15 bg-black/20 backdrop-blur-sm px-5 py-4 text-sm" style={{ color: campaign.mutedTextColor }}>{statusMessage}</div>}
+
+            {!couponCode && canUnlock && !localUnlockAtMs && !videoActive && (
+              <>
+                {availabilityText && <div className="mb-2 text-[10px] sm:text-[11px] font-bold uppercase tracking-[0.14em] opacity-65" style={{ color: campaign.accentColor }}>{availabilityText}</div>}
+                <button type="button" onClick={handleUnlock} disabled={actionLoading} className="w-full min-h-[62px] rounded-xl px-5 text-[15px] font-black uppercase tracking-[0.04em] flex items-center justify-center gap-2 transition-transform active:scale-[0.99] disabled:opacity-60 cursor-pointer" style={{ backgroundColor: campaign.buttonBackgroundColor, color: campaign.buttonTextColor }}>
+                  {actionLoading ? <Loader2 className="w-5 h-5 animate-spin" /> : <LockKeyhole className="w-5 h-5" />}{campaign.unlockButtonText}
+                </button>
+              </>
             )}
 
-            {!couponCode && canUnlock && !localUnlockAt && !videoActive && (
-              <button
-                type="button"
-                onClick={handleUnlock}
-                disabled={actionLoading}
-                className="w-full min-h-[62px] rounded-xl px-5 text-[15px] font-black uppercase tracking-[0.04em] flex items-center justify-center gap-2 transition-transform active:scale-[0.99] disabled:opacity-60 cursor-pointer"
-                style={{ backgroundColor: campaign.buttonBackgroundColor, color: campaign.buttonTextColor }}
-              >
-                {actionLoading ? <Loader2 className="w-5 h-5 animate-spin" /> : <LockKeyhole className="w-5 h-5" />}
-                {campaign.unlockButtonText}
-              </button>
-            )}
-
-            {!couponCode && localUnlockAt && (
+            {!couponCode && localUnlockAtMs && (
               <div className="rounded-2xl border border-white/15 bg-black/20 backdrop-blur-sm px-5 py-6">
                 <div className="text-[11px] uppercase tracking-[0.22em] font-bold opacity-55">Liberando seu cupom</div>
                 <div className="text-4xl font-black tracking-[-0.04em] tabular-nums mt-2">{localCountdown}</div>
@@ -380,22 +447,10 @@ export function CouponCampaignPage() {
 
             {!couponCode && videoActive && campaign.unlockVideoUrl && (
               <div className="text-left rounded-2xl border border-white/15 bg-black/25 backdrop-blur-sm p-3 overflow-hidden">
-                <video
-                  ref={videoRef}
-                  src={campaign.unlockVideoUrl}
-                  controls
-                  playsInline
-                  onTimeUpdate={handleVideoTime}
-                  className="w-full rounded-xl bg-black max-h-[62vh]"
-                />
+                <video ref={videoRef} src={campaign.unlockVideoUrl} controls playsInline onTimeUpdate={handleVideoTime} className="w-full rounded-xl bg-black max-h-[62vh]" />
                 <div className="px-2 pt-3 pb-1">
-                  <div className="flex items-center justify-between gap-3 text-[11px] font-bold uppercase tracking-[0.12em]">
-                    <span>Assista para desbloquear</span>
-                    <span>{Math.floor(videoProgress)}%</span>
-                  </div>
-                  <div className="h-1.5 rounded-full bg-white/15 mt-2 overflow-hidden">
-                    <div className="h-full rounded-full transition-[width] duration-150" style={{ width: `${Math.min(100, videoProgress)}%`, backgroundColor: campaign.accentColor }} />
-                  </div>
+                  <div className="flex items-center justify-between gap-3 text-[11px] font-bold uppercase tracking-[0.12em]"><span>Assista para desbloquear</span><span>{Math.floor(videoProgress)}%</span></div>
+                  <div className="h-1.5 rounded-full bg-white/15 mt-2 overflow-hidden"><div className="h-full rounded-full transition-[width] duration-150" style={{ width: `${Math.min(100, videoProgress)}%`, backgroundColor: campaign.accentColor }} /></div>
                   <p className="text-[11px] mt-2" style={{ color: campaign.mutedTextColor }}>O cupom libera em {campaign.unlockVideoMinPercent}% do vídeo.</p>
                 </div>
               </div>
@@ -405,46 +460,24 @@ export function CouponCampaignPage() {
               <div className="animate-[fadeIn_.25s_ease-out]">
                 {campaign.successTitle && <h2 className="text-xl font-black mb-2">{campaign.successTitle}</h2>}
                 {campaign.successMessage && <p className="text-sm mb-5" style={{ color: campaign.mutedTextColor }}>{campaign.successMessage}</p>}
-                <button
-                  type="button"
-                  onClick={copyCoupon}
-                  className="w-full rounded-2xl border border-dashed border-white/35 bg-black/25 backdrop-blur-sm px-5 py-6 cursor-pointer group"
-                >
+                <button type="button" onClick={copyCoupon} className="w-full rounded-2xl border border-dashed border-white/35 bg-black/25 backdrop-blur-sm px-5 py-6 cursor-pointer group">
                   <div className="text-[10px] uppercase tracking-[0.24em] font-bold opacity-55 mb-2">Seu cupom</div>
                   <div className="text-[clamp(2rem,10vw,3.6rem)] leading-none font-black tracking-[-0.045em] break-all" style={{ color: campaign.accentColor }}>{couponCode}</div>
                 </button>
-
-                <button
-                  type="button"
-                  onClick={copyCoupon}
-                  className="w-full min-h-[60px] rounded-xl mt-3 px-5 text-[15px] font-black uppercase tracking-[0.04em] flex items-center justify-center gap-2 cursor-pointer active:scale-[0.99] transition-transform"
-                  style={{ backgroundColor: campaign.buttonBackgroundColor, color: campaign.buttonTextColor }}
-                >
-                  {copied ? <Check className="w-5 h-5" /> : <Clipboard className="w-5 h-5" />}
-                  {copied ? campaign.copiedText : campaign.copyButtonText}
+                <button type="button" onClick={copyCoupon} className="w-full min-h-[60px] rounded-xl mt-3 px-5 text-[15px] font-black uppercase tracking-[0.04em] flex items-center justify-center gap-2 cursor-pointer active:scale-[0.99] transition-transform" style={{ backgroundColor: campaign.buttonBackgroundColor, color: campaign.buttonTextColor }}>
+                  {copied ? <Check className="w-5 h-5" /> : <Clipboard className="w-5 h-5" />}{copied ? campaign.copiedText : campaign.copyButtonText}
                 </button>
               </div>
             )}
 
             {campaign.siteCtaEnabled && campaign.siteUrl && (couponCode || effectiveStatus !== 'available') && (
-              <a
-                href={campaign.siteUrl}
-                target="_blank"
-                rel="noreferrer noopener"
-                onClick={() => track('site_click')}
-                className="w-full min-h-[58px] rounded-xl border border-white/25 mt-3 px-5 text-[14px] font-bold flex items-center justify-center gap-2 no-underline transition-colors hover:bg-white/10"
-                style={{ color: campaign.textColor }}
-              >
+              <a href={campaign.siteUrl} target="_blank" rel="noreferrer noopener" onClick={() => track('site_click')} className="w-full min-h-[58px] rounded-xl border border-white/25 mt-3 px-5 text-[14px] font-bold flex items-center justify-center gap-2 no-underline transition-colors hover:bg-white/10" style={{ color: campaign.textColor }}>
                 {campaign.siteCtaText}<ExternalLink className="w-4 h-4" />
               </a>
             )}
           </div>
 
-          {error && campaign && (
-            <button type="button" onClick={() => setError(null)} className="mt-5 text-xs inline-flex items-center gap-1.5 opacity-70 hover:opacity-100 cursor-pointer">
-              <RotateCcw className="w-3.5 h-3.5" /> {error}
-            </button>
-          )}
+          {error && campaign && <button type="button" onClick={() => setError(null)} className="mt-5 text-xs inline-flex items-center gap-1.5 opacity-70 hover:opacity-100 cursor-pointer"><RotateCcw className="w-3.5 h-3.5" /> {error}</button>}
         </section>
       </main>
     </div>

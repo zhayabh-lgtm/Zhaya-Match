@@ -12,6 +12,9 @@ import {
   Loader2,
   LockKeyhole,
   MousePointerClick,
+  MapPin,
+  Monitor,
+  Link2,
   Plus,
   RefreshCw,
   Save,
@@ -64,8 +67,12 @@ const emptyCampaign = (): CouponCampaign => ({
   unlockEndsAt: null,
   timerEnabled: true,
   timerLabel: 'Termina em',
+  timerLooping: false,
+  timerDurationMinutes: 120,
+  timerEndAt: null,
   maxUnlocks: null,
   showRemaining: false,
+  showMaxUnlocks: false,
 });
 
 function slugify(value: string) {
@@ -213,6 +220,43 @@ function Stat({ icon: Icon, label, value, sub }: { icon: React.ElementType; labe
   );
 }
 
+function formatDuration(seconds: number | null | undefined) {
+  const total = Math.max(0, Math.round(Number(seconds || 0)));
+  if (total < 60) return `${total}s`;
+  const minutes = Math.floor(total / 60);
+  const secs = total % 60;
+  if (minutes < 60) return secs ? `${minutes}m ${secs}s` : `${minutes}m`;
+  const hours = Math.floor(minutes / 60);
+  const rest = minutes % 60;
+  return rest ? `${hours}h ${rest}m` : `${hours}h`;
+}
+
+function referrerLabel(value: string) {
+  if (!value || value === 'Direto / não identificado') return 'Direto / não identificado';
+  try { return new URL(value).hostname.replace(/^www\./, '') || value; } catch { return value; }
+}
+
+function CouponHourlyChart({ items }: { items: CouponAnalyticsSummary['hourlyVisitors'] }) {
+  const max = Math.max(1, ...items.map((item) => Math.max(item.visitors, item.unlocks)));
+  return (
+    <div className="border border-neutral-200 rounded-xl bg-white p-4">
+      <div className="flex items-center justify-between gap-3 mb-4"><div><div className="text-[10px] font-black uppercase tracking-[0.1em] text-neutral-600">Horários</div><div className="text-[10px] text-neutral-400 mt-0.5">Visitantes únicos e desbloqueios por hora</div></div></div>
+      <div className="h-36 flex items-end gap-1">
+        {items.map((item) => (
+          <div key={item.hour} className="flex-1 min-w-0 h-full flex flex-col justify-end items-center gap-1" title={`${String(item.hour).padStart(2, '0')}:00 · ${item.visitors} visitantes · ${item.unlocks} desbloqueios`}>
+            <div className="w-full flex items-end justify-center gap-[2px] h-[105px]">
+              <div className="w-[42%] bg-neutral-900 rounded-t-sm min-h-[2px]" style={{ height: `${Math.max(2, (item.visitors / max) * 100)}%` }} />
+              <div className="w-[42%] bg-neutral-300 rounded-t-sm min-h-[2px]" style={{ height: `${Math.max(2, (item.unlocks / max) * 100)}%` }} />
+            </div>
+            <span className="text-[8px] text-neutral-400 tabular-nums">{item.hour % 3 === 0 ? String(item.hour).padStart(2, '0') : ''}</span>
+          </div>
+        ))}
+      </div>
+      <div className="flex items-center gap-4 mt-2 text-[9px] text-neutral-500"><span className="inline-flex items-center gap-1"><i className="w-2 h-2 bg-neutral-900 rounded-sm" />Visitantes</span><span className="inline-flex items-center gap-1"><i className="w-2 h-2 bg-neutral-300 rounded-sm" />Desbloqueios</span></div>
+    </div>
+  );
+}
+
 export function Cupons() {
   const [campaigns, setCampaigns] = useState<CouponCampaign[]>([]);
   const [selectedId, setSelectedId] = useState<string | 'new' | null>(null);
@@ -300,6 +344,7 @@ export function Cupons() {
     if (draft.siteCtaEnabled && !draft.siteUrl?.trim()) { setError('Informe a URL do site ou desligue o CTA.'); return; }
     if (draft.unlockMode === 'video' && !draft.unlockVideoUrl) { setError('No modo vídeo, escolha o vídeo que libera o cupom.'); return; }
     if (draft.scheduleEnabled && !draft.unlockStartsAt) { setError('No Modo Live programado, informe quando o cupom será liberado.'); return; }
+    if (draft.timerEnabled && draft.timerLooping && (!draft.timerDurationMinutes || draft.timerDurationMinutes < 1 || draft.timerDurationMinutes > 10080)) { setError('Informe uma duração entre 1 minuto e 7 dias para o timer em looping.'); return; }
     if (draft.unlockStartsAt && draft.unlockEndsAt && new Date(draft.unlockEndsAt).getTime() <= new Date(draft.unlockStartsAt).getTime()) {
       setError('O encerramento precisa acontecer depois da liberação.');
       return;
@@ -412,13 +457,40 @@ export function Cupons() {
             </div>
 
             {draft.id && analytics && (
-              <section>
-                <div className="flex items-center justify-between mb-2"><h3 className="text-xs font-black uppercase tracking-[0.08em] text-neutral-600">Funil da campanha</h3><span className="text-[10px] text-neutral-400">atualiza a cada 15s</span></div>
-                <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
-                  <Stat icon={Eye} label="Visualizações" value={analytics.pageViews} sub={`${analytics.uniqueVisitors} visitantes`} />
-                  <Stat icon={LockKeyhole} label="Desbloqueados" value={analytics.unlocked} sub={`${analytics.unlockRate.toFixed(1)}% das visualizações`} />
+              <section className="space-y-3">
+                <div className="flex items-center justify-between gap-3"><div><h3 className="text-xs font-black uppercase tracking-[0.08em] text-neutral-600">Analytics da campanha</h3><p className="text-[10px] text-neutral-400 mt-0.5">Atualiza a cada 15s. Computadores são ignorados em todas as métricas.</p></div></div>
+
+                <div className="grid grid-cols-2 md:grid-cols-3 xl:grid-cols-6 gap-3">
+                  <Stat icon={Users} label="Visitantes únicos" value={analytics.uniqueVisitors} sub={`${analytics.pageViews} visualizações`} />
+                  <Stat icon={Clock3} label="Tempo médio ativo" value={formatDuration(analytics.averageEngagementSeconds)} sub={`mediana ${formatDuration(analytics.medianEngagementSeconds)}`} />
+                  <Stat icon={LockKeyhole} label="Desbloqueados" value={analytics.unlocked} sub={`${analytics.unlockRate.toFixed(1)}% dos visitantes`} />
                   <Stat icon={Copy} label="Copiaram" value={analytics.copies} sub={`${analytics.copyRate.toFixed(1)}% dos desbloqueios`} />
                   <Stat icon={ShoppingBag} label="Foram ao site" value={analytics.siteClicks} sub={`${analytics.siteClickRate.toFixed(1)}% dos desbloqueios`} />
+                  <Stat icon={Film} label="Vídeo iniciado" value={analytics.videoStarts} sub={`${analytics.videoCompleted} chegaram ao ponto de liberar`} />
+                </div>
+
+                <div className="border border-neutral-200 rounded-xl bg-white p-4">
+                  <div className="flex flex-wrap items-center justify-between gap-2 mb-4"><div><div className="text-[10px] font-black uppercase tracking-[0.1em] text-neutral-600">Funil</div><div className="text-[10px] text-neutral-400 mt-0.5">Acompanha onde a pessoa abandona a campanha</div></div><div className="text-[10px] text-neutral-400">Tempo ativo total: <strong className="text-neutral-700">{formatDuration(analytics.totalEngagementSeconds)}</strong></div></div>
+                  <div className="grid grid-cols-2 lg:grid-cols-4 gap-2">
+                    {[
+                      ['Visitaram', analytics.uniqueVisitors, 100],
+                      ['Tocaram em desbloquear', analytics.unlockClicks, analytics.uniqueVisitors ? (analytics.unlockClicks / analytics.uniqueVisitors) * 100 : 0],
+                      ['Desbloquearam', analytics.unlocked, analytics.unlockRate],
+                      ['Foram ao site', analytics.siteClicks, analytics.uniqueVisitors ? (analytics.siteClicks / analytics.uniqueVisitors) * 100 : 0],
+                    ].map(([label, value, rate]) => (
+                      <div key={String(label)} className="rounded-lg bg-neutral-50 border border-neutral-200 p-3"><div className="text-[9px] uppercase tracking-wider font-bold text-neutral-400">{label}</div><div className="text-xl font-black mt-1">{Number(value)}</div><div className="h-1.5 bg-neutral-200 rounded-full mt-2 overflow-hidden"><div className="h-full bg-neutral-900 rounded-full" style={{ width: `${Math.max(0, Math.min(100, Number(rate)))}%` }} /></div><div className="text-[9px] text-neutral-400 mt-1">{Number(rate).toFixed(1)}%</div></div>
+                    ))}
+                  </div>
+                </div>
+
+                {!analytics.engagementConfigured && <div className="border border-amber-200 bg-amber-50 rounded-lg px-3 py-2 text-[11px] text-amber-800">Execute o SQL V2 para liberar tempo ativo, visitantes únicos avançados e horários. O funil básico continua funcionando.</div>}
+
+                <CouponHourlyChart items={analytics.hourlyVisitors || []} />
+
+                <div className="grid grid-cols-1 lg:grid-cols-3 gap-3">
+                  <div className="border border-neutral-200 rounded-xl bg-white p-4"><div className="flex items-center gap-1.5 text-[10px] font-black uppercase tracking-wider text-neutral-600 mb-3"><Monitor className="w-3.5 h-3.5" />Dispositivos</div><div className="space-y-2">{analytics.devices.length ? analytics.devices.map((item) => <div key={item.deviceType} className="flex items-center justify-between text-[11px]"><span className="text-neutral-600">{item.deviceType === 'mobile' ? 'Mobile' : item.deviceType === 'tablet' ? 'Tablet' : 'Outro'}</span><strong>{item.count}</strong></div>) : <span className="text-[11px] text-neutral-400">Sem dados.</span>}<div className="pt-2 mt-2 border-t border-neutral-100 text-[10px] text-neutral-400">Desktop bloqueado do rastreio.</div></div></div>
+                  <div className="border border-neutral-200 rounded-xl bg-white p-4"><div className="flex items-center gap-1.5 text-[10px] font-black uppercase tracking-wider text-neutral-600 mb-3"><MapPin className="w-3.5 h-3.5" />Localização</div><div className="space-y-2 max-h-52 overflow-y-auto pr-1">{analytics.locations.length ? analytics.locations.slice(0, 20).map((item, index) => { const label = [item.city, item.region, item.countryCode].filter(Boolean).join(', ') || 'Não identificada'; return <div key={`${label}-${index}`} className="flex items-center justify-between gap-3 text-[11px]"><span className="truncate text-neutral-600" title={label}>{label}</span><span className="shrink-0"><strong>{item.count}</strong>{item.unlocks > 0 && <em className="not-italic text-[9px] text-neutral-400 ml-1">· {item.unlocks} unlock</em>}</span></div>; }) : <span className="text-[11px] text-neutral-400">Sem dados.</span>}</div></div>
+                  <div className="border border-neutral-200 rounded-xl bg-white p-4"><div className="flex items-center gap-1.5 text-[10px] font-black uppercase tracking-wider text-neutral-600 mb-3"><Link2 className="w-3.5 h-3.5" />Origem</div><div className="space-y-2 max-h-52 overflow-y-auto pr-1">{analytics.referrers.length ? analytics.referrers.slice(0, 20).map((item) => <div key={item.referrer} className="flex items-center justify-between gap-3 text-[11px]"><span className="truncate text-neutral-600" title={item.referrer}>{referrerLabel(item.referrer)}</span><strong>{item.count}</strong></div>) : <span className="text-[11px] text-neutral-400">Sem dados.</span>}</div></div>
                 </div>
               </section>
             )}
@@ -461,14 +533,19 @@ export function Cupons() {
                   <Toggle checked={draft.scheduleEnabled} onChange={(v) => patch('scheduleEnabled', v)} label="Programar liberação" description="Antes do horário, a página pode ficar aberta mostrando a contagem até liberar." />
                   {draft.scheduleEnabled && <div className="grid sm:grid-cols-2 gap-3"><div><FieldLabel>Libera em</FieldLabel><input type="datetime-local" value={toLocalInput(draft.unlockStartsAt)} onChange={(e) => patch('unlockStartsAt', fromLocalInput(e.target.value))} className="w-full px-3 py-2.5 border border-neutral-300 rounded text-xs" /></div><div><FieldLabel>Termina em</FieldLabel><input type="datetime-local" value={toLocalInput(draft.unlockEndsAt)} onChange={(e) => patch('unlockEndsAt', fromLocalInput(e.target.value))} className="w-full px-3 py-2.5 border border-neutral-300 rounded text-xs" /></div></div>}
                   {!draft.scheduleEnabled && <div><FieldLabel>Encerramento opcional</FieldLabel><input type="datetime-local" value={toLocalInput(draft.unlockEndsAt)} onChange={(e) => patch('unlockEndsAt', fromLocalInput(e.target.value))} className="w-full px-3 py-2.5 border border-neutral-300 rounded text-xs" /></div>}
-                  <Toggle checked={draft.timerEnabled} onChange={(v) => patch('timerEnabled', v)} label="Mostrar timer na página" description="Antes da liberação mostra “Libera em”. Durante a campanha usa o texto abaixo." />
-                  {draft.timerEnabled && <div><FieldLabel>Texto do timer ativo</FieldLabel><input value={draft.timerLabel} onChange={(e) => patch('timerLabel', e.target.value)} className="w-full px-3 py-2.5 border border-neutral-300 rounded text-xs" /></div>}
+                  <Toggle checked={draft.timerEnabled} onChange={(v) => patch('timerEnabled', v)} label="Mostrar timer na página" description="Antes da liberação mostra “Libera em”. Depois, o timer pode ter data fixa ou reiniciar por visitante." />
+                  {draft.timerEnabled && <>
+                    <div><FieldLabel>Texto do timer ativo</FieldLabel><input value={draft.timerLabel} onChange={(e) => patch('timerLabel', e.target.value)} className="w-full px-3 py-2.5 border border-neutral-300 rounded text-xs" /></div>
+                    <div><FieldLabel>Funcionamento do timer</FieldLabel><div className="grid grid-cols-2 gap-1 bg-neutral-100 p-1 rounded-lg"><button type="button" onClick={() => patch('timerLooping', false)} className={`px-3 py-2 rounded text-[10px] font-bold cursor-pointer ${!draft.timerLooping ? 'bg-white text-neutral-950 shadow-sm' : 'text-neutral-500'}`}>Data / hora fixa</button><button type="button" onClick={() => patch('timerLooping', true)} className={`px-3 py-2 rounded text-[10px] font-bold cursor-pointer ${draft.timerLooping ? 'bg-white text-neutral-950 shadow-sm' : 'text-neutral-500'}`}>Looping por visitante</button></div></div>
+                    {draft.timerLooping ? <div className="space-y-2"><FieldLabel>Duração de cada ciclo</FieldLabel><div className="grid grid-cols-2 gap-2"><div><span className="text-[10px] text-neutral-400">Horas</span><input type="number" min={0} max={168} value={Math.floor((draft.timerDurationMinutes || 120) / 60)} onChange={(e) => { const h = Math.max(0, Math.min(168, Number(e.target.value) || 0)); patch('timerDurationMinutes', Math.max(1, h * 60 + ((draft.timerDurationMinutes || 0) % 60))); }} className="w-full mt-1 px-3 py-2.5 border border-neutral-300 rounded text-xs" /></div><div><span className="text-[10px] text-neutral-400">Minutos</span><input type="number" min={0} max={59} value={(draft.timerDurationMinutes || 120) % 60} onChange={(e) => { const m = Math.max(0, Math.min(59, Number(e.target.value) || 0)); patch('timerDurationMinutes', Math.max(1, Math.floor((draft.timerDurationMinutes || 120) / 60) * 60 + m)); }} className="w-full mt-1 px-3 py-2.5 border border-neutral-300 rounded text-xs" /></div></div><div className="flex flex-wrap gap-1.5">{[10, 30, 60, 120, 240].map((minutes) => <button key={minutes} type="button" onClick={() => patch('timerDurationMinutes', minutes)} className="px-2 py-1 border border-neutral-200 rounded text-[10px] font-semibold text-neutral-600 cursor-pointer">{minutes < 60 ? `${minutes}m` : `${minutes / 60}h`}</button>)}</div></div> : <div><FieldLabel>Timer termina em <span className="normal-case font-normal text-neutral-400">(se vazio, usa o encerramento da campanha)</span></FieldLabel><input type="datetime-local" value={toLocalInput(draft.timerEndAt)} onChange={(e) => patch('timerEndAt', fromLocalInput(e.target.value))} className="w-full px-3 py-2.5 border border-neutral-300 rounded text-xs" /></div>}
+                  </>}
                 </section>
 
                 <section className="border border-neutral-200 rounded-xl bg-white p-5 space-y-4">
                   <div><h3 className="text-sm font-black">Urgência</h3><p className="text-[11px] text-neutral-500 mt-0.5">Opcional. Um mesmo dispositivo só consome um desbloqueio do limite.</p></div>
                   <div><FieldLabel>Quantidade máxima de desbloqueios <span className="normal-case font-normal text-neutral-400">(vazio = ilimitado)</span></FieldLabel><input type="number" min={1} value={draft.maxUnlocks ?? ''} onChange={(e) => patch('maxUnlocks', e.target.value ? Math.max(1, Number(e.target.value)) : null)} className="w-full px-3 py-2.5 border border-neutral-300 rounded text-xs" /></div>
-                  <Toggle checked={draft.showRemaining} onChange={(v) => patch('showRemaining', v)} label="Mostrar quantos cupons restam" description="Exibe “Restam X cupons” enquanto a campanha estiver ativa." />
+                  <Toggle checked={draft.showRemaining} onChange={(v) => patch('showRemaining', v)} label="Mostrar quantos cupons restam" description="A informação aparece pequena, imediatamente acima do botão Desbloquear cupom." />
+                  {draft.maxUnlocks !== null && <Toggle checked={draft.showMaxUnlocks} onChange={(v) => patch('showMaxUnlocks', v)} label="Mostrar também a quantidade máxima" description={draft.showRemaining ? `Exemplo: “17 cupons restantes de ${draft.maxUnlocks}”.` : `Exemplo: “Limite de ${draft.maxUnlocks} cupons”.`} />}
                 </section>
 
                 <section className="border border-neutral-200 rounded-xl bg-white p-5 space-y-4">
@@ -501,7 +578,8 @@ export function Cupons() {
                       <div className="text-2xl font-black leading-tight tracking-tight">{draft.title}</div>
                       {draft.subtitle && <div className="text-xs mt-2 leading-relaxed" style={{ color: draft.mutedTextColor }}>{draft.subtitle}</div>}
                       {draft.timerEnabled && <div className="mt-7"><div className="text-[9px] uppercase tracking-[0.24em] opacity-55">{draft.timerLabel}</div><div className="text-4xl font-black mt-1">00:50:58</div></div>}
-                      <button type="button" className="w-full mt-8 py-4 rounded-lg text-xs font-black uppercase flex items-center justify-center gap-2" style={{ backgroundColor: draft.buttonBackgroundColor, color: draft.buttonTextColor }}><LockKeyhole className="w-4 h-4" />{draft.unlockButtonText}</button>
+                      {(draft.showRemaining || draft.showMaxUnlocks) && draft.maxUnlocks && <div className="mt-7 mb-2 text-[9px] uppercase tracking-[0.14em] font-bold opacity-60">{draft.showRemaining ? `${Math.max(0, draft.maxUnlocks - (draft.totalUnlocks || 0))} cupons restantes${draft.showMaxUnlocks ? ` de ${draft.maxUnlocks}` : ''}` : `Limite de ${draft.maxUnlocks} cupons`}</div>}
+                      <button type="button" className={`w-full ${!(draft.showRemaining || draft.showMaxUnlocks) ? 'mt-8' : ''} py-4 rounded-lg text-xs font-black uppercase flex items-center justify-center gap-2`} style={{ backgroundColor: draft.buttonBackgroundColor, color: draft.buttonTextColor }}><LockKeyhole className="w-4 h-4" />{draft.unlockButtonText}</button>
                     </div>
                   </div>
                 </section>

@@ -159,8 +159,12 @@ function dbToCampaign(row: any, includeCode = false, totalUnlocks?: number) {
     unlockEndsAt: row.unlock_ends_at || null,
     timerEnabled: Boolean(row.timer_enabled),
     timerLabel: row.timer_label || 'Termina em',
+    timerLooping: Boolean(row.timer_looping),
+    timerDurationMinutes: row.timer_duration_minutes === null || row.timer_duration_minutes === undefined ? null : Number(row.timer_duration_minutes),
+    timerEndAt: row.timer_end_at || null,
     maxUnlocks: row.max_unlocks === null || row.max_unlocks === undefined ? null : Number(row.max_unlocks),
     showRemaining: Boolean(row.show_remaining),
+    showMaxUnlocks: Boolean(row.show_max_unlocks),
     createdAt: row.created_at,
     updatedAt: row.updated_at,
   };
@@ -209,11 +213,16 @@ async function insertEvent(
   metadata: Record<string, any> = {},
 ) {
   if (!VISITOR_REGEX.test(visitorId)) return;
+  const deviceType = detectDeviceType(req.headers?.['user-agent']);
+  // A versão pública é pensada para tráfego mobile. Desktop é usado pela equipe
+  // para testes e não entra em analytics. O evento operacional 'unlocked' é
+  // preservado para que limite e reutilização do cupom continuem corretos.
+  if (deviceType === 'desktop' && eventType !== 'unlocked') return;
   const row = {
     campaign_id: campaignId,
     event_type: eventType,
     visitor_id: visitorId,
-    device_type: detectDeviceType(req.headers?.['user-agent']),
+    device_type: deviceType,
     country_code: detectCountry(req),
     region: cleanHeader(req.headers?.['x-vercel-ip-country-region'], 80),
     city: cleanHeader(req.headers?.['x-vercel-ip-city'], 120),
@@ -224,6 +233,35 @@ async function insertEvent(
   if (error && String(error.code || '') !== '42P01') {
     console.warn('[Coupons] analytics event failed:', error.message);
   }
+}
+
+async function upsertVisitorSession(
+  supabase: any,
+  req: any,
+  campaignId: string,
+  visitorId: string,
+  engagedSeconds = 0,
+  referrer?: string | null,
+) {
+  if (!VISITOR_REGEX.test(visitorId)) return { configured: true };
+  const deviceType = detectDeviceType(req.headers?.['user-agent']);
+  if (deviceType === 'desktop') return { configured: true, ignoredDevice: 'desktop' };
+  const { error } = await supabase.rpc('upsert_coupon_visitor_session', {
+    p_campaign_id: campaignId,
+    p_visitor_id: visitorId,
+    p_engaged_seconds_total: Math.max(0, Math.min(86400, Math.round(Number(engagedSeconds) || 0))),
+    p_device_type: deviceType,
+    p_country_code: detectCountry(req),
+    p_region: cleanHeader(req.headers?.['x-vercel-ip-country-region'], 80),
+    p_city: cleanHeader(req.headers?.['x-vercel-ip-city'], 120),
+    p_referrer: cleanText(referrer, 500),
+  });
+  if (error) {
+    const missing = String(error.code || '') === '42883' || String(error.code || '') === '42P01';
+    if (!missing) console.warn('[Coupons] visitor session failed:', error.message);
+    return { configured: !missing };
+  }
+  return { configured: true };
 }
 
 async function hasUnlocked(supabase: any, campaignId: string, visitorId: string): Promise<boolean> {
@@ -306,8 +344,14 @@ function sanitizeAdminCampaign(body: any) {
     unlock_ends_at: cleanIso(body.unlockEndsAt),
     timer_enabled: Boolean(body.timerEnabled),
     timer_label: cleanRequiredText(body.timerLabel, 'Termina em', 100),
+    timer_looping: Boolean(body.timerEnabled && body.timerLooping),
+    timer_duration_minutes: body.timerEnabled && body.timerLooping
+      ? Math.round(clamp(body.timerDurationMinutes, 1, 10080, 120))
+      : null,
+    timer_end_at: body.timerEnabled && !body.timerLooping ? cleanIso(body.timerEndAt) : null,
     max_unlocks: maxUnlocks,
     show_remaining: Boolean(body.showRemaining),
+    show_max_unlocks: Boolean(body.showMaxUnlocks),
     updated_at: new Date().toISOString(),
   };
 }
@@ -406,41 +450,139 @@ export default async function handler(req: any, res: any) {
       if (!await requireAdmin(req, res)) return;
       const id = readParam(req, 'id');
       if (!UUID_REGEX.test(id)) return res.status(400).json({ error: 'INVALID_ID' });
-      const { data, error } = await supabase
-        .from('coupon_events')
-        .select('event_type, visitor_id, device_type, created_at')
-        .eq('campaign_id', id)
-        .order('created_at', { ascending: false })
-        .limit(30000);
-      if (error) return res.status(500).json({ success: false, error: 'DATABASE_ERROR', message: error.message });
-      const events = data || [];
+
+      const [{ data: eventsData, error: eventsError }, { data: sessionsData, error: sessionsError }] = await Promise.all([
+        supabase
+          .from('coupon_events')
+          .select('event_type,visitor_id,device_type,country_code,region,city,referrer,created_at')
+          .eq('campaign_id', id)
+          .order('created_at', { ascending: false })
+          .limit(50000),
+        supabase
+          .from('coupon_visitor_sessions')
+          .select('visitor_id,device_type,country_code,region,city,referrer,first_seen_at,last_seen_at,engaged_seconds')
+          .eq('campaign_id', id)
+          .order('first_seen_at', { ascending: false })
+          .limit(50000),
+      ]);
+
+      if (eventsError) return res.status(500).json({ success: false, error: 'DATABASE_ERROR', message: eventsError.message });
+      const engagementConfigured = !sessionsError;
+      const events = (eventsData || []).filter((event: any) => String(event?.device_type || '') !== 'desktop');
+      const sessions = engagementConfigured
+        ? (sessionsData || []).filter((session: any) => String(session?.device_type || '') !== 'desktop')
+        : [];
       const count = (type: string) => events.filter((e: any) => e.event_type === type).length;
-      const uniqueVisitors = new Set(events.filter((e: any) => e.event_type === 'page_view').map((e: any) => e.visitor_id)).size;
+      const uniqueCount = (type: string) => new Set(events.filter((e: any) => e.event_type === type).map((e: any) => e.visitor_id)).size;
       const pageViews = count('page_view');
-      const unlocked = count('unlocked');
-      const copies = count('copy');
-      const siteClicks = count('site_click');
-      const devices: Record<string, number> = {};
-      for (const event of events.filter((e: any) => e.event_type === 'page_view')) {
-        const key = String(event.device_type || 'unknown');
-        devices[key] = (devices[key] || 0) + 1;
+      const uniqueVisitors = engagementConfigured
+        ? sessions.length
+        : new Set(events.filter((e: any) => e.event_type === 'page_view').map((e: any) => e.visitor_id)).size;
+      const unlocked = uniqueCount('unlocked');
+      const copies = uniqueCount('copy');
+      const siteClicks = uniqueCount('site_click');
+      const unlockClicks = uniqueCount('unlock_click');
+
+      const engagedValues = sessions
+        .map((session: any) => Math.max(0, Number(session.engaged_seconds || 0)))
+        .sort((a: number, b: number) => a - b);
+      const totalEngagementSeconds = engagedValues.reduce((sum: number, value: number) => sum + value, 0);
+      const averageEngagementSeconds = engagedValues.length ? totalEngagementSeconds / engagedValues.length : 0;
+      const medianEngagementSeconds = engagedValues.length
+        ? (engagedValues.length % 2
+          ? engagedValues[Math.floor(engagedValues.length / 2)]
+          : (engagedValues[engagedValues.length / 2 - 1] + engagedValues[engagedValues.length / 2]) / 2)
+        : 0;
+
+      const sessionSource = engagementConfigured ? sessions : events.filter((e: any) => e.event_type === 'page_view').map((e: any) => ({
+        visitor_id: e.visitor_id, device_type: e.device_type, country_code: e.country_code, region: e.region, city: e.city, referrer: e.referrer, first_seen_at: e.created_at,
+      }));
+
+      const deviceMap = new Map<string, number>();
+      const locationMap = new Map<string, any>();
+      const referrerMap = new Map<string, number>();
+      const hourlyMap = Array.from({ length: 24 }, (_, hour) => ({ hour, visitors: 0, unlocks: 0, copies: 0, siteClicks: 0 }));
+
+      for (const session of sessionSource) {
+        const device = String(session.device_type || 'unknown');
+        deviceMap.set(device, (deviceMap.get(device) || 0) + 1);
+        const countryCode = session.country_code || null;
+        const region = session.region || null;
+        const city = session.city || null;
+        const key = `${countryCode || ''}|${region || ''}|${city || ''}`;
+        const current = locationMap.get(key) || { countryCode, region, city, count: 0, unlocks: 0, copies: 0, siteClicks: 0 };
+        current.count += 1;
+        locationMap.set(key, current);
+        const ref = String(session.referrer || '').trim() || 'Direto / não identificado';
+        referrerMap.set(ref, (referrerMap.get(ref) || 0) + 1);
+        const d = new Date(session.first_seen_at || '');
+        if (Number.isFinite(d.getTime())) hourlyMap[d.getHours()].visitors += 1;
       }
+
+      for (const event of events) {
+        const d = new Date(event.created_at || '');
+        const hour = Number.isFinite(d.getTime()) ? d.getHours() : -1;
+        if (hour >= 0) {
+          if (event.event_type === 'unlocked') hourlyMap[hour].unlocks += 1;
+          if (event.event_type === 'copy') hourlyMap[hour].copies += 1;
+          if (event.event_type === 'site_click') hourlyMap[hour].siteClicks += 1;
+        }
+        if (event.event_type === 'unlocked' || event.event_type === 'copy' || event.event_type === 'site_click') {
+          const key = `${event.country_code || ''}|${event.region || ''}|${event.city || ''}`;
+          const current = locationMap.get(key);
+          if (current) {
+            if (event.event_type === 'unlocked') current.unlocks += 1;
+            if (event.event_type === 'copy') current.copies += 1;
+            if (event.event_type === 'site_click') current.siteClicks += 1;
+          }
+        }
+      }
+
+      const devices = Array.from(deviceMap.entries())
+        .map(([deviceType, count]) => ({ deviceType, count }))
+        .sort((a, b) => b.count - a.count);
+      const locations = Array.from(locationMap.values()).sort((a: any, b: any) => b.count - a.count).slice(0, 50);
+      const referrers = Array.from(referrerMap.entries())
+        .map(([referrer, count]) => ({ referrer, count }))
+        .sort((a, b) => b.count - a.count)
+        .slice(0, 30);
+      const recentEvents = events
+        .filter((event: any) => event.event_type !== 'page_view')
+        .slice(0, 30)
+        .map((event: any) => ({
+          eventType: event.event_type,
+          createdAt: event.created_at,
+          city: event.city || null,
+          region: event.region || null,
+          countryCode: event.country_code || null,
+        }));
+
       return res.status(200).json({
         success: true,
         analytics: {
           campaignId: id,
           pageViews,
           uniqueVisitors,
-          unlockClicks: count('unlock_click'),
+          unlockClicks,
           unlocked,
           copies,
           siteClicks,
-          videoStarts: count('video_started'),
-          videoCompleted: count('video_completed'),
-          unlockRate: pageViews > 0 ? (unlocked / pageViews) * 100 : 0,
+          videoStarts: uniqueCount('video_started'),
+          videoCompleted: uniqueCount('video_completed'),
+          unlockRate: uniqueVisitors > 0 ? (unlocked / uniqueVisitors) * 100 : 0,
           copyRate: unlocked > 0 ? (copies / unlocked) * 100 : 0,
           siteClickRate: unlocked > 0 ? (siteClicks / unlocked) * 100 : 0,
+          clickToUnlockRate: unlockClicks > 0 ? (unlocked / unlockClicks) * 100 : 0,
+          averageEngagementSeconds,
+          medianEngagementSeconds,
+          totalEngagementSeconds,
           devices,
+          hourlyVisitors: hourlyMap,
+          locations,
+          referrers,
+          recentEvents,
+          desktopIgnored: true,
+          engagementConfigured,
         },
       });
     }
@@ -503,11 +645,32 @@ export default async function handler(req: any, res: any) {
       if (!UUID_REGEX.test(campaignId) || !VISITOR_REGEX.test(visitorId) || !allowed.has(eventType)) {
         return res.status(400).json({ success: false, error: 'INVALID_EVENT' });
       }
+      const deviceType = detectDeviceType(req.headers?.['user-agent']);
+      if (deviceType === 'desktop') {
+        return res.status(200).json({ success: true, recorded: false, ignoredDevice: 'desktop' });
+      }
       await insertEvent(supabase, req, campaignId, visitorId, eventType, {
         referrer: cleanText(body.referrer, 500),
         progress: clamp(body.progress, 0, 100, 0),
       });
-      return res.status(200).json({ success: true });
+      if (eventType === 'page_view') {
+        await upsertVisitorSession(supabase, req, campaignId, visitorId, 0, cleanText(body.referrer, 500));
+      }
+      return res.status(200).json({ success: true, recorded: true });
+    }
+
+    if (mode === 'engagement') {
+      if (req.method !== 'POST') return res.status(405).json({ error: 'METHOD_NOT_ALLOWED' });
+      const body = parseBody(req);
+      const campaignId = String(body.campaignId || '').trim();
+      const visitorId = String(body.visitorId || '').trim();
+      if (!UUID_REGEX.test(campaignId) || !VISITOR_REGEX.test(visitorId)) {
+        return res.status(400).json({ success: false, error: 'INVALID_REQUEST' });
+      }
+      const result = await upsertVisitorSession(
+        supabase, req, campaignId, visitorId, clamp(body.engagedSeconds, 0, 86400, 0), cleanText(body.referrer, 500),
+      );
+      return res.status(200).json({ success: true, ...result });
     }
 
     if (mode === 'unlock-start' || mode === 'unlock-reveal') {
@@ -552,7 +715,7 @@ export default async function handler(req: any, res: any) {
           const delaySeconds = Math.max(1, Math.min(3600, Number(row.unlock_delay_seconds || 10)));
           const unlockAt = new Date(Date.now() + delaySeconds * 1000).toISOString();
           await insertEvent(supabase, req, campaignId, visitorId, 'unlock_click', { mode: 'countdown', unlockAt });
-          return res.status(200).json({ success: true, unlocked: false, mode: 'countdown', unlockAt, delaySeconds });
+          return res.status(200).json({ success: true, unlocked: false, mode: 'countdown', unlockAt, delaySeconds, serverNow: new Date().toISOString() });
         }
         await insertEvent(supabase, req, campaignId, visitorId, 'unlock_click', {
           mode: 'video',
@@ -577,7 +740,7 @@ export default async function handler(req: any, res: any) {
           .limit(1)
           .maybeSingle();
         const unlockAt = new Date(startEvent?.metadata?.unlockAt || '').getTime();
-        if (!Number.isFinite(unlockAt) || Date.now() + 250 < unlockAt) {
+        if (!Number.isFinite(unlockAt) || Date.now() < unlockAt) {
           return res.status(409).json({ success: false, error: 'COUNTDOWN_NOT_FINISHED', unlockAt: startEvent?.metadata?.unlockAt || null });
         }
       }

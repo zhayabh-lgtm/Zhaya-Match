@@ -1,8 +1,13 @@
-ZHAYA MATCH — CUPONS / MODO LIVE
-================================
+ZHAYA MATCH — CUPONS / MODO LIVE V2
+===================================
 
-1. Antes de usar no Vercel, abra o SQL Editor do Supabase e execute:
+INSTALAÇÃO NOVA
+1. Abra o SQL Editor do Supabase e execute:
    ZHAYA_MATCH_CUPONS_SETUP.sql
+
+QUEM JÁ USAVA O CUPONS LIVE V1
+1. Execute apenas:
+   ZHAYA_MATCH_CUPONS_V2_UPGRADE.sql
 
 2. No painel do Zhaya Match, abra "Cupons".
 
@@ -13,21 +18,33 @@ O módulo inclui:
 - logo customizada;
 - imagem ou vídeo de fundo;
 - cores e textos customizáveis;
-- timer de liberação e encerramento;
+- timer independente com data/hora fixa;
+- timer em looping por visitante com duração configurável;
+- timer automático de "Libera em" antes de um drop programado;
 - desbloqueio imediato;
-- desbloqueio após contagem regressiva;
+- desbloqueio após contagem regressiva com segundos corrigidos;
 - desbloqueio por porcentagem assistida de vídeo;
 - código oculto até o desbloqueio;
 - botão para copiar o cupom;
 - CTA para o site;
-- limite opcional de desbloqueios com proteção atômica para live;
-- contador opcional de cupons restantes;
-- analytics: visualizações, visitantes, desbloqueios, cópias e cliques no site;
+- limite máximo de desbloqueios opcional e atômico;
+- contador de cupons restantes pequeno acima do botão;
+- opção de mostrar também a quantidade máxima;
+- analytics avançado: visitantes únicos, visualizações, tempo ativo médio/mediano/total,
+  funil, horários, localização, origem, dispositivos, vídeo, cópias e cliques no site;
+- desktop/computador bloqueado das métricas de analytics, como na Vitrine;
 - atualização leve da página pública a cada 15 segundos para refletir alterações feitas durante a live.
 
+IMPORTANTE SOBRE DESKTOP
+O visitante em computador continua conseguindo desbloquear, copiar e usar o cupom e continua
+consumindo o limite máximo quando houver. O que é bloqueado é somente o rastreio/analytics,
+para testes internos no PC não contaminarem as métricas da campanha.
+
 Observação sobre vídeo:
-A exigência de porcentagem assistida melhora o fluxo de experiência, mas não deve ser tratada como mecanismo antifraude absoluto. Em navegador, qualquer validação baseada em reprodução do lado do cliente pode ser manipulada por um usuário técnico.
+A exigência de porcentagem assistida melhora o fluxo de experiência, mas não deve ser tratada
+como mecanismo antifraude absoluto. Em navegador, qualquer validação baseada em reprodução do
+lado do cliente pode ser manipulada por um usuário técnico.
 
 Arquitetura Vercel:
-As rotas do módulo foram adicionadas à função consolidada /api/best-sellers usando modos coupon-*.
+As rotas do módulo continuam dentro da função consolidada /api/best-sellers usando modos coupon-*.
 Isso evita criar uma Vercel Function extra e preserva a organização pensada para o plano Hobby.

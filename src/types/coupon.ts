@@ -38,8 +38,12 @@ export interface CouponCampaign {
   unlockEndsAt: string | null;
   timerEnabled: boolean;
   timerLabel: string;
+  timerLooping: boolean;
+  timerDurationMinutes: number | null;
+  timerEndAt: string | null;
   maxUnlocks: number | null;
   showRemaining: boolean;
+  showMaxUnlocks: boolean;
   remainingUnlocks?: number | null;
   totalUnlocks?: number;
   createdAt?: string;
@@ -49,6 +53,42 @@ export interface CouponCampaign {
 export interface PublicCouponCampaign extends Omit<CouponCampaign, 'couponCode'> {
   status: 'scheduled' | 'available' | 'expired' | 'depleted';
   serverNow: string;
+}
+
+export interface CouponHourlyMetric {
+  hour: number;
+  visitors: number;
+  unlocks: number;
+  copies: number;
+  siteClicks: number;
+}
+
+export interface CouponLocationMetric {
+  countryCode: string | null;
+  region: string | null;
+  city: string | null;
+  count: number;
+  unlocks: number;
+  copies: number;
+  siteClicks: number;
+}
+
+export interface CouponReferrerMetric {
+  referrer: string;
+  count: number;
+}
+
+export interface CouponDeviceMetric {
+  deviceType: string;
+  count: number;
+}
+
+export interface CouponRecentEvent {
+  eventType: string;
+  createdAt: string;
+  city: string | null;
+  region: string | null;
+  countryCode: string | null;
 }
 
 export interface CouponAnalyticsSummary {
@@ -64,5 +104,15 @@ export interface CouponAnalyticsSummary {
   unlockRate: number;
   copyRate: number;
   siteClickRate: number;
-  devices: Record<string, number>;
+  clickToUnlockRate: number;
+  averageEngagementSeconds: number;
+  medianEngagementSeconds: number;
+  totalEngagementSeconds: number;
+  devices: CouponDeviceMetric[];
+  hourlyVisitors: CouponHourlyMetric[];
+  locations: CouponLocationMetric[];
+  referrers: CouponReferrerMetric[];
+  recentEvents: CouponRecentEvent[];
+  desktopIgnored: boolean;
+  engagementConfigured: boolean;
 }
