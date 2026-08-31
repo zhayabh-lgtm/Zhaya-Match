@@ -265,6 +265,7 @@ export function Cupons() {
   const [analytics, setAnalytics] = useState<CouponAnalyticsSummary | null>(null);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
+  const [duplicating, setDuplicating] = useState(false);
   const [deleting, setDeleting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [tableMissing, setTableMissing] = useState(false);
@@ -335,6 +336,53 @@ export function Cupons() {
     setSelectedId('new');
     setDraft(emptyCampaign());
     setAnalytics(null);
+  };
+
+  const uniqueDuplicateSlug = (sourceSlug: string) => {
+    const used = new Set(campaigns.map((campaign) => slugify(campaign.slug)).filter(Boolean));
+    const root = slugify(`${sourceSlug || 'cupom'}-copia`) || 'cupom-copia';
+    if (!used.has(root)) return root;
+    let suffix = 2;
+    while (used.has(`${root}-${suffix}`)) suffix += 1;
+    return `${root}-${suffix}`;
+  };
+
+  const duplicateCampaign = async () => {
+    if (!draft?.id || duplicating || saving) return;
+    setDuplicating(true);
+    setError(null);
+    try {
+      const duplicatedDraft: CouponCampaign = {
+        ...draft,
+        id: '',
+        name: `${draft.name.trim() || 'Campanha'} (Cópia)`,
+        slug: uniqueDuplicateSlug(draft.slug),
+        // A cópia nasce inativa para nunca publicar uma campanha duplicada
+        // por acidente. Todo o restante da configuração visual/comercial é
+        // preservado e os analytics começam zerados por ser um novo registro.
+        active: false,
+        totalUnlocks: 0,
+        remainingUnlocks: draft.maxUnlocks && draft.maxUnlocks > 0 ? draft.maxUnlocks : null,
+        createdAt: undefined,
+        updatedAt: undefined,
+      };
+      const data = await couponApi('admin-save', {
+        method: 'POST',
+        body: JSON.stringify(duplicatedDraft),
+      });
+      const saved: CouponCampaign = data.campaign;
+      setCampaigns((current) => [saved, ...current]);
+      setSelectedId(saved.id);
+      setDraft(saved);
+      setAnalytics(null);
+      setCopiedLink(false);
+    } catch (err: any) {
+      setError(err?.code === 'SLUG_ALREADY_EXISTS'
+        ? 'Já existe uma campanha com o endereço gerado para a cópia. Tente novamente.'
+        : (err?.message || 'Não foi possível duplicar a campanha.'));
+    } finally {
+      setDuplicating(false);
+    }
   };
 
   const save = async () => {
@@ -452,6 +500,7 @@ export function Cupons() {
               </div>
               <div className="flex flex-wrap gap-2">
                 {publicUrl && <><button type="button" onClick={copyLink} className="px-3 py-2 border border-neutral-300 rounded text-[11px] font-bold inline-flex items-center gap-1.5 cursor-pointer"><Copy className="w-3.5 h-3.5" />{copiedLink ? 'Copiado' : 'Copiar link'}</button><a href={publicUrl} target="_blank" rel="noreferrer" className="px-3 py-2 border border-neutral-300 rounded text-[11px] font-bold inline-flex items-center gap-1.5"><Eye className="w-3.5 h-3.5" />Abrir página</a></>}
+                {draft.id && <button type="button" onClick={duplicateCampaign} disabled={duplicating || saving} className="px-3 py-2 border border-neutral-300 rounded text-[11px] font-bold inline-flex items-center gap-1.5 cursor-pointer disabled:opacity-50">{duplicating ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Copy className="w-3.5 h-3.5" />}Duplicar</button>}
                 {draft.id && <button type="button" onClick={remove} disabled={deleting} className="px-3 py-2 border border-red-200 text-red-600 rounded text-[11px] font-bold inline-flex items-center gap-1.5 cursor-pointer disabled:opacity-50">{deleting ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Trash2 className="w-3.5 h-3.5" />}Excluir</button>}
                 <button type="button" onClick={save} disabled={saving} className="px-4 py-2 bg-neutral-900 text-white rounded text-[11px] font-bold inline-flex items-center gap-1.5 cursor-pointer disabled:opacity-50">{saving ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Save className="w-3.5 h-3.5" />}Salvar</button>
               </div>

@@ -120,6 +120,7 @@ export function CouponCampaignPage() {
   const revealingRef = useRef(false);
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const pageViewTrackedRef = useRef(false);
+  const finalCtaRef = useRef<HTMLAnchorElement | null>(null);
 
   const track = useCallback((eventType: string, extra: Record<string, any> = {}) => {
     if (!campaign?.id || desktopTrackingBlocked) return;
@@ -364,6 +365,16 @@ export function CouponCampaignPage() {
     }
     setCopied(true);
     track('copy');
+    // Depois de copiar, leva a pessoa direto para a ação final da campanha.
+    // O pequeno atraso garante que o navegador conclua o feedback visual de
+    // "copiado" antes de iniciar a navegação suave pela página.
+    window.setTimeout(() => {
+      if (finalCtaRef.current) {
+        finalCtaRef.current.scrollIntoView({ behavior: 'smooth', block: 'center' });
+        return;
+      }
+      window.scrollTo({ top: document.documentElement.scrollHeight, behavior: 'smooth' });
+    }, 120);
     window.setTimeout(() => setCopied(false), 2200);
   };
 
@@ -503,7 +514,7 @@ export function CouponCampaignPage() {
             )}
 
             {campaign.siteCtaEnabled && campaign.siteUrl && (couponCode || effectiveStatus !== 'available') && (
-              <a href={campaign.siteUrl} target="_blank" rel="noreferrer noopener" onClick={() => track('site_click')} className="w-full min-h-[58px] rounded-xl border border-white/25 mt-3 px-5 text-[14px] font-bold flex items-center justify-center gap-2 no-underline transition-colors hover:bg-white/10" style={{ color: campaign.textColor }}>
+              <a ref={finalCtaRef} href={campaign.siteUrl} target="_blank" rel="noreferrer noopener" onClick={() => track('site_click')} className="w-full min-h-[58px] rounded-xl border border-white/25 mt-3 px-5 text-[14px] font-bold flex items-center justify-center gap-2 no-underline transition-colors hover:bg-white/10 scroll-mt-6" style={{ color: campaign.textColor }}>
                 {campaign.siteCtaText}<ExternalLink className="w-4 h-4" />
               </a>
             )}
