@@ -13,12 +13,14 @@ import { TextosEImagens } from './pages/admin/TextosEImagens';
 import { Visualizacao } from './pages/admin/Visualizacao';
 import { AnalyticsPage } from './pages/admin/Analytics';
 import { MaisVendidos } from './pages/admin/MaisVendidos';
+import { Cupons } from './pages/admin/Cupons';
 import { Configuracoes } from './pages/admin/Configuracoes';
 import { ZhayaMatchHub } from './pages/admin/ZhayaMatchHub';
 import { Biblioteca } from './pages/admin/Biblioteca';
 import { Formularios } from './pages/admin/Formularios';
 import { Preview } from './pages/Preview';
 import { MaisVendidosPage } from './pages/public/MaisVendidosPage';
+import { CouponCampaignPage } from './pages/public/CouponCampaignPage';
 
 export default function App() {
   return (
@@ -30,6 +32,8 @@ export default function App() {
             <Route path="/live/:slug" element={<Navigate to="/mais-vendidos" replace />} />
             <Route path="/mais-vendidos" element={<MaisVendidosPage />} />
             <Route path="/mais-vendidos/:slug" element={<MaisVendidosPage />} />
+            <Route path="/cupom/:slug" element={<CouponCampaignPage />} />
+            <Route path="/cupons/:slug" element={<CouponCampaignPage />} />
 
             {/* 2. Internal / App Routes protected by VisitorLockGuard */}
             <Route
@@ -140,6 +144,18 @@ export default function App() {
                   <ProtectedRoute>
                     <AdminLayout>
                       <MaisVendidos />
+                    </AdminLayout>
+                  </ProtectedRoute>
+                </VisitorLockGuard>
+              }
+            />
+            <Route
+              path="/admin/cupons"
+              element={
+                <VisitorLockGuard>
+                  <ProtectedRoute>
+                    <AdminLayout>
+                      <Cupons />
                     </AdminLayout>
                   </ProtectedRoute>
                 </VisitorLockGuard>

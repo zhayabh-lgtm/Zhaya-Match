@@ -1,0 +1,33 @@
+ZHAYA MATCH — CUPONS / MODO LIVE
+================================
+
+1. Antes de usar no Vercel, abra o SQL Editor do Supabase e execute:
+   ZHAYA_MATCH_CUPONS_SETUP.sql
+
+2. No painel do Zhaya Match, abra "Cupons".
+
+3. Cada campanha gera um link público no formato:
+   /cupom/seu-slug
+
+O módulo inclui:
+- logo customizada;
+- imagem ou vídeo de fundo;
+- cores e textos customizáveis;
+- timer de liberação e encerramento;
+- desbloqueio imediato;
+- desbloqueio após contagem regressiva;
+- desbloqueio por porcentagem assistida de vídeo;
+- código oculto até o desbloqueio;
+- botão para copiar o cupom;
+- CTA para o site;
+- limite opcional de desbloqueios com proteção atômica para live;
+- contador opcional de cupons restantes;
+- analytics: visualizações, visitantes, desbloqueios, cópias e cliques no site;
+- atualização leve da página pública a cada 15 segundos para refletir alterações feitas durante a live.
+
+Observação sobre vídeo:
+A exigência de porcentagem assistida melhora o fluxo de experiência, mas não deve ser tratada como mecanismo antifraude absoluto. Em navegador, qualquer validação baseada em reprodução do lado do cliente pode ser manipulada por um usuário técnico.
+
+Arquitetura Vercel:
+As rotas do módulo foram adicionadas à função consolidada /api/best-sellers usando modos coupon-*.
+Isso evita criar uma Vercel Function extra e preserva a organização pensada para o plano Hobby.

@@ -8,6 +8,7 @@ import analyticsHandler from '../serverless/best-sellers/analytics.js';
 import extensionHandler from '../serverless/best-sellers/extension.js';
 import liveSessionHandler from '../serverless/best-sellers/live-session.js';
 import formsHandler from '../serverless/best-sellers/forms.js';
+import couponsHandler from '../serverless/coupons/index.js';
 
 /**
  * Consolida as rotas de Mais Vendidos em uma única Vercel Function.
@@ -16,6 +17,10 @@ import formsHandler from '../serverless/best-sellers/forms.js';
 export default async function handler(req: any, res: any) {
   const url = new URL(req.url || '/', `http://${req.headers?.host || 'localhost'}`);
   const mode = String(req.query?.mode || url.searchParams.get('mode') || '');
+
+  if (mode.startsWith('coupon-')) {
+    return couponsHandler(req, res);
+  }
 
   switch (mode) {
     case 'admin-lists':
