@@ -41,22 +41,19 @@ function formatCountdownMs(targetMs: number | null | undefined): string {
   // ceil preserva o segundo atual e evita que 10s virem 9s imediatamente.
   const total = Math.max(0, Math.ceil(diff / 1000));
 
-  const days = Math.floor(total / 86400);
-  const hours = Math.floor((total % 86400) / 3600);
+  const totalHours = Math.floor(total / 3600);
   const minutes = Math.floor((total % 3600) / 60);
   const seconds = total % 60;
 
-  // A leitura muda conforme o tempo restante. Enquanto há horas, segundos não
-  // poluem a mensagem; abaixo de 1 minuto, a contagem passa a ser em segundos.
-  if (days > 0) {
-    const dayText = pluralUnit(days, 'dia', 'dias');
-    return hours > 0 ? `${dayText} e ${pluralUnit(hours, 'hora', 'horas')}` : dayText;
+  // A partir de 1 hora, usa a leitura compacta para manter o timer curto
+  // mesmo quando a duração passa de 24h: 27h04m09s.
+  if (totalHours > 0) return `${totalHours}h${minutes}m${seconds}s`;
+
+  // Abaixo de 1 hora, mantém leitura natural e segundos sempre visíveis.
+  if (minutes > 0) {
+    return `${pluralUnit(minutes, 'minuto', 'minutos')} e ${pluralUnit(seconds, 'segundo', 'segundos')}`;
   }
-  if (hours > 0) {
-    const hourText = pluralUnit(hours, 'hora', 'horas');
-    return minutes > 0 ? `${hourText} e ${pluralUnit(minutes, 'minuto', 'minutos')}` : hourText;
-  }
-  if (minutes > 0) return pluralUnit(minutes, 'minuto', 'minutos');
+
   return pluralUnit(seconds, 'segundo', 'segundos');
 }
 
