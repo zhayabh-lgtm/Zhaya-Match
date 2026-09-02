@@ -31,15 +31,33 @@ function isDesktopTrackingBlocked(): boolean {
   return true;
 }
 
+function pluralUnit(value: number, singular: string, plural: string): string {
+  return `${value} ${value === 1 ? singular : plural}`;
+}
+
 function formatCountdownMs(targetMs: number | null | undefined): string {
-  if (!targetMs || !Number.isFinite(targetMs)) return '00:00:00';
+  if (!targetMs || !Number.isFinite(targetMs)) return '0 segundos';
   const diff = Math.max(0, targetMs - Date.now());
-  // ceil evita que 10 segundos configurados apareçam imediatamente como 09.
+  // ceil preserva o segundo atual e evita que 10s virem 9s imediatamente.
   const total = Math.max(0, Math.ceil(diff / 1000));
-  const hours = Math.floor(total / 3600);
+
+  const days = Math.floor(total / 86400);
+  const hours = Math.floor((total % 86400) / 3600);
   const minutes = Math.floor((total % 3600) / 60);
   const seconds = total % 60;
-  return `${String(hours).padStart(2, '0')}:${String(minutes).padStart(2, '0')}:${String(seconds).padStart(2, '0')}`;
+
+  // A leitura muda conforme o tempo restante. Enquanto há horas, segundos não
+  // poluem a mensagem; abaixo de 1 minuto, a contagem passa a ser em segundos.
+  if (days > 0) {
+    const dayText = pluralUnit(days, 'dia', 'dias');
+    return hours > 0 ? `${dayText} e ${pluralUnit(hours, 'hora', 'horas')}` : dayText;
+  }
+  if (hours > 0) {
+    const hourText = pluralUnit(hours, 'hora', 'horas');
+    return minutes > 0 ? `${hourText} e ${pluralUnit(minutes, 'minuto', 'minutos')}` : hourText;
+  }
+  if (minutes > 0) return pluralUnit(minutes, 'minuto', 'minutos');
+  return pluralUnit(seconds, 'segundo', 'segundos');
 }
 
 function getEvergreenTimerEndMs(campaignId: string, durationMinutes: number, nowMs: number): number {
@@ -94,9 +112,9 @@ function CouponTimer({ label, targetMs, color }: { label: string; targetMs: numb
     return () => window.clearInterval(id);
   }, [targetMs]);
   return (
-    <div className="text-center py-3" style={{ color }}>
-      <div className="text-[10px] uppercase tracking-[0.34em] font-bold opacity-55 mb-2">{label}</div>
-      <div className="text-[clamp(2.2rem,11vw,4rem)] leading-none font-black tracking-[-0.055em] tabular-nums">{value}</div>
+    <div className="text-center py-2" style={{ color }}>
+      <div className="text-[10px] uppercase tracking-[0.30em] font-bold opacity-55 leading-none mb-1">{label}</div>
+      <div className="text-[clamp(1.85rem,8.5vw,3.35rem)] leading-[0.98] font-black tracking-[-0.045em]">{value}</div>
     </div>
   );
 }
@@ -117,10 +135,13 @@ export function CouponCampaignPage() {
   const [videoActive, setVideoActive] = useState(false);
   const [videoProgress, setVideoProgress] = useState(0);
   const [videoStartedTracked, setVideoStartedTracked] = useState(false);
+  const [unlockAttention, setUnlockAttention] = useState(false);
+  const [finalCtaAttention, setFinalCtaAttention] = useState(false);
   const revealingRef = useRef(false);
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const pageViewTrackedRef = useRef(false);
   const finalCtaRef = useRef<HTMLAnchorElement | null>(null);
+  const attentionTimeoutsRef = useRef<number[]>([]);
 
   const track = useCallback((eventType: string, extra: Record<string, any> = {}) => {
     if (!campaign?.id || desktopTrackingBlocked) return;
@@ -177,8 +198,16 @@ export function CouponCampaignPage() {
     setVideoActive(false);
     setVideoProgress(0);
     setVideoStartedTracked(false);
+    setUnlockAttention(false);
+    setFinalCtaAttention(false);
+    attentionTimeoutsRef.current.forEach((id) => window.clearTimeout(id));
+    attentionTimeoutsRef.current = [];
     revealingRef.current = false;
   }, [slug]);
+
+  useEffect(() => () => {
+    attentionTimeoutsRef.current.forEach((id) => window.clearTimeout(id));
+  }, []);
 
   useEffect(() => {
     if (!campaign?.id || pageViewTrackedRef.current) return;
@@ -298,6 +327,19 @@ export function CouponCampaignPage() {
     return 'available';
   }, [campaign, nowMs]);
 
+  // Dois segundos depois de entrar, chama a atenção uma única vez para o CTA
+  // primário. A animação é curta, suave e não entra em loop.
+  useEffect(() => {
+    if (!campaign?.id || couponCode || localUnlockAtMs || videoActive || effectiveStatus !== 'available') return;
+    const startId = window.setTimeout(() => {
+      setUnlockAttention(true);
+      const stopId = window.setTimeout(() => setUnlockAttention(false), 760);
+      attentionTimeoutsRef.current.push(stopId);
+    }, 2000);
+    attentionTimeoutsRef.current.push(startId);
+    return () => window.clearTimeout(startId);
+  }, [campaign?.id, couponCode, effectiveStatus, localUnlockAtMs, videoActive]);
+
   const handleUnlock = async () => {
     if (!campaign?.id || effectiveStatus !== 'available' || actionLoading) return;
     setActionLoading(true);
@@ -368,14 +410,27 @@ export function CouponCampaignPage() {
     // Depois de copiar, leva a pessoa direto para a ação final da campanha.
     // O pequeno atraso garante que o navegador conclua o feedback visual de
     // "copiado" antes de iniciar a navegação suave pela página.
-    window.setTimeout(() => {
+    const scrollId = window.setTimeout(() => {
       if (finalCtaRef.current) {
         finalCtaRef.current.scrollIntoView({ behavior: 'smooth', block: 'center' });
+        // Dá tempo para o scroll suave praticamente terminar e então destaca o
+        // próximo passo com uma única pulsada discreta.
+        const pulseId = window.setTimeout(() => {
+          setFinalCtaAttention(false);
+          window.requestAnimationFrame(() => {
+            setFinalCtaAttention(true);
+            const stopId = window.setTimeout(() => setFinalCtaAttention(false), 720);
+            attentionTimeoutsRef.current.push(stopId);
+          });
+        }, 520);
+        attentionTimeoutsRef.current.push(pulseId);
         return;
       }
       window.scrollTo({ top: document.documentElement.scrollHeight, behavior: 'smooth' });
     }, 120);
-    window.setTimeout(() => setCopied(false), 2200);
+    attentionTimeoutsRef.current.push(scrollId);
+    const copiedId = window.setTimeout(() => setCopied(false), 2200);
+    attentionTimeoutsRef.current.push(copiedId);
   };
 
   if (loading) return <div className="min-h-screen bg-black text-white flex items-center justify-center"><Loader2 className="w-7 h-7 animate-spin opacity-70" /></div>;
@@ -474,7 +529,7 @@ export function CouponCampaignPage() {
             {!couponCode && canUnlock && !localUnlockAtMs && !videoActive && (
               <>
                 {availabilityText && <div className="mb-2 text-[10px] sm:text-[11px] font-bold uppercase tracking-[0.14em] opacity-65" style={{ color: campaign.accentColor }}>{availabilityText}</div>}
-                <button type="button" onClick={handleUnlock} disabled={actionLoading} className="w-full min-h-[62px] rounded-xl px-5 text-[15px] font-black uppercase tracking-[0.04em] flex items-center justify-center gap-2 transition-transform active:scale-[0.99] disabled:opacity-60 cursor-pointer" style={{ backgroundColor: campaign.buttonBackgroundColor, color: campaign.buttonTextColor }}>
+                <button type="button" onClick={handleUnlock} disabled={actionLoading} className={`w-full min-h-[62px] rounded-xl px-5 text-[15px] font-black uppercase tracking-[0.04em] flex items-center justify-center gap-2 transition-transform active:scale-[0.99] disabled:opacity-60 cursor-pointer ${unlockAttention ? 'zhaya-coupon-soft-nudge' : ''}`} style={{ backgroundColor: campaign.buttonBackgroundColor, color: campaign.buttonTextColor }}>
                   {actionLoading ? <Loader2 className="w-5 h-5 animate-spin" /> : <LockKeyhole className="w-5 h-5" />}{campaign.unlockButtonText}
                 </button>
               </>
@@ -514,7 +569,7 @@ export function CouponCampaignPage() {
             )}
 
             {campaign.siteCtaEnabled && campaign.siteUrl && (couponCode || effectiveStatus !== 'available') && (
-              <a ref={finalCtaRef} href={campaign.siteUrl} target="_blank" rel="noreferrer noopener" onClick={() => track('site_click')} className="w-full min-h-[58px] rounded-xl border border-white/25 mt-3 px-5 text-[14px] font-bold flex items-center justify-center gap-2 no-underline transition-colors hover:bg-white/10 scroll-mt-6" style={{ color: campaign.textColor }}>
+              <a ref={finalCtaRef} href={campaign.siteUrl} target="_blank" rel="noreferrer noopener" onClick={() => track('site_click')} className={`w-full min-h-[58px] rounded-xl border border-white/25 mt-3 px-5 text-[14px] font-bold flex items-center justify-center gap-2 no-underline transition-colors hover:bg-white/10 scroll-mt-6 ${finalCtaAttention ? 'zhaya-coupon-soft-pulse' : ''}`} style={{ color: campaign.textColor }}>
                 {campaign.siteCtaText}<ExternalLink className="w-4 h-4" />
               </a>
             )}
