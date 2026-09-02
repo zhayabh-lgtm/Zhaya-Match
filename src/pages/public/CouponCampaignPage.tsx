@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { Check, Clipboard, ExternalLink, Gift, Loader2, LockKeyhole, RotateCcw } from 'lucide-react';
 import { useParams } from 'react-router-dom';
 import type { PublicCouponCampaign } from '../../types/coupon';
@@ -103,15 +103,53 @@ async function postCoupon(mode: string, body: any) {
 
 function CouponTimer({ label, targetMs, color }: { label: string; targetMs: number; color: string }) {
   const [value, setValue] = useState(() => formatCountdownMs(targetMs));
+  const valueRef = useRef<HTMLDivElement | null>(null);
+
   useEffect(() => {
     setValue(formatCountdownMs(targetMs));
     const id = window.setInterval(() => setValue(formatCountdownMs(targetMs)), 250);
     return () => window.clearInterval(id);
   }, [targetMs]);
+
+  // O timer nunca quebra de linha. Em vez disso, recalcula a fonte para usar
+  // o maior tamanho possível dentro da largura disponível. Isso mantém
+  // "4 minutos e 24 segundos" em uma única linha inclusive em telas menores.
+  useLayoutEffect(() => {
+    const element = valueRef.current;
+    const container = element?.parentElement;
+    if (!element || !container) return;
+
+    const maxFontPx = 53.6; // 3.35rem no tamanho-base padrão.
+    const minFontPx = 12;
+    const fit = () => {
+      element.style.fontSize = `${maxFontPx}px`;
+      const available = Math.max(1, container.clientWidth - 2);
+      const required = Math.max(1, element.scrollWidth);
+      const fitted = Math.max(minFontPx, Math.min(maxFontPx, maxFontPx * (available / required)));
+      element.style.fontSize = `${fitted}px`;
+    };
+
+    fit();
+    if (typeof ResizeObserver !== 'undefined') {
+      const observer = new ResizeObserver(fit);
+      observer.observe(container);
+      return () => observer.disconnect();
+    }
+
+    window.addEventListener('resize', fit);
+    return () => window.removeEventListener('resize', fit);
+  }, [value]);
+
   return (
-    <div className="text-center py-2" style={{ color }}>
+    <div className="text-center py-2 w-full min-w-0" style={{ color }}>
       <div className="text-[10px] uppercase tracking-[0.30em] font-bold opacity-55 leading-none mb-1">{label}</div>
-      <div className="text-[clamp(1.85rem,8.5vw,3.35rem)] leading-[0.98] font-black tracking-[-0.045em]">{value}</div>
+      <div
+        ref={valueRef}
+        className="w-full whitespace-nowrap leading-[0.98] font-black tracking-[-0.045em] tabular-nums"
+        style={{ fontSize: '53.6px' }}
+      >
+        {value}
+      </div>
     </div>
   );
 }
